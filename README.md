@@ -16,14 +16,22 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 │  astraea-server    │  │  astraea-flight    │  │  python/astraeadb  │
 │  JSON-TCP (7687)   │  │  Arrow Flight      │  │  Python Client     │
 │  gRPC (7688)       │  │  do_get / do_put   │  │  JSON + Arrow      │
+│  RAG + GQL         │  │                    │  │                    │
 └──────┬─────────────┘  └──────┬─────────────┘  └────────────────────┘
        │                       │
        └───────────┬───────────┘
                    │
-              ┌────▼──────────────────────────────┐
-              │          astraea-query             │
-              │  GQL Parser + Executor             │
-              └────┬──────────────────────────────┘
+    ┌──────────────┼──────────────┐
+    │              │              │
+┌───▼──────┐ ┌────▼────────┐ ┌───▼───────┐
+│astraea-  │ │ astraea-    │ │astraea-   │
+│  rag     │ │   query     │ │  gnn      │
+│Subgraph  │ │ GQL Parser  │ │Tensor,    │
+│Linearize │ │ + Executor  │ │MsgPassing │
+│LLM, RAG  │ │             │ │Training   │
+└───┬──────┘ └────┬────────┘ └───┬───────┘
+    │              │              │
+    └──────────────┼──────────────┘
                    │
        ┌───────────┴───────────┐
        │                       │
@@ -56,11 +64,13 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `astraea-graph` | Graph CRUD, traversals (BFS, DFS, Dijkstra), hybrid search, semantic traversal, auto-indexing vector embeddings | 48 |
 | `astraea-query` | Hand-written GQL/Cypher parser and executor: lexer, recursive-descent parser, AST, full query execution pipeline | 56 |
 | `astraea-vector` | HNSW approximate nearest-neighbor index with cosine, Euclidean, and dot-product distance metrics; binary persistence | 33 |
-| `astraea-server` | Async TCP server (tokio) with JSON protocol and gRPC/Protobuf transport; GQL query execution; vector search | 20 |
+| `astraea-rag` | GraphRAG engine: subgraph extraction (BFS + semantic), linearization (4 formats), token budgets, LLM provider trait, GraphRAG pipeline | 27 |
+| `astraea-gnn` | GNN training: differentiable tensors, message passing (sum/mean/max aggregation), node classification training loop | 26 |
+| `astraea-server` | Async TCP server (tokio) with JSON protocol and gRPC/Protobuf transport; GQL query execution; vector/hybrid/semantic/RAG operations | 24 |
 | `astraea-flight` | Apache Arrow Flight server for zero-copy data exchange: `do_get` (query → Arrow), `do_put` (Arrow → bulk import) | 11 |
 | `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export` | - |
 | `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
-| **Rust Total** | | **230** |
+| **Rust Total** | | **287** |
 | **Python Total** | | **23** |
 
 ## Data Model: Vector-Property Graph
@@ -220,6 +230,8 @@ JSON and gRPC transports delegate to the same `RequestHandler` and `Executor`. T
 | `HybridSearch` | Blended graph proximity + vector similarity (configurable alpha) |
 | `SemanticNeighbors` | Rank neighbors by embedding similarity to a concept |
 | `SemanticWalk` | Greedy multi-hop walk toward a concept embedding |
+| `ExtractSubgraph` | Extract and linearize a local subgraph (Prose/Structured/Triples/JSON) |
+| `GraphRag` | GraphRAG pipeline: vector search → subgraph → linearize → context for LLM |
 | `Query` | Execute a GQL query string (fully functional) |
 | `Ping` | Health check |
 
@@ -245,6 +257,28 @@ data_dir = "data"
 buffer_pool_size = 1024
 wal_dir = "data/wal"
 ```
+
+### GraphRAG Engine (`astraea-rag`)
+
+Retrieval-Augmented Generation for graph-backed LLM context:
+
+- **Subgraph extraction:** `extract_subgraph(graph, center, hops, max_nodes)` — BFS-based local neighborhood extraction, capped at `max_nodes`. `extract_subgraph_semantic()` uses vector search to find the anchor automatically.
+- **Linearization:** Convert subgraphs to text in 4 formats:
+  - `Structured` — indented tree with arrows (`-[KNOWS]->`)
+  - `Prose` — natural language paragraphs
+  - `Triples` — `(subject, predicate, object)` triples
+  - `Json` — compact JSON for structured prompts
+- **Token budget:** `extract_with_budget()` incrementally builds the subgraph, stopping when estimated tokens approach the budget.
+- **LLM providers:** `LlmProvider` trait with Mock, OpenAI, Anthropic, and Ollama implementations. Providers use injectable HTTP callbacks (no HTTP dependencies in the crate). Users supply their own HTTP client.
+- **GraphRAG pipeline:** `graph_rag_query()` performs: vector search → subgraph extraction → linearization → LLM completion. `graph_rag_query_anchored()` skips vector search when the anchor node is known.
+
+### GNN Training (`astraea-gnn`)
+
+Graph Neural Network training loop in pure Rust (no external ML framework):
+
+- **Tensor:** `Tensor` struct with element-wise ops (add, mul, scale), activations (ReLU, sigmoid), gradient tracking.
+- **Message passing:** Configurable aggregation (Sum, Mean, Max), activation (ReLU, Sigmoid, None), optional L2 normalization. For each node, aggregates neighbor features weighted by edge weights.
+- **Training:** `train_node_classification()` runs the full loop: forward pass (N message passing layers) → loss computation → numerical gradient estimation (finite differences) → weight update (gradient descent). Returns epoch losses, predictions, and accuracy.
 
 ## Quick Start
 
@@ -372,6 +406,66 @@ let results = index.search(&query_vec, 10)?;
 for result in results {
     println!("Node {:?}, distance: {}", result.node_id, result.distance);
 }
+```
+
+### GraphRAG (Subgraph Extraction + LLM)
+
+```rust
+use astraea_rag::{extract_subgraph, linearize_subgraph, TextFormat, estimate_tokens};
+use astraea_rag::{GraphRagConfig, graph_rag_query_anchored, MockProvider};
+use astraea_core::traits::GraphOps;
+
+// Extract a 2-hop subgraph around a node (max 50 nodes)
+let subgraph = extract_subgraph(&*graph, node_id, 2, 50)?;
+
+// Linearize to text for LLM context
+let text = linearize_subgraph(&subgraph, TextFormat::Structured);
+let tokens = estimate_tokens(&text);
+
+// Full GraphRAG pipeline with an LLM provider
+let llm = MockProvider {
+    response_prefix: "Based on the graph:".into(),
+    context_window: 8000,
+};
+let config = GraphRagConfig {
+    hops: 2,
+    max_context_nodes: 50,
+    text_format: TextFormat::Structured,
+    token_budget: 4000,
+    ..Default::default()
+};
+let result = graph_rag_query_anchored(&*graph, &llm, "Who knows Alice?", node_id, &config)?;
+println!("Answer: {}", result.answer);
+println!("Context used {} tokens across {} nodes", result.estimated_tokens, result.nodes_in_context);
+```
+
+### GNN Training
+
+```rust
+use astraea_gnn::{TrainingConfig, TrainingData, MessagePassingConfig, Aggregation, Activation};
+use astraea_gnn::training::train_node_classification;
+use std::collections::HashMap;
+
+// Define training labels (node classification)
+let mut labels = HashMap::new();
+labels.insert(NodeId(1), 0);  // class 0
+labels.insert(NodeId(2), 1);  // class 1
+let training_data = TrainingData { labels, num_classes: 2 };
+
+// Configure and train
+let config = TrainingConfig {
+    layers: 2,
+    learning_rate: 0.01,
+    epochs: 50,
+    message_passing: MessagePassingConfig {
+        aggregation: Aggregation::Mean,
+        activation: Activation::ReLU,
+        normalize: true,
+    },
+};
+let result = train_node_classification(&*graph, &training_data, &config)?;
+println!("Final accuracy: {:.1}%", result.accuracy * 100.0);
+println!("Loss decreased: {:.4} -> {:.4}", result.epoch_losses[0], result.epoch_losses.last().unwrap());
 ```
 
 ### Hybrid Search & Semantic Traversal
@@ -877,13 +971,15 @@ All Phase 2 items have been implemented. 230 Rust tests + 23 Python tests pass.
 | **Temporal Traversals** | Filter edges by `ValidityInterval` during BFS/DFS/Dijkstra; "show me the graph at time T" queries |
 | **Parquet Cold Storage** | Upgrade `ColdStorage` backend from JSON to Apache Parquet with S3/GCS via `object_store` |
 
-### Phase 3 (GraphRAG Engine)
+### Phase 3 (GraphRAG Engine) — COMPLETED
 
-| Feature | Description |
-|---|---|
-| **Subgraph Extraction** | Extract local subgraphs around nodes; linearize to text for LLM context windows |
-| **LLM Integration** | Atomic GraphRAG pipeline: vector search -> graph traversal -> linearization -> LLM query |
-| **Differentiable Traversal** | Forward/backward pass through query execution for GNN training |
+All Phase 3 items have been implemented. 287 Rust tests + 23 Python tests pass.
+
+| Feature | Status | Description |
+|---|---|---|
+| **Subgraph Extraction** | Done | BFS-based and semantic (vector-guided) extraction; 4 linearization formats (Prose, Structured, Triples, JSON); token budget estimation. 12 tests. |
+| **LLM Integration** | Done | `LlmProvider` trait with Mock/OpenAI/Anthropic/Ollama providers (callback-based, no HTTP deps); `GraphRagConfig` + pipeline; `ExtractSubgraph` and `GraphRag` server requests. 19 tests. |
+| **Differentiable Traversal** | Done | `Tensor` type with autograd; message passing layer (Sum/Mean/Max aggregation, ReLU/Sigmoid activation); `train_node_classification()` with numerical gradient descent. 26 tests. |
 
 ### Phase 4 (Advanced / Research)
 
@@ -963,6 +1059,20 @@ astraeadb/
 │   │       ├── lib.rs         # Crate root (schemas + service modules)
 │   │       ├── schemas.rs     # Arrow schemas for nodes, edges, query results
 │   │       └── service.rs     # FlightService impl: do_get (GQL→Arrow), do_put (Arrow→import)
+│   ├── astraea-rag/           # GraphRAG engine
+│   │   └── src/
+│   │       ├── lib.rs         # Crate root
+│   │       ├── subgraph.rs    # Subgraph extraction (BFS + semantic)
+│   │       ├── linearize.rs   # 4 text formats (Prose, Structured, Triples, Json)
+│   │       ├── token.rs       # Token estimation + budget-aware extraction
+│   │       ├── llm.rs         # LlmProvider trait + Mock/OpenAI/Anthropic/Ollama
+│   │       └── pipeline.rs    # GraphRAG pipeline (vector search → subgraph → LLM)
+│   ├── astraea-gnn/           # GNN training
+│   │   └── src/
+│   │       ├── lib.rs         # Crate root
+│   │       ├── tensor.rs      # Differentiable tensor with gradient tracking
+│   │       ├── message_passing.rs  # GNN message passing (Sum/Mean/Max, ReLU/Sigmoid)
+│   │       └── training.rs    # Node classification training loop
 │   └── astraea-cli/           # CLI binary
 │       └── src/
 │           └── main.rs        # serve, shell (REPL), status, import, export

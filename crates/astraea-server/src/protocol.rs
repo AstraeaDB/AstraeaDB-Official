@@ -100,6 +100,30 @@ pub enum Request {
     },
     /// Execute a GQL query string.
     Query { gql: String },
+    /// Extract a subgraph around a node and linearize it.
+    ExtractSubgraph {
+        center: u64,
+        #[serde(default = "default_max_depth")]
+        hops: usize,
+        #[serde(default = "default_max_context_nodes")]
+        max_nodes: usize,
+        #[serde(default = "default_text_format")]
+        format: String,
+    },
+    /// Execute a GraphRAG query (requires LLM provider configuration).
+    GraphRag {
+        question: String,
+        #[serde(default)]
+        question_embedding: Option<Vec<f32>>,
+        #[serde(default)]
+        anchor: Option<u64>,
+        #[serde(default = "default_max_depth")]
+        hops: usize,
+        #[serde(default = "default_max_context_nodes")]
+        max_nodes: usize,
+        #[serde(default = "default_text_format")]
+        format: String,
+    },
     /// Server status / health check.
     Ping,
 }
@@ -152,6 +176,14 @@ fn default_alpha() -> f32 {
 
 fn default_direction() -> String {
     "outgoing".to_string()
+}
+
+fn default_max_context_nodes() -> usize {
+    50
+}
+
+fn default_text_format() -> String {
+    "structured".to_string()
 }
 
 #[cfg(test)]

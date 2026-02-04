@@ -926,7 +926,11 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 
 ## 3. Phase 3 Gaps (GraphRAG Engine)
 
+> **All 3 Phase 3 items are now COMPLETED.** 287 Rust tests + 23 Python tests pass. See individual items below for implementation details.
+
 ### 3.1 Subgraph Extraction & Linearization
+
+**Status:** COMPLETED
 
 **Priority:** Critical for Phase 3.
 
@@ -978,9 +982,18 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - Linearize to text in multiple formats.
 - Token budget prevents context window overflow.
 
+**What was implemented:**
+- Created new `astraea-rag` crate at `crates/astraea-rag/`.
+- **`subgraph.rs`**: `Subgraph` struct with `center`, `nodes`, `edges`. `extract_subgraph()` using BFS with `max_nodes` cap. `extract_subgraph_semantic()` using vector search to find anchor, then BFS extraction.
+- **`linearize.rs`**: `TextFormat` enum (Prose, Structured, Triples, Json). `linearize_subgraph()` converts Subgraph to text in any format. Helper functions: `node_display_name()`, `format_properties()`.
+- **`token.rs`**: `estimate_tokens()` (4 chars per token approximation). `extract_with_budget()` incrementally builds subgraph, stopping when token estimate exceeds budget.
+- 12 tests: basic extraction, max_nodes cap, edge inclusion, all 4 linearization formats, token estimation, budget-aware extraction, semantic extraction, empty subgraph, single hop.
+
 ---
 
 ### 3.2 LLM Integration
+
+**Status:** COMPLETED
 
 **Priority:** High for Phase 3 — depends on item 3.1.
 
@@ -1053,9 +1066,27 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - Configurable LLM provider (OpenAI, Anthropic, local).
 - Context is bounded by the LLM's token window.
 
+**What was implemented:**
+- **`llm.rs`**: `LlmProvider` trait with `complete()`, `context_window_tokens()`, `name()`. `LlmConfig` and `ProviderType` (OpenAi, Anthropic, Ollama, Mock). Four providers:
+  - `MockProvider` — returns canned response with prompt/context info (for testing).
+  - `OpenAiProvider` — configurable with injectable HTTP callback (`with_http_fn()`), formats OpenAI-compatible requests.
+  - `AnthropicProvider` — same pattern, formats Anthropic Messages API requests.
+  - `OllamaProvider` — same pattern, default endpoint `http://localhost:11434`.
+  - No external HTTP dependencies — providers accept callback functions for API calls.
+- **`pipeline.rs`**: `GraphRagConfig` (hops, max_context_nodes, text_format, token_budget, system_prompt). `GraphRagResult` (answer, anchor_node_id, context_text, nodes_in_context, estimated_tokens). Two entry points:
+  - `graph_rag_query()` — vector search → subgraph extraction → linearization → LLM call.
+  - `graph_rag_query_anchored()` — skips vector search when anchor is known.
+  - `build_prompt()` helper assembles system prompt + context + question.
+- Added `ExtractSubgraph` and `GraphRag` request types to `astraea-server` protocol.
+- Added handler implementations: `ExtractSubgraph` returns linearized text with metadata; `GraphRag` finds anchor (via provided ID or vector search), extracts subgraph, returns context for LLM use.
+- Added `astraea-rag` as dependency of `astraea-server`.
+- 15 new RAG tests (llm providers, pipeline, prompt building) + 4 new server tests (extract_subgraph, graph_rag with anchor/embedding/error).
+
 ---
 
 ### 3.3 Differentiable Traversal / GNN Training Loop
+
+**Status:** COMPLETED
 
 **Priority:** Low (research feature) — depends on items 2.1 and 2.2.
 
@@ -1102,6 +1133,18 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - Edge weights can be updated via gradient descent.
 - A basic GNN can be trained entirely within the database.
 - No external Python/PyTorch dependency required (pure Rust ML stack).
+
+**What was implemented:**
+- Created new `astraea-gnn` crate at `crates/astraea-gnn/`.
+- **`tensor.rs`**: `Tensor` struct with `data: Vec<f32>`, `grad: RefCell<Option<Vec<f32>>>`, `requires_grad: bool`. Operations: `add()`, `mul()`, `scale()`, `dot()`, `sum()`, `relu()`, `sigmoid()`, `norm()`, `mean()`. Gradient tracking: `set_grad()`, `grad()`, `zero_grad()`.
+- **`message_passing.rs`**: `MessagePassingConfig` with `Aggregation` (Sum, Mean, Max) and `Activation` (ReLU, Sigmoid, None). `message_passing()` aggregates neighbor features weighted by edge weights, applies activation and optional L2 normalization.
+- **`training.rs`**: `TrainingConfig` (layers, learning_rate, epochs). `TrainingData` (node labels, num_classes). `TrainingResult` (epoch_losses, final_predictions, accuracy). `train_node_classification()` implements the full training loop:
+  - Forward pass: extracts features from node embeddings, runs N message passing layers.
+  - Loss computation: MSE-based loss against one-hot class targets.
+  - Backward pass: numerical gradient computation via finite differences on edge weights.
+  - Weight update: gradient descent on edge weights.
+  - Pure Rust, no external ML framework dependencies.
+- 26 tests: tensor operations (add, mul, scale, dot, relu, sigmoid, norm, grad), message passing (sum, mean, relu, normalize, edge weights, isolated nodes), training (loss decrease, predictions, config, single epoch, argmax, empty labels error, loss correctness).
 
 ---
 
@@ -1458,9 +1501,9 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 | 2.3 | Vector Server Integration | High | 2 | **DONE** | — |
 | 2.4 | Arrow Zero-Copy IPC | Medium | 2 | **DONE** | 1.1 |
 | 2.5 | Python Client (Arrow) | Medium | 2 | **DONE** | 2.4 |
-| 3.1 | Subgraph Extraction | Critical | 3 | Not started | — |
-| 3.2 | LLM Integration | High | 3 | Not started | 3.1 |
-| 3.3 | Differentiable Traversal | Low | 3 | Not started | 2.1 |
+| 3.1 | Subgraph Extraction | Critical | 3 | **DONE** | — |
+| 3.2 | LLM Integration | High | 3 | **DONE** | 3.1 |
+| 3.3 | Differentiable Traversal | Low | 3 | **DONE** | 2.1 |
 | 4.1 | Temporal Queries | Medium | R | Not started | — |
 | 4.2 | Homomorphic Encryption | Low | R | Not started | — |
 | 4.3 | GPU Acceleration | Low | R | Not started | — |

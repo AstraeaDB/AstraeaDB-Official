@@ -8,6 +8,8 @@ members = [
     "crates/astraea-server",
     "crates/astraea-flight",
     "crates/astraea-cli",
+    "crates/astraea-rag",
+    "crates/astraea-gnn",
 ]
 resolver = "3"
 
@@ -24,6 +26,8 @@ astraea-graph = { path = "crates/astraea-graph" }
 astraea-query = { path = "crates/astraea-query" }
 astraea-vector = { path = "crates/astraea-vector" }
 astraea-server = { path = "crates/astraea-server" }
+astraea-gnn = { path = "crates/astraea-gnn" }
+astraea-rag = { path = "crates/astraea-rag" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

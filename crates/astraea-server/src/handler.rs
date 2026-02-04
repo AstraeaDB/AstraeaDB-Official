@@ -292,11 +292,98 @@ impl RequestHandler {
                 }
             }
 
+            Request::ExtractSubgraph {
+                center,
+                hops,
+                max_nodes,
+                format,
+            } => {
+                let text_format = parse_text_format(&format);
+                match astraea_rag::extract_subgraph(
+                    &*self.graph,
+                    NodeId(center),
+                    hops,
+                    max_nodes,
+                ) {
+                    Ok(subgraph) => {
+                        let text = astraea_rag::linearize_subgraph(&subgraph, text_format);
+                        let tokens = astraea_rag::estimate_tokens(&text);
+                        Response::ok(serde_json::json!({
+                            "text": text,
+                            "nodes_count": subgraph.nodes.len(),
+                            "edges_count": subgraph.edges.len(),
+                            "estimated_tokens": tokens,
+                        }))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::GraphRag {
+                question,
+                question_embedding,
+                anchor,
+                hops,
+                max_nodes,
+                format,
+            } => {
+                let text_format = parse_text_format(&format);
+
+                let center = if let Some(a) = anchor {
+                    NodeId(a)
+                } else if let Some(emb) = &question_embedding {
+                    match &self.vector_index {
+                        Some(vi) => match vi.search(emb, 1) {
+                            Ok(results) if !results.is_empty() => results[0].node_id,
+                            Ok(_) => return Response::error("no matching nodes found"),
+                            Err(e) => return Response::error(e.to_string()),
+                        },
+                        None => {
+                            return Response::error(
+                                "vector index not configured and no anchor provided",
+                            )
+                        }
+                    }
+                } else {
+                    return Response::error(
+                        "either anchor or question_embedding must be provided",
+                    );
+                };
+
+                match astraea_rag::extract_subgraph(&*self.graph, center, hops, max_nodes) {
+                    Ok(subgraph) => {
+                        let context =
+                            astraea_rag::linearize_subgraph(&subgraph, text_format);
+                        let tokens = astraea_rag::estimate_tokens(&context);
+                        Response::ok(serde_json::json!({
+                            "anchor_node_id": center.0,
+                            "context": context,
+                            "question": question,
+                            "nodes_in_context": subgraph.nodes.len(),
+                            "edges_in_context": subgraph.edges.len(),
+                            "estimated_tokens": tokens,
+                            "note": "LLM completion requires server-side provider configuration. Use the context with your own LLM."
+                        }))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
             Request::Ping => Response::ok(serde_json::json!({
                 "pong": true,
                 "version": env!("CARGO_PKG_VERSION"),
             })),
         }
+    }
+}
+
+/// Parse a text format string into a `TextFormat` enum value.
+fn parse_text_format(s: &str) -> astraea_rag::TextFormat {
+    match s.to_lowercase().as_str() {
+        "prose" => astraea_rag::TextFormat::Prose,
+        "triples" => astraea_rag::TextFormat::Triples,
+        "json" => astraea_rag::TextFormat::Json,
+        _ => astraea_rag::TextFormat::Structured,
     }
 }
 
@@ -527,6 +614,157 @@ mod tests {
                 assert!(path.last().unwrap().get("distance").is_some());
             }
             Response::Error { message } => panic!("expected Ok, got Error: {message}"),
+        }
+    }
+
+    // ---- GraphRAG handler tests ----
+
+    /// Helper: create a handler with a graph suitable for GraphRAG tests.
+    /// Creates: Alice -[KNOWS]-> Bob -[WORKS_AT]-> Acme
+    fn handler_with_rag_graph() -> RequestHandler {
+        let storage = InMemoryStorage::new();
+        let vector_index: Arc<dyn VectorIndex> =
+            Arc::new(HnswVectorIndex::new(3, DistanceMetric::Euclidean));
+        let graph = Graph::with_vector_index(Box::new(storage), Arc::clone(&vector_index));
+        let handler = RequestHandler::new(Arc::new(graph), Some(Arc::clone(&vector_index)));
+
+        // Create nodes with embeddings.
+        handler.handle(Request::CreateNode {
+            labels: vec!["Person".into()],
+            properties: serde_json::json!({"name": "Alice"}),
+            embedding: Some(vec![1.0, 0.0, 0.0]),
+        }); // id=1
+        handler.handle(Request::CreateNode {
+            labels: vec!["Person".into()],
+            properties: serde_json::json!({"name": "Bob"}),
+            embedding: Some(vec![0.0, 1.0, 0.0]),
+        }); // id=2
+        handler.handle(Request::CreateNode {
+            labels: vec!["Company".into()],
+            properties: serde_json::json!({"name": "Acme"}),
+            embedding: Some(vec![0.0, 0.0, 1.0]),
+        }); // id=3
+
+        handler.handle(Request::CreateEdge {
+            source: 1,
+            target: 2,
+            edge_type: "KNOWS".into(),
+            properties: serde_json::json!({"since": 2020}),
+            weight: 1.0,
+            valid_from: None,
+            valid_to: None,
+        });
+        handler.handle(Request::CreateEdge {
+            source: 2,
+            target: 3,
+            edge_type: "WORKS_AT".into(),
+            properties: serde_json::json!({}),
+            weight: 1.0,
+            valid_from: None,
+            valid_to: None,
+        });
+
+        handler
+    }
+
+    #[test]
+    fn test_extract_subgraph_handler() {
+        let handler = handler_with_rag_graph();
+
+        let resp = handler.handle(Request::ExtractSubgraph {
+            center: 1,
+            hops: 2,
+            max_nodes: 50,
+            format: "structured".into(),
+        });
+
+        match resp {
+            Response::Ok { data } => {
+                assert!(data.get("text").unwrap().as_str().unwrap().contains("Alice"));
+                let nodes_count = data.get("nodes_count").unwrap().as_u64().unwrap();
+                assert!(nodes_count >= 2, "expected at least 2 nodes, got {nodes_count}");
+                let edges_count = data.get("edges_count").unwrap().as_u64().unwrap();
+                assert!(edges_count >= 1, "expected at least 1 edge, got {edges_count}");
+                assert!(data.get("estimated_tokens").unwrap().as_u64().unwrap() > 0);
+            }
+            Response::Error { message } => panic!("expected Ok, got Error: {message}"),
+        }
+    }
+
+    #[test]
+    fn test_graph_rag_handler_with_anchor() {
+        let handler = handler_with_rag_graph();
+
+        let resp = handler.handle(Request::GraphRag {
+            question: "Who does Alice know?".into(),
+            question_embedding: None,
+            anchor: Some(1),
+            hops: 2,
+            max_nodes: 50,
+            format: "structured".into(),
+        });
+
+        match resp {
+            Response::Ok { data } => {
+                assert_eq!(data.get("anchor_node_id").unwrap().as_u64().unwrap(), 1);
+                let context = data.get("context").unwrap().as_str().unwrap();
+                assert!(context.contains("Alice"));
+                assert_eq!(
+                    data.get("question").unwrap().as_str().unwrap(),
+                    "Who does Alice know?"
+                );
+                assert!(data.get("nodes_in_context").unwrap().as_u64().unwrap() > 0);
+                assert!(data.get("edges_in_context").unwrap().as_u64().unwrap() > 0);
+                assert!(data.get("estimated_tokens").unwrap().as_u64().unwrap() > 0);
+                assert!(data.get("note").is_some());
+            }
+            Response::Error { message } => panic!("expected Ok, got Error: {message}"),
+        }
+    }
+
+    #[test]
+    fn test_graph_rag_handler_with_embedding() {
+        let handler = handler_with_rag_graph();
+
+        // Query with embedding close to Alice [1,0,0]
+        let resp = handler.handle(Request::GraphRag {
+            question: "Tell me about Alice".into(),
+            question_embedding: Some(vec![1.0, 0.0, 0.0]),
+            anchor: None,
+            hops: 2,
+            max_nodes: 50,
+            format: "structured".into(),
+        });
+
+        match resp {
+            Response::Ok { data } => {
+                // Should anchor on node 1 (Alice, closest to [1,0,0]).
+                assert_eq!(data.get("anchor_node_id").unwrap().as_u64().unwrap(), 1);
+                let context = data.get("context").unwrap().as_str().unwrap();
+                assert!(context.contains("Alice"));
+            }
+            Response::Error { message } => panic!("expected Ok, got Error: {message}"),
+        }
+    }
+
+    #[test]
+    fn test_graph_rag_handler_no_anchor_no_embedding() {
+        let handler = handler_with_rag_graph();
+
+        let resp = handler.handle(Request::GraphRag {
+            question: "Some question".into(),
+            question_embedding: None,
+            anchor: None,
+            hops: 2,
+            max_nodes: 50,
+            format: "structured".into(),
+        });
+
+        match resp {
+            Response::Error { message } => {
+                assert_eq!(message, "either anchor or question_embedding must be provided");
+            }
+            Response::Ok { .. } => panic!("expected Error, got Ok"),
         }
     }
 

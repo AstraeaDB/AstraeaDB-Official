@@ -390,6 +390,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "astraea-gnn"
+version = "0.1.0"
+dependencies = [
+ "astraea-core",
+ "astraea-graph",
+ "astraea-vector",
+ "rand 0.8.5",
+ "serde_json",
+]
+
+[[package]]
 name = "astraea-graph"
 version = "0.1.0"
 dependencies = [
@@ -423,12 +434,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "astraea-rag"
+version = "0.1.0"
+dependencies = [
+ "astraea-core",
+ "astraea-graph",
+ "astraea-vector",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "astraea-server"
 version = "0.1.0"
 dependencies = [
  "astraea-core",
  "astraea-graph",
  "astraea-query",
+ "astraea-rag",
  "astraea-storage",
  "astraea-vector",
  "prost 0.13.5",
