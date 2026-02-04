@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AstraeaDB Wiki</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a2e;
+  --sidebar-bg: #16213e;
+  --sidebar-fg: #e0e0e0;
+  --sidebar-hover: #0f3460;
+  --sidebar-active: #e94560;
+  --code-bg: #1e1e2e;
+  --code-fg: #cdd6f4;
+  --border: #e0e0e0;
+  --accent: #0f3460;
+  --accent-light: #e8eef6;
+  --table-stripe: #f8f9fa;
+  --kw: #cba6f7;
+  --str: #a6e3a1;
+  --num: #fab387;
+  --comment: #6c7086;
+  --fn: #89b4fa;
+  --type: #f9e2af;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; color: var(--fg); background: var(--bg); line-height: 1.7; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: 0; left: 0; width: 280px; height: 100vh;
+  background: var(--sidebar-bg); color: var(--sidebar-fg);
+  overflow-y: auto; z-index: 100; padding: 20px 0;
+  transition: transform 0.3s;
+}
+.sidebar h1 { font-size: 1.3em; padding: 0 20px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 10px; }
+.sidebar h1 span { color: var(--sidebar-active); }
+.sidebar nav a {
+  display: block; padding: 6px 20px; color: var(--sidebar-fg);
+  font-size: 0.88em; text-decoration: none; border-left: 3px solid transparent;
+}
+.sidebar nav a:hover { background: var(--sidebar-hover); border-left-color: var(--sidebar-active); text-decoration: none; }
+.sidebar nav a.sub { padding-left: 36px; font-size: 0.82em; opacity: 0.8; }
+.sidebar nav .sep { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 20px; }
+
+/* Main content */
+.main { margin-left: 280px; padding: 40px 50px 80px; max-width: 960px; }
+.main h2 { font-size: 1.8em; margin: 50px 0 15px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); color: var(--accent); }
+.main h2:first-child { margin-top: 0; }
+.main h3 { font-size: 1.3em; margin: 30px 0 10px; color: #333; }
+.main h4 { font-size: 1.05em; margin: 20px 0 8px; }
+.main p { margin: 10px 0; }
+.main ul, .main ol { margin: 10px 0 10px 25px; }
+.main li { margin: 4px 0; }
+
+/* Code blocks */
+pre {
+  background: var(--code-bg); color: var(--code-fg); padding: 16px 20px;
+  border-radius: 6px; overflow-x: auto; font-size: 0.88em;
+  margin: 12px 0; line-height: 1.5; font-family: "SF Mono", "Fira Code", Consolas, monospace;
+}
+code {
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.9em;
+}
+p code, li code, td code {
+  background: var(--accent-light); padding: 1px 5px; border-radius: 3px;
+  color: var(--accent); font-size: 0.88em;
+}
+.kw { color: var(--kw); }
+.str { color: var(--str); }
+.num { color: var(--num); }
+.cm { color: var(--comment); font-style: italic; }
+.fn { color: var(--fn); }
+.ty { color: var(--type); }
+
+/* Tables */
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+th, td { padding: 10px 14px; text-align: left; border: 1px solid var(--border); }
+th { background: var(--accent); color: white; font-weight: 600; }
+tr:nth-child(even) { background: var(--table-stripe); }
+td code { font-size: 0.85em; }
+
+/* Info boxes */
+.info { background: #e8f4fd; border-left: 4px solid #2196F3; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+.warn { background: #fff8e1; border-left: 4px solid #ff9800; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+.tip { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+
+/* Badges */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.78em; font-weight: 600; }
+.badge-green { background: #c8e6c9; color: #2e7d32; }
+.badge-blue { background: #bbdefb; color: #1565c0; }
+.badge-orange { background: #ffe0b2; color: #e65100; }
+
+/* Mobile menu */
+.menu-toggle { display: none; position: fixed; top: 12px; left: 12px; z-index: 200; background: var(--sidebar-bg); color: white; border: none; padding: 8px 12px; border-radius: 4px; font-size: 1.2em; cursor: pointer; }
+
+@media (max-width: 800px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; padding: 60px 20px 60px; }
+  .menu-toggle { display: block; }
+}
+
+/* Diagram */
+.diagram { background: var(--code-bg); color: var(--code-fg); padding: 20px; border-radius: 6px; overflow-x: auto; font-family: "SF Mono", Consolas, monospace; font-size: 0.82em; white-space: pre; margin: 12px 0; line-height: 1.4; }
+</style>
+</head>
+<body>
+
+<button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">&#9776;</button>
+
+<aside class="sidebar">
+<h1><span>Astraea</span>DB Wiki</h1>
+<nav>
+<a href="#introduction">Introduction</a>
+<a href="#getting-started">Getting Started</a>
+<a href="#architecture">Architecture</a>
+<a href="#data-model">Data Model</a>
+<div class="sep"></div>
+<a href="#storage-engine">Storage Engine</a>
+<a href="#graph-operations">Graph Operations</a>
+<a href="#temporal-queries">Temporal Queries</a>
+<a href="#vector-search">Vector Search (HNSW)</a>
+<a href="#hybrid-semantic">Hybrid &amp; Semantic Search</a>
+<a href="#gql">GQL Query Language</a>
+<div class="sep"></div>
+<a href="#graphrag">GraphRAG Engine</a>
+<a href="#gnn">GNN Training</a>
+<a href="#algorithms">Graph Algorithms</a>
+<div class="sep"></div>
+<a href="#server">Network Server</a>
+<a href="#auth">Authentication &amp; RBAC</a>
+<a href="#observability">Observability</a>
+<a href="#connections">Connection Management</a>
+<div class="sep"></div>
+<a href="#encryption">Encryption</a>
+<a href="#gpu">GPU Acceleration</a>
+<a href="#clustering">Clustering &amp; Sharding</a>
+<div class="sep"></div>
+<a href="#cli">CLI Reference</a>
+<a href="#python-client">Python Client</a>
+<a href="#r-client">R Client</a>
+<div class="sep"></div>
+<a href="#cybersecurity-demo">Cybersecurity Demo</a>
+<a href="#api-reference">API Reference</a>
+</nav>
+</aside>
+
+<main class="main">
+
+<!-- ============================================================ -->
+<h2 id="introduction">Introduction</h2>
+
+<p><strong>AstraeaDB</strong> is a cloud-native, AI-first graph database written in <strong>Rust</strong>. It combines a <strong>Vector-Property Graph</strong> model with an <strong>HNSW vector index</strong>, enabling both structural graph traversals and semantic similarity search in a single system.</p>
+
+<h3>Key Differentiators</h3>
+<ul>
+<li><strong>Unified Data Model</strong> &mdash; Nodes carry labels, JSON properties, and optional float32 embeddings. Edges carry types, weights, and temporal validity intervals.</li>
+<li><strong>Hybrid Search</strong> &mdash; Blend graph proximity and vector similarity with a configurable alpha parameter.</li>
+<li><strong>Semantic Traversal</strong> &mdash; Navigate the graph by meaning: find neighbors most similar to an abstract concept.</li>
+<li><strong>Temporal Queries</strong> &mdash; Travel through time: query the graph as it existed at any point in time.</li>
+<li><strong>GraphRAG</strong> &mdash; Extract subgraphs, linearize to text, and feed to an LLM in one atomic operation.</li>
+<li><strong>GQL Support</strong> &mdash; Hand-written ISO GQL / Cypher parser and executor.</li>
+<li><strong>Three Transport Layers</strong> &mdash; JSON-over-TCP, gRPC/Protobuf, and Apache Arrow Flight.</li>
+<li><strong>Pure Rust</strong> &mdash; Zero garbage-collection pauses, memory safety, 408 tests across 14 crates.</li>
+</ul>
+
+<h3>Project Stats</h3>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Rust Crates</td><td>14</td></tr>
+<tr><td>Rust Tests</td><td>408</td></tr>
+<tr><td>Python Tests</td><td>23</td></tr>
+<tr><td>Rust Edition</td><td>2024</td></tr>
+<tr><td>License</td><td>MIT</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="getting-started">Getting Started</h2>
+
+<h3>Build</h3>
+<pre>cargo build --workspace</pre>
+
+<h3>Run Tests</h3>
+<pre>cargo test --workspace</pre>
+
+<h3>Start the Server</h3>
+<pre>cargo run -p astraea-cli -- serve</pre>
+<p>This starts the TCP server on port <code>7687</code>, gRPC on <code>7688</code>, and Arrow Flight on <code>7689</code>.</p>
+
+<h3>Connect with the Shell</h3>
+<pre>cargo run -p astraea-cli -- shell</pre>
+<p>The interactive shell supports both GQL queries and raw JSON requests:</p>
+<pre><span class="cm"># GQL queries</span>
+astraea&gt; CREATE (a:Person {name: "Alice", age: 30})
+Nodes created: 1
+
+astraea&gt; MATCH (a:Person) WHERE a.age &gt; 25 RETURN a.name, a.age
++-------+------+
+| a.name| a.age|
++-------+------+
+| Alice | 30   |
++-------+------+
+
+<span class="cm"># Dot-commands</span>
+astraea&gt; .status
+astraea&gt; .help
+astraea&gt; .quit</pre>
+
+<h3>Check Server Status</h3>
+<pre>cargo run -p astraea-cli -- status</pre>
+
+<!-- ============================================================ -->
+<h2 id="architecture">Architecture</h2>
+
+<div class="diagram">                    +---------------------------------+
+                    |         astraea-cli              |
+                    |   serve | shell | import | export|
+                    +---------------+-----------------+
+                                    |
+          +-------------------------+-------------------------+
+          |                         |                         |
++---------v----------+  +-----------v--------+  +------------v-------+
+|  astraea-server    |  |  astraea-flight    |  |  python/astraeadb  |
+|  JSON-TCP (7687)   |  |  Arrow Flight      |  |  Python Client     |
+|  gRPC (7688)       |  |  do_get / do_put   |  |  JSON + Arrow      |
+|  Auth, Metrics     |  |                    |  |                    |
+|  Connection Mgmt   |  |                    |  |                    |
++---------+----------+  +-----------+--------+  +--------------------+
+          |                         |
+          +------------+------------+
+                       |
+    +------------------+------------------+-------------------+
+    |                  |                  |                   |
++---v------+  +--------v--------+  +-----v-------+  +-------v----------+
+| astraea- |  |  astraea-query  |  | astraea-gnn |  | astraea-         |
+|   rag    |  |  GQL Parser     |  | Tensor,     |  |  algorithms      |
+| Subgraph |  |  + Executor     |  | MsgPassing  |  | PageRank,        |
+| LLM, RAG |  |                 |  | Training    |  | Louvain, etc.    |
++---+------+  +--------+--------+  +-----+-------+  +-------+----------+
+    |                  |                  |                   |
+    +------------------+------------------+-------------------+
+                       |
+          +------------+------------+
+          |                         |
++---------v---------+  +------------v--------+
+|  astraea-graph    |  |  astraea-vector     |
+|  CRUD, BFS, DFS   |  |  HNSW Index         |
+|  Hybrid Search    |  |  ANN Search         |
+|  Temporal Queries |  |  Persistence        |
++---------+---------+  +---------------------+
+          |
++---------v-----------------------------------+
+|          astraea-storage                    |
+|  Pages &rarr; Buffer Pool &rarr; Pointer Swizzle    |
+|  MVCC, WAL, PageIO, Cold Storage           |
++---------+-----------------------------------+
+          |
++---------v-----------------------------------+
+|          astraea-core                       |
+|  Types, Traits, Errors                      |
++---------+-----------------------------------+
+          |
+    +-----+-------+----------------+
+    |             |                |
++---v--------+ +--v-----------+ +--v--------------+
+| astraea-   | | astraea-gpu  | | astraea-cluster |
+|  crypto    | | CSR Matrix,  | | Partitioning,   |
+| Encrypted  | | CPU Backend  | | Sharding,       |
+| Labels,FHE | | PageRank/BFS | | Coordination    |
++------------+ +--------------+ +-----------------+</div>
+
+<h3>Crate Overview</h3>
+<table>
+<tr><th>Crate</th><th>Purpose</th><th>Tests</th></tr>
+<tr><td><code>astraea-core</code></td><td>Types (<code>Node</code>, <code>Edge</code>, <code>NodeId</code>), traits (<code>StorageEngine</code>, <code>GraphOps</code>, <code>VectorIndex</code>, <code>TransactionalEngine</code>), errors</td><td>4</td></tr>
+<tr><td><code>astraea-storage</code></td><td>8 KiB pages, LRU buffer pool, pointer swizzling, MVCC, WAL, label index, cold storage, PageIO</td><td>58</td></tr>
+<tr><td><code>astraea-graph</code></td><td>CRUD, BFS, DFS, Dijkstra, temporal queries, hybrid search, semantic traversal</td><td>55</td></tr>
+<tr><td><code>astraea-query</code></td><td>GQL lexer, recursive-descent parser, full query executor</td><td>56</td></tr>
+<tr><td><code>astraea-vector</code></td><td>HNSW index, cosine/Euclidean/dot-product, binary persistence</td><td>33</td></tr>
+<tr><td><code>astraea-rag</code></td><td>Subgraph extraction, linearization (4 formats), LLM providers, GraphRAG pipeline</td><td>27</td></tr>
+<tr><td><code>astraea-gnn</code></td><td>Differentiable tensors, message passing, node classification training</td><td>26</td></tr>
+<tr><td><code>astraea-server</code></td><td>TCP/gRPC server, auth (RBAC), metrics (Prometheus), connection management</td><td>52</td></tr>
+<tr><td><code>astraea-flight</code></td><td>Arrow Flight: <code>do_get</code> (query &rarr; Arrow), <code>do_put</code> (Arrow &rarr; import)</td><td>11</td></tr>
+<tr><td><code>astraea-algorithms</code></td><td>PageRank, connected/strongly-connected components, centrality, Louvain</td><td>20</td></tr>
+<tr><td><code>astraea-crypto</code></td><td>Encrypted labels/values/nodes, server-side encrypted label matching</td><td>31</td></tr>
+<tr><td><code>astraea-gpu</code></td><td>CSR matrix, GpuBackend trait, CpuBackend (PageRank, BFS, SSSP)</td><td>16</td></tr>
+<tr><td><code>astraea-cluster</code></td><td>Hash/range partitioning, shard management, cluster coordinator</td><td>19</td></tr>
+<tr><td><code>astraea-cli</code></td><td><code>serve</code>, <code>shell</code>, <code>status</code>, <code>import</code>, <code>export</code></td><td>&mdash;</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="data-model">Data Model</h2>
+
+<p>AstraeaDB uses a <strong>Vector-Property Graph</strong> model that unifies property graphs with vector embeddings.</p>
+
+<h3>Node</h3>
+<p>A node has an ID, a set of labels, arbitrary JSON properties, and an optional embedding vector.</p>
+<pre><span class="kw">pub struct</span> <span class="ty">Node</span> {
+    <span class="kw">pub</span> id: <span class="ty">NodeId</span>,
+    <span class="kw">pub</span> labels: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt;,
+    <span class="kw">pub</span> properties: serde_json::<span class="ty">Value</span>,
+    <span class="kw">pub</span> embedding: <span class="ty">Option</span>&lt;<span class="ty">Vec</span>&lt;<span class="ty">f32</span>&gt;&gt;, <span class="cm">// optional dense vector</span>
+}</pre>
+
+<h3>Edge</h3>
+<p>An edge connects two nodes with a type, JSON properties, a learnable weight, and a temporal validity interval.</p>
+<pre><span class="kw">pub struct</span> <span class="ty">Edge</span> {
+    <span class="kw">pub</span> id: <span class="ty">EdgeId</span>,
+    <span class="kw">pub</span> source: <span class="ty">NodeId</span>,
+    <span class="kw">pub</span> target: <span class="ty">NodeId</span>,
+    <span class="kw">pub</span> edge_type: <span class="ty">String</span>,
+    <span class="kw">pub</span> properties: serde_json::<span class="ty">Value</span>,
+    <span class="kw">pub</span> weight: <span class="ty">f64</span>,                   <span class="cm">// learnable weight for GNN</span>
+    <span class="kw">pub</span> validity: <span class="ty">ValidityInterval</span>,    <span class="cm">// temporal bounds</span>
+}</pre>
+
+<h3>ValidityInterval</h3>
+<p>Represents when an edge is valid. Uses epoch milliseconds with inclusive start and exclusive end.</p>
+<pre><span class="kw">pub struct</span> <span class="ty">ValidityInterval</span> {
+    <span class="kw">pub</span> valid_from: <span class="ty">Option</span>&lt;<span class="ty">i64</span>&gt;,  <span class="cm">// inclusive, None = unbounded</span>
+    <span class="kw">pub</span> valid_to: <span class="ty">Option</span>&lt;<span class="ty">i64</span>&gt;,    <span class="cm">// exclusive, None = still valid</span>
+}
+
+<span class="cm">// Check if an edge is valid at a given time</span>
+<span class="kw">let</span> valid = edge.validity.<span class="fn">contains</span>(<span class="num">1704067200000</span>); <span class="cm">// 2024-01-01</span></pre>
+
+<h3>GraphPath</h3>
+<p>Represents a path through the graph as a start node followed by (edge, node) steps.</p>
+<pre><span class="kw">pub struct</span> <span class="ty">GraphPath</span> {
+    <span class="kw">pub</span> start: <span class="ty">NodeId</span>,
+    <span class="kw">pub</span> steps: <span class="ty">Vec</span>&lt;(<span class="ty">EdgeId</span>, <span class="ty">NodeId</span>)&gt;,
+}</pre>
+
+<h3>ID Types</h3>
+<table>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>NodeId(u64)</code></td><td>Unique node identifier</td></tr>
+<tr><td><code>EdgeId(u64)</code></td><td>Unique edge identifier</td></tr>
+<tr><td><code>PageId(u64)</code></td><td>Storage page identifier</td></tr>
+<tr><td><code>TransactionId(u64)</code></td><td>MVCC transaction identifier</td></tr>
+<tr><td><code>Lsn(u64)</code></td><td>Write-ahead log sequence number</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="storage-engine">Storage Engine</h2>
+
+<p>AstraeaDB uses a three-tier storage architecture optimized for graph workloads.</p>
+
+<h3>Tier 1: Cold Storage</h3>
+<p>Data at rest on disk or object storage. The <code>ColdStorage</code> trait provides a pluggable backend interface. The current implementation uses <code>JsonFileColdStorage</code> for local files. Parquet/S3 backends are planned.</p>
+<pre><span class="kw">pub trait</span> <span class="ty">ColdStorage</span>: <span class="ty">Send</span> + <span class="ty">Sync</span> {
+    <span class="kw">fn</span> <span class="fn">read_partition</span>(&amp;<span class="kw">self</span>, key: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Result</span>&lt;<span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt;&gt;;
+    <span class="kw">fn</span> <span class="fn">write_partition</span>(&amp;<span class="kw">self</span>, key: &amp;<span class="ty">str</span>, data: &amp;[<span class="ty">u8</span>]) -&gt; <span class="ty">Result</span>&lt;()&gt;;
+    <span class="kw">fn</span> <span class="fn">delete_partition</span>(&amp;<span class="kw">self</span>, key: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Result</span>&lt;()&gt;;
+    <span class="kw">fn</span> <span class="fn">list_partitions</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Result</span>&lt;<span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt;&gt;;
+}</pre>
+
+<h3>Tier 2: Warm (Buffer Pool)</h3>
+<p>An LRU buffer pool caches frequently accessed 8 KiB pages in memory with pin/unpin semantics. The <code>PageIO</code> trait abstracts disk I/O, supporting pluggable backends (memmap2 by default; io_uring planned for Linux).</p>
+
+<h3>Tier 3: Hot (Pointer Swizzling)</h3>
+<p>Frequently-accessed pages are promoted to permanently-pinned status, preventing eviction and enabling zero-copy access. When a page's access count exceeds a configurable threshold, it is "swizzled" into the hot tier.</p>
+
+<h3>Page Format</h3>
+<pre>+----------------------------------+
+| PageHeader (17 bytes)            |
+|   page_id, type, record_count,  |
+|   free_space_offset, checksum   |
++----------------------------------+
+| Record 0: NodeRecordHeader       |
+|   node_id, data_len, adj_offset |
+|   + serialized properties       |
++----------------------------------+
+| Record 1: ...                    |
++----------------------------------+
+|         (free space)             |
++----------------------------------+
+         8192 bytes total</pre>
+
+<h3>MVCC Transactions</h3>
+<p>Snapshot isolation with first-writer-wins conflict detection. The <code>TransactionalEngine</code> trait provides transactional access:</p>
+<ul>
+<li><code>begin_transaction()</code> &mdash; start a new transaction with a snapshot LSN</li>
+<li><code>put_node_tx(node, txn_id)</code> / <code>put_edge_tx(edge, txn_id)</code> &mdash; buffer writes</li>
+<li><code>commit_transaction(txn_id)</code> &mdash; atomically apply buffered writes</li>
+<li><code>abort_transaction(txn_id)</code> &mdash; discard all buffered writes</li>
+</ul>
+
+<h3>Write-Ahead Log (WAL)</h3>
+<p>Every mutation is logged before being applied. Records use a <code>[length][type][JSON payload][CRC32]</code> frame format. Supports <code>BeginTransaction</code>, <code>CommitTransaction</code>, and <code>AbortTransaction</code> records for crash recovery.</p>
+
+<h3>Label Index</h3>
+<p>A <code>HashMap&lt;String, HashSet&lt;NodeId&gt;&gt;</code> for O(1) label-based lookups, automatically maintained on <code>put_node()</code> and <code>delete_node()</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="graph-operations">Graph Operations</h2>
+
+<p>The <code>GraphOps</code> trait defines all graph-level operations. It is implemented by the <code>Graph</code> struct on top of any <code>StorageEngine</code>.</p>
+
+<h3>CRUD Operations</h3>
+<pre><span class="kw">use</span> astraea_graph::<span class="ty">Graph</span>;
+<span class="kw">use</span> astraea_core::traits::<span class="ty">GraphOps</span>;
+
+<span class="cm">// Create nodes</span>
+<span class="kw">let</span> alice = graph.<span class="fn">create_node</span>(
+    <span class="kw">vec!</span>[<span class="str">"Person"</span>.into()],
+    json!({<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"age"</span>: <span class="num">30</span>}),
+    <span class="ty">None</span>,  <span class="cm">// no embedding</span>
+)?;
+
+<span class="cm">// Create an edge (always valid)</span>
+graph.<span class="fn">create_edge</span>(alice, bob, <span class="str">"KNOWS"</span>.into(), json!({}), <span class="num">1.0</span>, <span class="ty">None</span>, <span class="ty">None</span>)?;
+
+<span class="cm">// Read</span>
+<span class="kw">let</span> node = graph.<span class="fn">get_node</span>(alice)?;
+<span class="kw">let</span> edge = graph.<span class="fn">get_edge</span>(edge_id)?;
+
+<span class="cm">// Update (merge semantics)</span>
+graph.<span class="fn">update_node</span>(alice, json!({<span class="str">"title"</span>: <span class="str">"Engineer"</span>}))?;
+
+<span class="cm">// Delete (node deletion cascades to edges)</span>
+graph.<span class="fn">delete_node</span>(alice)?;</pre>
+
+<h3>Traversals</h3>
+<table>
+<tr><th>Method</th><th>Algorithm</th><th>Description</th></tr>
+<tr><td><code>bfs(start, max_depth)</code></td><td>BFS</td><td>Returns <code>Vec&lt;(NodeId, depth)&gt;</code></td></tr>
+<tr><td><code>dfs(start, max_depth)</code></td><td>DFS</td><td>Returns <code>Vec&lt;NodeId&gt;</code> in DFS order</td></tr>
+<tr><td><code>shortest_path(from, to)</code></td><td>BFS</td><td>Unweighted shortest path</td></tr>
+<tr><td><code>shortest_path_weighted(from, to)</code></td><td>Dijkstra</td><td>Weighted shortest path using edge weights</td></tr>
+</table>
+
+<h3>Neighbor Queries</h3>
+<pre><span class="kw">use</span> astraea_core::types::<span class="ty">Direction</span>;
+
+<span class="cm">// All outgoing neighbors</span>
+<span class="kw">let</span> neighbors = graph.<span class="fn">neighbors</span>(alice, <span class="ty">Direction</span>::Outgoing)?;
+
+<span class="cm">// Filtered by edge type</span>
+<span class="kw">let</span> friends = graph.<span class="fn">neighbors_filtered</span>(alice, <span class="ty">Direction</span>::Both, <span class="str">"KNOWS"</span>)?;
+
+<span class="cm">// Find nodes by label (O(1) via label index)</span>
+<span class="kw">let</span> people = graph.<span class="fn">find_by_label</span>(<span class="str">"Person"</span>)?;</pre>
+
+<!-- ============================================================ -->
+<h2 id="temporal-queries">Temporal Queries</h2>
+
+<p>Edges have a <code>ValidityInterval</code> that defines when they exist. Temporal query methods filter edges by a given timestamp, allowing you to query the graph as it existed at any point in time.</p>
+
+<h3>Creating Temporal Edges</h3>
+<pre><span class="cm">// DHCP lease valid from 08:00 to 10:00 UTC on Jan 15, 2025</span>
+graph.<span class="fn">create_edge</span>(
+    ip_node, laptop_node,
+    <span class="str">"DHCP_LEASE"</span>.into(),
+    json!({<span class="str">"dhcp_server"</span>: <span class="str">"10.0.0.1"</span>}),
+    <span class="num">1.0</span>,
+    <span class="ty">Some</span>(<span class="num">1736928000000</span>),  <span class="cm">// valid_from</span>
+    <span class="ty">Some</span>(<span class="num">1736935200000</span>),  <span class="cm">// valid_to</span>
+)?;</pre>
+
+<h3>Temporal Traversal Methods</h3>
+<table>
+<tr><th>Method</th><th>Description</th></tr>
+<tr><td><code>neighbors_at(node, direction, timestamp)</code></td><td>Neighbors via edges valid at the timestamp</td></tr>
+<tr><td><code>bfs_at(start, max_depth, timestamp)</code></td><td>BFS traversal only following valid edges</td></tr>
+<tr><td><code>shortest_path_at(from, to, timestamp)</code></td><td>Unweighted shortest path at a point in time</td></tr>
+<tr><td><code>shortest_path_weighted_at(from, to, timestamp)</code></td><td>Dijkstra with temporal filtering</td></tr>
+</table>
+
+<h3>Server Requests</h3>
+<pre><span class="cm">// Neighbors at a specific time</span>
+{<span class="str">"type"</span>: <span class="str">"NeighborsAt"</span>, <span class="str">"id"</span>: <span class="num">42</span>, <span class="str">"direction"</span>: <span class="str">"outgoing"</span>, <span class="str">"timestamp"</span>: <span class="num">1736929800000</span>}
+
+<span class="cm">// BFS at a specific time</span>
+{<span class="str">"type"</span>: <span class="str">"BfsAt"</span>, <span class="str">"start"</span>: <span class="num">42</span>, <span class="str">"max_depth"</span>: <span class="num">3</span>, <span class="str">"timestamp"</span>: <span class="num">1736929800000</span>}
+
+<span class="cm">// Shortest path at a specific time</span>
+{<span class="str">"type"</span>: <span class="str">"ShortestPathAt"</span>, <span class="str">"from"</span>: <span class="num">1</span>, <span class="str">"to"</span>: <span class="num">5</span>, <span class="str">"timestamp"</span>: <span class="num">1736929800000</span>, <span class="str">"weighted"</span>: <span class="kw">false</span>}</pre>
+
+<!-- ============================================================ -->
+<h2 id="vector-search">Vector Search (HNSW)</h2>
+
+<p>AstraeaDB includes a full implementation of the Hierarchical Navigable Small World (HNSW) algorithm for approximate nearest-neighbor search.</p>
+
+<h3>Configuration</h3>
+<table>
+<tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>M</code></td><td>16</td><td>Maximum connections per node per layer</td></tr>
+<tr><td><code>ef_construction</code></td><td>200</td><td>Beam width during index construction</td></tr>
+<tr><td><code>ef_search</code></td><td>50</td><td>Beam width during search (accuracy vs speed)</td></tr>
+</table>
+
+<h3>Distance Metrics</h3>
+<table>
+<tr><th>Metric</th><th>Description</th></tr>
+<tr><td><code>Cosine</code></td><td>Cosine similarity (1 - cos&theta;). Best for normalized embeddings.</td></tr>
+<tr><td><code>Euclidean</code></td><td>L2 distance. Best for spatial data.</td></tr>
+<tr><td><code>DotProduct</code></td><td>Negative dot product. Best for maximum inner product search.</td></tr>
+</table>
+
+<h3>Usage</h3>
+<pre><span class="kw">use</span> astraea_vector::<span class="ty">HnswVectorIndex</span>;
+<span class="kw">use</span> astraea_core::types::<span class="ty">DistanceMetric</span>;
+<span class="kw">use</span> astraea_core::traits::<span class="ty">VectorIndex</span>;
+
+<span class="cm">// Create a 128-dimensional index with cosine distance</span>
+<span class="kw">let</span> index = <span class="ty">HnswVectorIndex</span>::<span class="fn">new</span>(<span class="num">128</span>, <span class="ty">DistanceMetric</span>::Cosine);
+
+<span class="cm">// Insert embeddings</span>
+index.<span class="fn">insert</span>(node_id, &amp;embedding_vec)?;
+
+<span class="cm">// Search for k nearest neighbors</span>
+<span class="kw">let</span> results = index.<span class="fn">search</span>(&amp;query_vec, <span class="num">10</span>)?;
+<span class="kw">for</span> r <span class="kw">in</span> &amp;results {
+    <span class="fn">println!</span>(<span class="str">"Node {:?}, distance: {}"</span>, r.node_id, r.distance);
+}</pre>
+
+<h3>Persistence</h3>
+<p>The index can be saved to and loaded from disk using a versioned binary format (magic bytes + bincode):</p>
+<pre><span class="cm">// Save to disk</span>
+index.<span class="fn">save</span>(<span class="str">"index.hnsw"</span>)?;
+
+<span class="cm">// Load from disk (no rebuild needed)</span>
+<span class="kw">let</span> index = <span class="ty">HnswVectorIndex</span>::<span class="fn">load</span>(<span class="str">"index.hnsw"</span>)?;</pre>
+
+<h3>Auto-Indexing</h3>
+<p>When a <code>VectorIndex</code> is attached to a <code>Graph</code>, embeddings are automatically indexed on <code>create_node()</code> and removed on <code>delete_node()</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="hybrid-semantic">Hybrid &amp; Semantic Search</h2>
+
+<h3>Hybrid Search</h3>
+<p>Combines graph proximity with vector similarity using a configurable <code>alpha</code> blending parameter:</p>
+<p><code>final_score = alpha &times; vector_score + (1 - alpha) &times; graph_score</code></p>
+
+<pre>graph.<span class="fn">hybrid_search</span>(
+    anchor_node,       <span class="cm">// starting node for BFS</span>
+    &amp;query_embedding,  <span class="cm">// semantic target</span>
+    <span class="num">3</span>,                 <span class="cm">// max_hops (BFS radius)</span>
+    <span class="num">10</span>,                <span class="cm">// top-k results</span>
+    <span class="num">0.5</span>,               <span class="cm">// alpha: 0.0 = pure graph, 1.0 = pure vector</span>
+)?;</pre>
+
+<h3>Semantic Neighbors</h3>
+<p>Rank a node's neighbors by their embedding similarity to a concept vector:</p>
+<pre><span class="cm">// "Find the neighbor of Alice most similar to the concept of Risk"</span>
+<span class="kw">let</span> ranked = graph.<span class="fn">semantic_neighbors</span>(
+    alice_id,
+    &amp;risk_embedding,
+    <span class="ty">Direction</span>::Outgoing,
+    <span class="num">5</span>,  <span class="cm">// top-k</span>
+)?;</pre>
+
+<h3>Semantic Walk</h3>
+<p>A greedy multi-hop walk that at each step moves to the unvisited neighbor most similar to the concept:</p>
+<pre><span class="cm">// Walk through the graph toward the concept of "Fraud"</span>
+<span class="kw">let</span> path = graph.<span class="fn">semantic_walk</span>(
+    start_node,
+    &amp;fraud_embedding,
+    <span class="num">4</span>,  <span class="cm">// max hops</span>
+)?;
+<span class="cm">// path: Vec&lt;(NodeId, f32)&gt; where f32 is distance to concept</span></pre>
+
+<!-- ============================================================ -->
+<h2 id="gql">GQL Query Language</h2>
+
+<p>AstraeaDB includes a hand-written recursive-descent parser and full query executor for a subset of ISO GQL / Cypher.</p>
+
+<h3>MATCH Queries</h3>
+<pre>MATCH (a:Person)-[:KNOWS]-&gt;(b:Person)
+WHERE a.age &gt; <span class="num">30</span> AND b.name = <span class="str">"Bob"</span>
+RETURN a.name AS person, b.name AS friend
+ORDER BY a.age DESC
+LIMIT <span class="num">10</span></pre>
+
+<h3>CREATE</h3>
+<pre>CREATE (a:Person {name: <span class="str">"Alice"</span>, age: <span class="num">30</span>})
+
+CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span class="num">2020</span>}]-&gt;(b:Person {name: <span class="str">"Bob"</span>})</pre>
+
+<h3>DELETE</h3>
+<pre>MATCH (a:Person) WHERE a.name = <span class="str">"Alice"</span> DELETE a</pre>
+
+<h3>Expression Support</h3>
+<table>
+<tr><th>Category</th><th>Operators / Functions</th></tr>
+<tr><td>Arithmetic</td><td><code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code></td></tr>
+<tr><td>Comparison</td><td><code>=</code>, <code>&lt;&gt;</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td></tr>
+<tr><td>Boolean</td><td><code>AND</code>, <code>OR</code>, <code>NOT</code></td></tr>
+<tr><td>Null checks</td><td><code>IS NULL</code>, <code>IS NOT NULL</code></td></tr>
+<tr><td>Functions</td><td><code>count()</code>, <code>id()</code>, <code>labels()</code>, <code>type()</code>, <code>toString()</code>, <code>toInteger()</code></td></tr>
+<tr><td>Edge directions</td><td><code>-[:TYPE]-&gt;</code> (out), <code>&lt;-[:TYPE]-</code> (in), <code>-[:TYPE]-</code> (both)</td></tr>
+</table>
+
+<h3>Programmatic Usage</h3>
+<pre><span class="kw">use</span> astraea_query::<span class="fn">parse</span>;
+<span class="kw">use</span> astraea_query::executor::<span class="ty">Executor</span>;
+
+<span class="kw">let</span> ast = <span class="fn">parse</span>(<span class="str">"MATCH (a:Person) WHERE a.age &gt; 30 RETURN a.name"</span>)?;
+<span class="kw">let</span> executor = <span class="ty">Executor</span>::<span class="fn">new</span>(graph.clone());
+<span class="kw">let</span> result = executor.<span class="fn">execute</span>(ast)?;
+<span class="cm">// result.columns: ["a.name"]</span>
+<span class="cm">// result.rows: [["Alice"], ...]</span></pre>
+
+<!-- ============================================================ -->
+<h2 id="graphrag">GraphRAG Engine</h2>
+
+<p>Retrieval-Augmented Generation backed by graph context. The pipeline performs: <strong>vector search &rarr; subgraph extraction &rarr; linearization &rarr; LLM completion</strong>.</p>
+
+<h3>Subgraph Extraction</h3>
+<pre><span class="kw">use</span> astraea_rag::{<span class="fn">extract_subgraph</span>, <span class="fn">linearize_subgraph</span>, <span class="ty">TextFormat</span>};
+
+<span class="cm">// BFS 2 hops from a node, max 50 nodes</span>
+<span class="kw">let</span> subgraph = <span class="fn">extract_subgraph</span>(&amp;*graph, node_id, <span class="num">2</span>, <span class="num">50</span>)?;</pre>
+
+<h3>Linearization Formats</h3>
+<table>
+<tr><th>Format</th><th>Description</th><th>Best For</th></tr>
+<tr><td><code>Structured</code></td><td>Indented tree with arrows (<code>-[KNOWS]-&gt;</code>)</td><td>General LLM context</td></tr>
+<tr><td><code>Prose</code></td><td>Natural language paragraphs</td><td>Conversational AI</td></tr>
+<tr><td><code>Triples</code></td><td><code>(subject, predicate, object)</code></td><td>Knowledge extraction</td></tr>
+<tr><td><code>Json</code></td><td>Compact JSON</td><td>Structured prompts</td></tr>
+</table>
+
+<pre><span class="kw">let</span> text = <span class="fn">linearize_subgraph</span>(&amp;subgraph, <span class="ty">TextFormat</span>::Structured);
+<span class="kw">let</span> tokens = <span class="fn">estimate_tokens</span>(&amp;text); <span class="cm">// ~4 chars per token</span></pre>
+
+<h3>LLM Providers</h3>
+<p>The <code>LlmProvider</code> trait supports multiple backends. Providers use injectable HTTP callbacks (no HTTP dependencies in the crate).</p>
+<table>
+<tr><th>Provider</th><th>Description</th></tr>
+<tr><td><code>MockProvider</code></td><td>Returns canned responses (for testing)</td></tr>
+<tr><td><code>OpenAiProvider</code></td><td>OpenAI API compatible endpoints</td></tr>
+<tr><td><code>AnthropicProvider</code></td><td>Anthropic Messages API</td></tr>
+<tr><td><code>OllamaProvider</code></td><td>Local Ollama instance (default: localhost:11434)</td></tr>
+</table>
+
+<h3>Full Pipeline</h3>
+<pre><span class="kw">use</span> astraea_rag::{<span class="ty">GraphRagConfig</span>, <span class="fn">graph_rag_query_anchored</span>, <span class="ty">MockProvider</span>};
+
+<span class="kw">let</span> config = <span class="ty">GraphRagConfig</span> {
+    hops: <span class="num">2</span>,
+    max_context_nodes: <span class="num">50</span>,
+    text_format: <span class="ty">TextFormat</span>::Structured,
+    token_budget: <span class="num">4000</span>,
+    ..<span class="ty">Default</span>::<span class="fn">default</span>()
+};
+
+<span class="kw">let</span> result = <span class="fn">graph_rag_query_anchored</span>(
+    &amp;*graph, &amp;llm, <span class="str">"Who knows Alice?"</span>, node_id, &amp;config
+)?;
+<span class="fn">println!</span>(<span class="str">"Answer: {}"</span>, result.answer);
+<span class="fn">println!</span>(<span class="str">"Context: {} tokens, {} nodes"</span>,
+    result.estimated_tokens, result.nodes_in_context);</pre>
+
+<!-- ============================================================ -->
+<h2 id="gnn">GNN Training</h2>
+
+<p>Graph Neural Network training in pure Rust with no external ML framework.</p>
+
+<h3>Components</h3>
+<ul>
+<li><strong>Tensor</strong> &mdash; Element-wise ops (add, mul, scale), activations (ReLU, sigmoid), gradient tracking.</li>
+<li><strong>Message Passing</strong> &mdash; Aggregates neighbor features weighted by edge weights. Configurable aggregation (Sum, Mean, Max) and activation.</li>
+<li><strong>Training Loop</strong> &mdash; Forward pass (N message passing layers) &rarr; loss computation &rarr; numerical gradient estimation &rarr; weight update.</li>
+</ul>
+
+<h3>Example</h3>
+<pre><span class="kw">use</span> astraea_gnn::{<span class="ty">TrainingConfig</span>, <span class="ty">TrainingData</span>, <span class="ty">MessagePassingConfig</span>};
+<span class="kw">use</span> astraea_gnn::training::<span class="fn">train_node_classification</span>;
+
+<span class="kw">let</span> config = <span class="ty">TrainingConfig</span> {
+    layers: <span class="num">2</span>,
+    learning_rate: <span class="num">0.01</span>,
+    epochs: <span class="num">50</span>,
+    message_passing: <span class="ty">MessagePassingConfig</span> {
+        aggregation: <span class="ty">Aggregation</span>::Mean,
+        activation: <span class="ty">Activation</span>::ReLU,
+        normalize: <span class="kw">true</span>,
+    },
+};
+
+<span class="kw">let</span> result = <span class="fn">train_node_classification</span>(&amp;*graph, &amp;training_data, &amp;config)?;
+<span class="fn">println!</span>(<span class="str">"Accuracy: {:.1}%"</span>, result.accuracy * <span class="num">100.0</span>);</pre>
+
+<!-- ============================================================ -->
+<h2 id="algorithms">Graph Algorithms</h2>
+
+<p>The <code>astraea-algorithms</code> crate provides classical graph algorithms operating on the <code>GraphOps</code> trait.</p>
+
+<table>
+<tr><th>Algorithm</th><th>Function</th><th>Description</th></tr>
+<tr><td>PageRank</td><td><code>pagerank(graph, nodes, config)</code></td><td>Power iteration with dangling node handling. Returns <code>HashMap&lt;NodeId, f64&gt;</code>.</td></tr>
+<tr><td>Connected Components</td><td><code>connected_components(graph, nodes)</code></td><td>Weakly-connected components via BFS with <code>Direction::Both</code>.</td></tr>
+<tr><td>Strongly Connected</td><td><code>strongly_connected_components(graph, nodes)</code></td><td>Iterative Tarjan's algorithm (no stack overflow on large graphs).</td></tr>
+<tr><td>Degree Centrality</td><td><code>degree_centrality(graph, nodes, direction)</code></td><td>Neighbor count normalized by <code>(N-1)</code>.</td></tr>
+<tr><td>Betweenness Centrality</td><td><code>betweenness_centrality(graph, nodes)</code></td><td>Brandes' algorithm with BFS + back-propagation.</td></tr>
+<tr><td>Community Detection</td><td><code>louvain(graph, nodes)</code></td><td>Louvain modularity optimization. Returns <code>HashMap&lt;NodeId, usize&gt;</code> (community IDs).</td></tr>
+</table>
+
+<h3>PageRank Configuration</h3>
+<pre><span class="kw">let</span> config = <span class="ty">PageRankConfig</span> {
+    damping: <span class="num">0.85</span>,           <span class="cm">// damping factor</span>
+    max_iterations: <span class="num">100</span>,     <span class="cm">// convergence limit</span>
+    tolerance: <span class="num">1e-6</span>,         <span class="cm">// L1 norm convergence threshold</span>
+};</pre>
+
+<!-- ============================================================ -->
+<h2 id="server">Network Server</h2>
+
+<p>AstraeaDB provides three transport layers for different use cases.</p>
+
+<h3>Transport Layers</h3>
+<table>
+<tr><th>Transport</th><th>Port</th><th>Format</th><th>Best For</th></tr>
+<tr><td>JSON-over-TCP</td><td>7687</td><td>Newline-delimited JSON</td><td>Debugging, scripting, <code>netcat</code></td></tr>
+<tr><td>gRPC / Protobuf</td><td>7688</td><td>Protocol Buffers</td><td>Production clients, type safety</td></tr>
+<tr><td>Arrow Flight</td><td>7689</td><td>Apache Arrow</td><td>Python/Pandas, bulk operations</td></tr>
+</table>
+
+<h3>Supported Request Types</h3>
+<table>
+<tr><th>Request</th><th>Description</th></tr>
+<tr><td><code>CreateNode</code></td><td>Create a node with labels, properties, optional embedding</td></tr>
+<tr><td><code>CreateEdge</code></td><td>Create an edge between two nodes</td></tr>
+<tr><td><code>GetNode</code> / <code>GetEdge</code></td><td>Retrieve by ID</td></tr>
+<tr><td><code>UpdateNode</code> / <code>UpdateEdge</code></td><td>Merge properties</td></tr>
+<tr><td><code>DeleteNode</code> / <code>DeleteEdge</code></td><td>Delete (node deletion cascades edges)</td></tr>
+<tr><td><code>Neighbors</code></td><td>Get neighbors with direction and edge-type filtering</td></tr>
+<tr><td><code>Bfs</code></td><td>Breadth-first traversal with depth limit</td></tr>
+<tr><td><code>ShortestPath</code></td><td>Unweighted or weighted (Dijkstra)</td></tr>
+<tr><td><code>VectorSearch</code></td><td>k-nearest-neighbor via HNSW index</td></tr>
+<tr><td><code>HybridSearch</code></td><td>Graph + vector blended search</td></tr>
+<tr><td><code>SemanticNeighbors</code></td><td>Rank neighbors by concept similarity</td></tr>
+<tr><td><code>SemanticWalk</code></td><td>Greedy walk toward a concept</td></tr>
+<tr><td><code>NeighborsAt</code></td><td>Temporal neighbors at a timestamp</td></tr>
+<tr><td><code>BfsAt</code></td><td>Temporal BFS at a timestamp</td></tr>
+<tr><td><code>ShortestPathAt</code></td><td>Temporal shortest path at a timestamp</td></tr>
+<tr><td><code>ExtractSubgraph</code></td><td>Extract and linearize a local subgraph</td></tr>
+<tr><td><code>GraphRag</code></td><td>GraphRAG pipeline (search &rarr; subgraph &rarr; LLM)</td></tr>
+<tr><td><code>Query</code></td><td>Execute a GQL query string</td></tr>
+<tr><td><code>Ping</code></td><td>Health check</td></tr>
+</table>
+
+<h3>JSON Protocol Examples</h3>
+<pre><span class="cm">// Create a node with an embedding</span>
+{<span class="str">"type"</span>:<span class="str">"CreateNode"</span>,<span class="str">"labels"</span>:[<span class="str">"Person"</span>],<span class="str">"properties"</span>:{<span class="str">"name"</span>:<span class="str">"Alice"</span>},<span class="str">"embedding"</span>:[<span class="num">0.1</span>,<span class="num">0.2</span>]}
+
+<span class="cm">// Response</span>
+{<span class="str">"status"</span>:<span class="str">"ok"</span>,<span class="str">"data"</span>:{<span class="str">"node_id"</span>:<span class="num">1</span>}}
+
+<span class="cm">// Execute a GQL query</span>
+{<span class="str">"type"</span>:<span class="str">"Query"</span>,<span class="str">"gql"</span>:<span class="str">"MATCH (a:Person) RETURN a.name"</span>}
+
+<span class="cm">// Ping</span>
+{<span class="str">"type"</span>:<span class="str">"Ping"</span>}
+{<span class="str">"status"</span>:<span class="str">"ok"</span>,<span class="str">"data"</span>:{<span class="str">"pong"</span>:<span class="kw">true</span>,<span class="str">"version"</span>:<span class="str">"0.1.0"</span>}}</pre>
+
+<!-- ============================================================ -->
+<h2 id="auth">Authentication &amp; RBAC</h2>
+
+<p>AstraeaDB supports API key authentication with role-based access control.</p>
+
+<h3>Roles</h3>
+<table>
+<tr><th>Role</th><th>Permissions</th></tr>
+<tr><td><code>Admin</code></td><td>Full access to all operations</td></tr>
+<tr><td><code>Writer</code></td><td>Read + write (CRUD, traversals, queries)</td></tr>
+<tr><td><code>Reader</code></td><td>Read-only (get, query, search, traverse, ping)</td></tr>
+</table>
+
+<h3>Authentication Flow</h3>
+<p>Include an <code>auth_token</code> field in JSON requests:</p>
+<pre>{<span class="str">"type"</span>:<span class="str">"CreateNode"</span>,<span class="str">"labels"</span>:[<span class="str">"Person"</span>],<span class="str">"properties"</span>:{},<span class="str">"auth_token"</span>:<span class="str">"my-api-key"</span>}</pre>
+
+<p>If auth is enabled and the token is missing or invalid:</p>
+<pre>{<span class="str">"status"</span>:<span class="str">"error"</span>,<span class="str">"message"</span>:<span class="str">"authentication required: provide auth_token"</span>}</pre>
+
+<h3>Read-Only Operations (accessible by Reader role)</h3>
+<p><code>GetNode</code>, <code>GetEdge</code>, <code>Neighbors</code>, <code>NeighborsAt</code>, <code>Bfs</code>, <code>BfsAt</code>, <code>ShortestPath</code>, <code>ShortestPathAt</code>, <code>VectorSearch</code>, <code>HybridSearch</code>, <code>SemanticNeighbors</code>, <code>SemanticWalk</code>, <code>Query</code>, <code>ExtractSubgraph</code>, <code>GraphRag</code>, <code>Ping</code></p>
+
+<h3>Audit Logging</h3>
+<p>All authenticated requests are logged with timestamp, truncated API key prefix (first 8 chars), role, operation, and whether it was allowed. The audit log is a bounded circular buffer (max 10,000 entries).</p>
+
+<h3>Key Management</h3>
+<pre><span class="kw">let</span> auth = <span class="ty">AuthManager</span>::<span class="fn">new</span>(<span class="kw">vec!</span>[
+    <span class="ty">ApiKeyEntry</span> { key: <span class="str">"admin-key-xxx"</span>.into(), role: <span class="ty">Role</span>::Admin,
+                       description: <span class="str">"Admin key"</span>.into(), active: <span class="kw">true</span> },
+    <span class="ty">ApiKeyEntry</span> { key: <span class="str">"reader-key-xxx"</span>.into(), role: <span class="ty">Role</span>::Reader,
+                       description: <span class="str">"CI key"</span>.into(), active: <span class="kw">true</span> },
+]);
+
+<span class="cm">// Runtime key management</span>
+auth.<span class="fn">add_key</span>(new_entry);
+auth.<span class="fn">revoke_key</span>(<span class="str">"compromised-key"</span>);</pre>
+
+<!-- ============================================================ -->
+<h2 id="observability">Observability</h2>
+
+<h3>Prometheus Metrics</h3>
+<p>The server exposes metrics in Prometheus text exposition format.</p>
+
+<table>
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>astraea_requests_total{type="..."}</code></td><td>counter</td><td>Total requests by operation type</td></tr>
+<tr><td><code>astraea_errors_total{type="..."}</code></td><td>counter</td><td>Total errors by operation type</td></tr>
+<tr><td><code>astraea_request_duration_us{type="...",quantile="0.5|0.9|0.99"}</code></td><td>summary</td><td>Request duration percentiles (microseconds)</td></tr>
+<tr><td><code>astraea_active_connections</code></td><td>gauge</td><td>Currently active TCP connections</td></tr>
+<tr><td><code>astraea_connections_total</code></td><td>counter</td><td>Total connections since startup</td></tr>
+<tr><td><code>astraea_uptime_seconds</code></td><td>gauge</td><td>Server uptime in seconds</td></tr>
+</table>
+
+<h3>Health Check</h3>
+<p>The <code>health()</code> method returns a JSON object:</p>
+<pre>{
+  <span class="str">"status"</span>: <span class="str">"healthy"</span>,
+  <span class="str">"uptime_seconds"</span>: <span class="num">3600</span>,
+  <span class="str">"active_connections"</span>: <span class="num">12</span>,
+  <span class="str">"total_connections"</span>: <span class="num">1543</span>,
+  <span class="str">"start_time"</span>: <span class="num">1704067200</span>
+}</pre>
+
+<!-- ============================================================ -->
+<h2 id="connections">Connection Management</h2>
+
+<h3>Configuration</h3>
+<table>
+<tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>max_connections</code></td><td>1024</td><td>Maximum concurrent TCP connections. New connections beyond this are rejected.</td></tr>
+<tr><td><code>max_concurrent_requests</code></td><td>256</td><td>Request-level backpressure via semaphore.</td></tr>
+<tr><td><code>idle_timeout</code></td><td>300s</td><td>Close connections idle for longer than this.</td></tr>
+<tr><td><code>request_timeout</code></td><td>30s</td><td>Abort requests that take longer than this.</td></tr>
+<tr><td><code>drain_timeout</code></td><td>10s</td><td>Max time to wait for in-flight requests during shutdown.</td></tr>
+</table>
+
+<h3>Graceful Shutdown</h3>
+<ol>
+<li>Stop accepting new connections</li>
+<li>Wait for in-flight requests to complete (up to <code>drain_timeout</code>)</li>
+<li>Close all connections</li>
+</ol>
+
+<p>When the connection limit is reached, new connections receive:</p>
+<pre>{<span class="str">"status"</span>:<span class="str">"error"</span>,<span class="str">"message"</span>:<span class="str">"server connection limit reached"</span>}</pre>
+
+<!-- ============================================================ -->
+<h2 id="encryption">Encryption</h2>
+
+<p>The <code>astraea-crypto</code> crate provides a foundation for homomorphic encryption, allowing clients to query the graph without the server seeing unencrypted data.</p>
+
+<h3>Key Management</h3>
+<pre><span class="kw">use</span> astraea_crypto::{<span class="ty">KeyPair</span>, <span class="ty">EncryptedNode</span>, <span class="ty">EncryptedQueryEngine</span>};
+
+<span class="cm">// Client generates a key pair</span>
+<span class="kw">let</span> keys = <span class="ty">KeyPair</span>::<span class="fn">generate</span>();
+
+<span class="cm">// Encrypt a node</span>
+<span class="kw">let</span> encrypted = <span class="ty">EncryptedNode</span>::<span class="fn">from_node</span>(&amp;node, &amp;keys.secret);</pre>
+
+<h3>Server-Side Label Matching</h3>
+<p>Labels are encrypted with deterministic tags, allowing the server to compare encrypted labels without decryption:</p>
+<pre><span class="cm">// Server side: search by encrypted label</span>
+<span class="kw">let</span> encrypted_label = <span class="ty">EncryptedLabel</span>::<span class="fn">encrypt</span>(<span class="str">"Person"</span>, &amp;keys.secret);
+<span class="kw">let</span> results = engine.<span class="fn">find_by_encrypted_label</span>(&amp;encrypted_label);
+
+<span class="cm">// Client side: decrypt results</span>
+<span class="kw">for</span> enc_node <span class="kw">in</span> results {
+    <span class="kw">let</span> node = enc_node.<span class="fn">to_node</span>(&amp;keys.secret);
+}</pre>
+
+<h3>Encryption Types</h3>
+<table>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>EncryptedValue</code></td><td>Randomized encryption (same plaintext &rarr; different ciphertexts)</td></tr>
+<tr><td><code>EncryptedLabel</code></td><td>Deterministic tag for matching + randomized value for confidentiality</td></tr>
+<tr><td><code>EncryptedNode</code></td><td>Encrypted labels (individually) + encrypted properties (as JSON blob). Node ID stays plaintext.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="gpu">GPU Acceleration</h2>
+
+<p>The <code>astraea-gpu</code> crate provides a framework for GPU-accelerated graph analytics with a CPU fallback.</p>
+
+<h3>CSR Matrix</h3>
+<p>Graphs are converted to Compressed Sparse Row format for efficient matrix operations:</p>
+<pre><span class="kw">use</span> astraea_gpu::{<span class="ty">CsrMatrix</span>, <span class="ty">CpuBackend</span>, <span class="ty">GpuBackend</span>};
+
+<span class="kw">let</span> nodes = <span class="kw">vec!</span>[n1, n2, n3, n4];
+<span class="kw">let</span> csr = <span class="ty">CsrMatrix</span>::<span class="fn">from_graph</span>(&amp;graph, &amp;nodes)?;
+<span class="cm">// csr.spmv(&amp;x) -- sparse matrix-vector multiply</span>
+<span class="cm">// csr.transpose() -- efficient CSR transpose</span></pre>
+
+<h3>GpuBackend Trait</h3>
+<table>
+<tr><th>Method</th><th>Returns</th><th>Description</th></tr>
+<tr><td><code>pagerank(csr, config)</code></td><td><code>HashMap&lt;NodeId, f64&gt;</code></td><td>PageRank scores</td></tr>
+<tr><td><code>bfs(csr, source)</code></td><td><code>HashMap&lt;NodeId, i32&gt;</code></td><td>BFS levels (-1 = unreachable)</td></tr>
+<tr><td><code>sssp(csr, source)</code></td><td><code>HashMap&lt;NodeId, f64&gt;</code></td><td>Shortest distances (Bellman-Ford)</td></tr>
+</table>
+
+<h3>CPU Fallback</h3>
+<p>The <code>CpuBackend</code> implements all algorithms in pure Rust. It is always available and serves as the fallback when no GPU is present.</p>
+
+<!-- ============================================================ -->
+<h2 id="clustering">Clustering &amp; Sharding</h2>
+
+<p>The <code>astraea-cluster</code> crate provides foundations for distributed graph processing.</p>
+
+<h3>Partitioning Strategies</h3>
+<table>
+<tr><th>Strategy</th><th>Description</th></tr>
+<tr><td><code>HashPartitioner</code></td><td>Assigns nodes to shards via <code>hash(node_id) % num_shards</code>. Deterministic and evenly distributed.</td></tr>
+<tr><td><code>RangePartitioner</code></td><td>Assigns nodes based on ID ranges with configurable boundaries. Can be uniform or custom.</td></tr>
+</table>
+
+<h3>Shard Management</h3>
+<pre><span class="kw">use</span> astraea_cluster::{<span class="ty">ShardMap</span>, <span class="ty">ShardInfo</span>, <span class="ty">HashPartitioner</span>};
+
+<span class="kw">let</span> <span class="kw">mut</span> shard_map = <span class="ty">ShardMap</span>::<span class="fn">new</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">HashPartitioner</span>::<span class="fn">new</span>(<span class="num">3</span>)));
+shard_map.<span class="fn">register_shard</span>(info);
+<span class="kw">let</span> shard = shard_map.<span class="fn">shard_for_node</span>(node_id);</pre>
+
+<h3>Cluster Coordinator</h3>
+<p>The <code>ClusterCoordinator</code> trait defines the contract for distributed operations. <code>LocalCoordinator</code> is the single-node implementation that routes everything locally.</p>
+
+<!-- ============================================================ -->
+<h2 id="cli">CLI Reference</h2>
+
+<h3>Commands</h3>
+<pre><span class="cm"># Start the server</span>
+astraeadb serve [--config config.toml] [--bind 0.0.0.0] [--port 7687]
+
+<span class="cm"># Interactive shell (REPL)</span>
+astraeadb shell [--address 127.0.0.1:7687]
+
+<span class="cm"># Check server status</span>
+astraeadb status [--address 127.0.0.1:7687]
+
+<span class="cm"># Import data from JSON</span>
+astraeadb import --file data.json --format json --data-dir ./data
+
+<span class="cm"># Export data to JSON</span>
+astraeadb export --file dump.json --format json --data-dir ./data</pre>
+
+<h3>Configuration File (config.toml)</h3>
+<pre>[server]
+bind_address = <span class="str">"127.0.0.1"</span>
+port = <span class="num">7687</span>
+
+[storage]
+data_dir = <span class="str">"data"</span>
+buffer_pool_size = <span class="num">1024</span>
+wal_dir = <span class="str">"data/wal"</span></pre>
+
+<h3>Shell Features</h3>
+<ul>
+<li>Readline support via <code>rustyline</code> (history, line editing)</li>
+<li>Auto-detects GQL queries vs raw JSON requests</li>
+<li>Table-formatted output for query results</li>
+<li>Dot-commands: <code>.help</code>, <code>.quit</code>, <code>.status</code></li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="python-client">Python Client</h2>
+
+<h3>Installation</h3>
+<pre><span class="cm"># Basic (JSON only, zero dependencies)</span>
+pip install ./python
+
+<span class="cm"># With Arrow Flight support</span>
+pip install ./python[arrow]</pre>
+
+<h3>Client Types</h3>
+<table>
+<tr><th>Client</th><th>Transport</th><th>Dependencies</th></tr>
+<tr><td><code>JsonClient</code></td><td>TCP / newline-delimited JSON</td><td>None (stdlib only)</td></tr>
+<tr><td><code>ArrowClient</code></td><td>Apache Arrow Flight</td><td><code>pyarrow &gt;= 14.0</code></td></tr>
+<tr><td><code>AstraeaClient</code></td><td>Auto-selects best transport</td><td>Optional <code>pyarrow</code></td></tr>
+</table>
+
+<h3>Usage</h3>
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> AstraeaClient(host=<span class="str">"127.0.0.1"</span>, port=<span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Create nodes (embeddings auto-indexed)</span>
+    alice = client.create_node([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"age"</span>: <span class="num">30</span>},
+                                embedding=[<span class="num">0.1</span>] * <span class="num">128</span>)
+    bob = client.create_node([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Bob"</span>})
+
+    <span class="cm"># Create an edge</span>
+    client.create_edge(alice, bob, <span class="str">"KNOWS"</span>, {<span class="str">"since"</span>: <span class="num">2020</span>}, weight=<span class="num">0.9</span>)
+
+    <span class="cm"># Traversals</span>
+    neighbors = client.neighbors(alice, direction=<span class="str">"outgoing"</span>)
+    path = client.shortest_path(alice, bob, weighted=<span class="kw">True</span>)
+    reachable = client.bfs(alice, max_depth=<span class="num">2</span>)
+
+    <span class="cm"># Vector search</span>
+    results = client.vector_search([<span class="num">0.15</span>] * <span class="num">128</span>, k=<span class="num">5</span>)
+
+    <span class="cm"># Hybrid search</span>
+    results = client.hybrid_search(anchor=alice, query_embedding=[<span class="num">0.15</span>] * <span class="num">128</span>,
+                                    max_hops=<span class="num">3</span>, k=<span class="num">10</span>, alpha=<span class="num">0.5</span>)
+
+    <span class="cm"># GQL query</span>
+    result = client.query(<span class="str">"MATCH (a:Person) WHERE a.age &gt; 25 RETURN a.name"</span>)
+
+    <span class="cm"># Health check</span>
+    status = client.ping()</pre>
+
+<h3>Arrow Flight Client (Bulk Operations)</h3>
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> ArrowClient
+<span class="kw">import</span> pyarrow <span class="kw">as</span> pa
+
+arrow = ArrowClient(host=<span class="str">"127.0.0.1"</span>, flight_port=<span class="num">7689</span>)
+
+<span class="cm"># Query results as Arrow Table (zero-copy to Pandas)</span>
+table = arrow.query(<span class="str">"MATCH (a:Person) RETURN a.name, a.age"</span>)
+df = table.to_pandas()
+
+<span class="cm"># Bulk import</span>
+nodes_table = pa.table({<span class="str">"id"</span>: [<span class="num">1</span>, <span class="num">2</span>], <span class="str">"labels"</span>: [<span class="str">"Person"</span>, <span class="str">"Person"</span>],
+                         <span class="str">"properties"</span>: [<span class="str">'{"name":"Alice"}'</span>, <span class="str">'{"name":"Bob"}'</span>]})
+arrow.bulk_insert_nodes(nodes_table)</pre>
+
+<h3>Python API Reference</h3>
+<table>
+<tr><th>Method</th><th>Description</th></tr>
+<tr><td><code>ping()</code></td><td>Health check, returns server version</td></tr>
+<tr><td><code>create_node(labels, properties, embedding?)</code></td><td>Create a node, returns node ID</td></tr>
+<tr><td><code>get_node(id)</code></td><td>Get node by ID</td></tr>
+<tr><td><code>update_node(id, properties)</code></td><td>Merge properties into a node</td></tr>
+<tr><td><code>delete_node(id)</code></td><td>Delete node and all connected edges</td></tr>
+<tr><td><code>create_edge(source, target, type, props?, weight?, valid_from?, valid_to?)</code></td><td>Create an edge</td></tr>
+<tr><td><code>get_edge(id)</code> / <code>delete_edge(id)</code></td><td>Get or delete an edge</td></tr>
+<tr><td><code>neighbors(id, direction?, edge_type?)</code></td><td>Get neighbors</td></tr>
+<tr><td><code>bfs(start, max_depth?)</code></td><td>Breadth-first traversal</td></tr>
+<tr><td><code>shortest_path(from, to, weighted?)</code></td><td>Shortest path (BFS or Dijkstra)</td></tr>
+<tr><td><code>vector_search(embedding, k?)</code></td><td>k-nearest-neighbor search</td></tr>
+<tr><td><code>hybrid_search(anchor, embedding, max_hops?, k?, alpha?)</code></td><td>Blended graph + vector search</td></tr>
+<tr><td><code>semantic_neighbors(node, embedding, direction?, k?)</code></td><td>Rank neighbors by concept</td></tr>
+<tr><td><code>semantic_walk(start, embedding, max_hops?)</code></td><td>Greedy semantic walk</td></tr>
+<tr><td><code>query(gql_string)</code></td><td>Execute a GQL query</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="r-client">R Client</h2>
+
+<h3>Prerequisites</h3>
+<pre>install.packages(<span class="str">"jsonlite"</span>)</pre>
+
+<h3>Usage</h3>
+<pre><span class="kw">source</span>(<span class="str">"examples/r_client.R"</span>)
+
+client &lt;- AstraeaClient$new(host = <span class="str">"127.0.0.1"</span>, port = <span class="num">7687</span>L)
+client$connect()
+
+<span class="cm"># Create nodes</span>
+id &lt;- client$create_node(list(<span class="str">"Person"</span>), list(name = <span class="str">"Alice"</span>, age = <span class="num">30</span>))
+
+<span class="cm"># Create edges</span>
+eid &lt;- client$create_edge(id1, id2, <span class="str">"KNOWS"</span>, list(since = <span class="num">2024</span>), weight = <span class="num">0.9</span>)
+
+<span class="cm"># Traverse</span>
+neighbors &lt;- client$neighbors(id, direction = <span class="str">"outgoing"</span>)
+path &lt;- client$shortest_path(from_node = id1, to_node = id2, weighted = TRUE)
+
+client$close()</pre>
+
+<h3>Running the Demo</h3>
+<pre><span class="cm"># Terminal 1</span>
+cargo run -p astraea-cli -- serve
+
+<span class="cm"># Terminal 2</span>
+Rscript examples/r_client.R</pre>
+
+<!-- ============================================================ -->
+<h2 id="cybersecurity-demo">Cybersecurity Demo</h2>
+
+<p>This example demonstrates how AstraeaDB enables security analysts to investigate network alerts by tracing connections through a graph.</p>
+
+<h3>The Problem</h3>
+<p>When a firewall alerts on suspicious traffic from <code>10.0.1.50</code>, the analyst must manually search DHCP logs, asset management records, and other sources to trace the IP to a user. With AstraeaDB, these datasets are loaded as a graph and the investigation becomes a series of traversals.</p>
+
+<h3>Graph Model</h3>
+<pre>User &lt;--[ASSIGNED_TO]-- Laptop &lt;--[DHCP_LEASE]-- IPAddress
+                                                    |
+                                              [TRAFFIC]  [TRIGGERED]
+                                                    |         |
+                                              IPAddress  FirewallAlert --[TARGETS]--&gt; ExternalHost</pre>
+
+<h3>The Scenario</h3>
+<p>Three employees &mdash; Alice (Engineering), Bob (Finance), and Eve (Marketing) &mdash; each have laptops with DHCP-assigned IPs. Eve's attack chain:</p>
+<ol>
+<li>Downloads a password cracker from <code>darktools.example.com</code> (port 443)</li>
+<li>Firewall logs the connection (alert <code>FW-2025-0042</code>, severity: critical)</li>
+<li>Attempts RDP to Bob's machine at <code>10.0.1.20:3389</code> &mdash; <strong>blocked</strong></li>
+<li>Attempts SSH to Alice's machine at <code>10.0.1.10:22</code> &mdash; <strong>blocked</strong></li>
+</ol>
+
+<h3>Investigation with AstraeaDB</h3>
+<pre><span class="cm"># Step 1: Who triggered alert FW-2025-0042?</span>
+sources = client.neighbors(alert_id, <span class="str">"incoming"</span>, edge_type=<span class="str">"TRIGGERED"</span>)
+<span class="cm"># &rarr; Source IP: 10.0.1.50</span>
+
+<span class="cm"># Step 2: Trace IP &rarr; Laptop via DHCP lease</span>
+leases = client.neighbors(source_ip_id, <span class="str">"outgoing"</span>, edge_type=<span class="str">"DHCP_LEASE"</span>)
+<span class="cm"># &rarr; Laptop: EVE-LAT01</span>
+
+<span class="cm"># Step 3: Trace Laptop &rarr; User</span>
+users = client.neighbors(laptop_id, <span class="str">"outgoing"</span>, edge_type=<span class="str">"ASSIGNED_TO"</span>)
+<span class="cm"># &rarr; User: Eve (Marketing, Analyst)</span>
+
+<span class="cm"># Step 4: What else has Eve's IP been doing?</span>
+traffic = client.neighbors(source_ip_id, <span class="str">"outgoing"</span>, edge_type=<span class="str">"TRAFFIC"</span>)
+<span class="cm"># &rarr; darktools.example.com:443, 10.0.1.20:3389 (RDP), 10.0.1.10:22 (SSH)</span>
+
+<span class="cm"># Step 5: BFS blast radius</span>
+blast_radius = client.bfs(source_ip_id, max_depth=<span class="num">2</span>)</pre>
+
+<h3>Running the Demo</h3>
+<pre><span class="cm"># Terminal 1</span>
+cargo run -p astraea-cli -- serve
+
+<span class="cm"># Terminal 2</span>
+python3 examples/cybersecurity_demo.py</pre>
+
+<p>13 Rust tests cover this scenario in the <code>astraea-graph</code> crate:</p>
+<pre>cargo test --package astraea-graph cybersecurity</pre>
+
+<!-- ============================================================ -->
+<h2 id="api-reference">API Reference</h2>
+
+<p>Complete JSON request/response format for all request types. All requests are newline-delimited JSON sent over TCP (port 7687).</p>
+
+<h3>Node Operations</h3>
+
+<h4>CreateNode</h4>
+<pre><span class="cm">// Request</span>
+{<span class="str">"type"</span>:<span class="str">"CreateNode"</span>,<span class="str">"labels"</span>:[<span class="str">"Person"</span>],<span class="str">"properties"</span>:{<span class="str">"name"</span>:<span class="str">"Alice"</span>,<span class="str">"age"</span>:<span class="num">30</span>},<span class="str">"embedding"</span>:[<span class="num">0.1</span>,<span class="num">0.2</span>]}
+<span class="cm">// Response</span>
+{<span class="str">"status"</span>:<span class="str">"ok"</span>,<span class="str">"data"</span>:{<span class="str">"node_id"</span>:<span class="num">1</span>}}</pre>
+
+<h4>GetNode</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"GetNode"</span>,<span class="str">"id"</span>:<span class="num">1</span>}
+<span class="cm">// Response includes id, labels, properties, embedding</span></pre>
+
+<h4>UpdateNode</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"UpdateNode"</span>,<span class="str">"id"</span>:<span class="num">1</span>,<span class="str">"properties"</span>:{<span class="str">"title"</span>:<span class="str">"Engineer"</span>}}</pre>
+
+<h4>DeleteNode</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"DeleteNode"</span>,<span class="str">"id"</span>:<span class="num">1</span>}
+<span class="cm">// Cascades: all connected edges are also deleted</span></pre>
+
+<h3>Edge Operations</h3>
+
+<h4>CreateEdge</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"CreateEdge"</span>,<span class="str">"source"</span>:<span class="num">1</span>,<span class="str">"target"</span>:<span class="num">2</span>,<span class="str">"edge_type"</span>:<span class="str">"KNOWS"</span>,
+ <span class="str">"properties"</span>:{<span class="str">"since"</span>:<span class="num">2020</span>},<span class="str">"weight"</span>:<span class="num">0.9</span>,
+ <span class="str">"valid_from"</span>:<span class="num">1704067200000</span>,<span class="str">"valid_to"</span>:<span class="kw">null</span>}</pre>
+
+<h4>GetEdge / UpdateEdge / DeleteEdge</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"GetEdge"</span>,<span class="str">"id"</span>:<span class="num">1</span>}
+{<span class="str">"type"</span>:<span class="str">"UpdateEdge"</span>,<span class="str">"id"</span>:<span class="num">1</span>,<span class="str">"properties"</span>:{<span class="str">"note"</span>:<span class="str">"updated"</span>}}
+{<span class="str">"type"</span>:<span class="str">"DeleteEdge"</span>,<span class="str">"id"</span>:<span class="num">1</span>}</pre>
+
+<h3>Traversal Operations</h3>
+
+<h4>Neighbors</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"Neighbors"</span>,<span class="str">"id"</span>:<span class="num">1</span>,<span class="str">"direction"</span>:<span class="str">"outgoing"</span>,<span class="str">"edge_type"</span>:<span class="str">"KNOWS"</span>}</pre>
+
+<h4>Bfs</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"Bfs"</span>,<span class="str">"start"</span>:<span class="num">1</span>,<span class="str">"max_depth"</span>:<span class="num">3</span>}</pre>
+
+<h4>ShortestPath</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"ShortestPath"</span>,<span class="str">"from"</span>:<span class="num">1</span>,<span class="str">"to"</span>:<span class="num">5</span>,<span class="str">"weighted"</span>:<span class="kw">false</span>}</pre>
+
+<h3>Vector &amp; Semantic Operations</h3>
+
+<h4>VectorSearch</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"VectorSearch"</span>,<span class="str">"query"</span>:[<span class="num">0.1</span>,<span class="num">0.2</span>,<span class="num">0.3</span>],<span class="str">"k"</span>:<span class="num">10</span>}</pre>
+
+<h4>HybridSearch</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"HybridSearch"</span>,<span class="str">"anchor"</span>:<span class="num">1</span>,<span class="str">"query"</span>:[<span class="num">0.1</span>,<span class="num">0.2</span>],<span class="str">"max_hops"</span>:<span class="num">3</span>,<span class="str">"k"</span>:<span class="num">10</span>,<span class="str">"alpha"</span>:<span class="num">0.5</span>}</pre>
+
+<h4>SemanticNeighbors</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"SemanticNeighbors"</span>,<span class="str">"id"</span>:<span class="num">1</span>,<span class="str">"concept"</span>:[<span class="num">0.1</span>,<span class="num">0.2</span>],<span class="str">"direction"</span>:<span class="str">"outgoing"</span>,<span class="str">"k"</span>:<span class="num">5</span>}</pre>
+
+<h4>SemanticWalk</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"SemanticWalk"</span>,<span class="str">"start"</span>:<span class="num">1</span>,<span class="str">"concept"</span>:[<span class="num">0.1</span>,<span class="num">0.2</span>],<span class="str">"max_hops"</span>:<span class="num">4</span>}</pre>
+
+<h3>Temporal Operations</h3>
+
+<h4>NeighborsAt</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"NeighborsAt"</span>,<span class="str">"id"</span>:<span class="num">1</span>,<span class="str">"direction"</span>:<span class="str">"outgoing"</span>,<span class="str">"timestamp"</span>:<span class="num">1736929800000</span>}</pre>
+
+<h4>BfsAt</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"BfsAt"</span>,<span class="str">"start"</span>:<span class="num">1</span>,<span class="str">"max_depth"</span>:<span class="num">3</span>,<span class="str">"timestamp"</span>:<span class="num">1736929800000</span>}</pre>
+
+<h4>ShortestPathAt</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"ShortestPathAt"</span>,<span class="str">"from"</span>:<span class="num">1</span>,<span class="str">"to"</span>:<span class="num">5</span>,<span class="str">"timestamp"</span>:<span class="num">1736929800000</span>,<span class="str">"weighted"</span>:<span class="kw">false</span>}</pre>
+
+<h3>RAG Operations</h3>
+
+<h4>ExtractSubgraph</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"ExtractSubgraph"</span>,<span class="str">"center"</span>:<span class="num">1</span>,<span class="str">"hops"</span>:<span class="num">2</span>,<span class="str">"max_nodes"</span>:<span class="num">50</span>,<span class="str">"format"</span>:<span class="str">"structured"</span>}</pre>
+
+<h4>GraphRag</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"GraphRag"</span>,<span class="str">"question"</span>:<span class="str">"Who compromised the server?"</span>,
+ <span class="str">"anchor"</span>:<span class="num">1</span>,<span class="str">"hops"</span>:<span class="num">2</span>,<span class="str">"max_nodes"</span>:<span class="num">50</span>,<span class="str">"format"</span>:<span class="str">"structured"</span>}</pre>
+
+<h3>Query &amp; Health</h3>
+
+<h4>Query</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"Query"</span>,<span class="str">"gql"</span>:<span class="str">"MATCH (a:Person)-[:KNOWS]-&gt;(b) RETURN a.name, b.name"</span>}</pre>
+
+<h4>Ping</h4>
+<pre>{<span class="str">"type"</span>:<span class="str">"Ping"</span>}
+{<span class="str">"status"</span>:<span class="str">"ok"</span>,<span class="str">"data"</span>:{<span class="str">"pong"</span>:<span class="kw">true</span>,<span class="str">"version"</span>:<span class="str">"0.1.0"</span>}}</pre>
+
+<div style="margin-top:60px; padding-top:20px; border-top:1px solid var(--border); color:#888; font-size:0.85em;">
+<p>AstraeaDB &mdash; Cloud-Native, AI-First Graph Database &mdash; MIT License</p>
+<p>408 Rust tests &bull; 23 Python tests &bull; 14 crates &bull; Edition 2024</p>
+</div>
+
+</main>
+</body>
+</html>
