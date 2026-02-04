@@ -1,0 +1,76 @@
+[workspace]
+members = [
+    "crates/astraea-core",
+    "crates/astraea-storage",
+    "crates/astraea-graph",
+    "crates/astraea-query",
+    "crates/astraea-vector",
+    "crates/astraea-server",
+    "crates/astraea-cli",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+# Internal crates
+astraea-core = { path = "crates/astraea-core" }
+astraea-storage = { path = "crates/astraea-storage" }
+astraea-graph = { path = "crates/astraea-graph" }
+astraea-query = { path = "crates/astraea-query" }
+astraea-vector = { path = "crates/astraea-vector" }
+astraea-server = { path = "crates/astraea-server" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# Identifiers
+uuid = { version = "1", features = ["v4"] }
+
+# Byte manipulation
+bytes = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Concurrency
+parking_lot = "0.12"
+crossbeam = "0.8"
+dashmap = "6"
+
+# Memory-mapped I/O
+memmap2 = "0.9"
+
+# Checksums
+crc32fast = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+
+# gRPC
+tonic = "0.12"
+prost = "0.13"
+
+# Collections
+smallvec = "1"
+ordered-float = "4"
+
+# Random
+rand = "0.8"
+
+# Dev dependencies
+criterion = "0.5"
+proptest = "1"
+tempfile = "3"

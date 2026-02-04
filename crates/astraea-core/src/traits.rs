@@ -1,0 +1,127 @@
+use crate::error::Result;
+use crate::types::*;
+
+/// Low-level storage engine trait for persisting and retrieving nodes and edges.
+///
+/// Implementations handle the page-based storage, buffer pool, and disk I/O.
+/// This trait intentionally does NOT handle transactions — that is layered on top.
+pub trait StorageEngine: Send + Sync {
+    /// Store a node. Overwrites if the node ID already exists.
+    fn put_node(&self, node: &Node) -> Result<()>;
+
+    /// Retrieve a node by ID.
+    fn get_node(&self, id: NodeId) -> Result<Option<Node>>;
+
+    /// Delete a node by ID. Returns true if the node existed.
+    fn delete_node(&self, id: NodeId) -> Result<bool>;
+
+    /// Store an edge. Overwrites if the edge ID already exists.
+    fn put_edge(&self, edge: &Edge) -> Result<()>;
+
+    /// Retrieve an edge by ID.
+    fn get_edge(&self, id: EdgeId) -> Result<Option<Edge>>;
+
+    /// Delete an edge by ID. Returns true if the edge existed.
+    fn delete_edge(&self, id: EdgeId) -> Result<bool>;
+
+    /// Get all edges connected to a node in the given direction.
+    fn get_edges(&self, node_id: NodeId, direction: Direction) -> Result<Vec<Edge>>;
+
+    /// Flush all dirty data to disk.
+    fn flush(&self) -> Result<()>;
+}
+
+/// Graph-level operations: CRUD and traversals over the property graph.
+pub trait GraphOps: Send + Sync {
+    /// Create a new node with the given labels and properties.
+    /// Returns the assigned NodeId.
+    fn create_node(
+        &self,
+        labels: Vec<String>,
+        properties: serde_json::Value,
+        embedding: Option<Vec<f32>>,
+    ) -> Result<NodeId>;
+
+    /// Create a new edge between two nodes.
+    /// Returns the assigned EdgeId.
+    fn create_edge(
+        &self,
+        source: NodeId,
+        target: NodeId,
+        edge_type: String,
+        properties: serde_json::Value,
+        weight: f64,
+    ) -> Result<EdgeId>;
+
+    /// Get a node by ID.
+    fn get_node(&self, id: NodeId) -> Result<Option<Node>>;
+
+    /// Get an edge by ID.
+    fn get_edge(&self, id: EdgeId) -> Result<Option<Edge>>;
+
+    /// Update a node's properties (merge semantics).
+    fn update_node(&self, id: NodeId, properties: serde_json::Value) -> Result<()>;
+
+    /// Update an edge's properties (merge semantics).
+    fn update_edge(&self, id: EdgeId, properties: serde_json::Value) -> Result<()>;
+
+    /// Delete a node and all its connected edges.
+    fn delete_node(&self, id: NodeId) -> Result<()>;
+
+    /// Delete an edge.
+    fn delete_edge(&self, id: EdgeId) -> Result<()>;
+
+    /// Get neighbor node IDs reachable from the given node in the given direction.
+    fn neighbors(&self, node_id: NodeId, direction: Direction) -> Result<Vec<(EdgeId, NodeId)>>;
+
+    /// Get neighbor node IDs filtered by edge type.
+    fn neighbors_filtered(
+        &self,
+        node_id: NodeId,
+        direction: Direction,
+        edge_type: &str,
+    ) -> Result<Vec<(EdgeId, NodeId)>>;
+
+    /// Breadth-first search from a starting node up to a maximum depth.
+    /// Returns all discovered nodes with their depth.
+    fn bfs(&self, start: NodeId, max_depth: usize) -> Result<Vec<(NodeId, usize)>>;
+
+    /// Depth-first search from a starting node up to a maximum depth.
+    /// Returns all discovered nodes.
+    fn dfs(&self, start: NodeId, max_depth: usize) -> Result<Vec<NodeId>>;
+
+    /// Find the shortest path between two nodes (unweighted).
+    fn shortest_path(&self, from: NodeId, to: NodeId) -> Result<Option<GraphPath>>;
+
+    /// Find the shortest path between two nodes using edge weights (Dijkstra).
+    fn shortest_path_weighted(&self, from: NodeId, to: NodeId) -> Result<Option<(GraphPath, f64)>>;
+
+    /// Find all nodes matching a label.
+    fn find_by_label(&self, label: &str) -> Result<Vec<NodeId>>;
+}
+
+/// Vector index trait for approximate nearest neighbor search.
+pub trait VectorIndex: Send + Sync {
+    /// Insert a vector for a node. Dimension must match the index's configured dimension.
+    fn insert(&self, node_id: NodeId, embedding: &[f32]) -> Result<()>;
+
+    /// Remove a vector for a node.
+    fn remove(&self, node_id: NodeId) -> Result<bool>;
+
+    /// Search for the k nearest neighbors of the query vector.
+    fn search(&self, query: &[f32], k: usize) -> Result<Vec<SimilarityResult>>;
+
+    /// The dimensionality of vectors in this index.
+    fn dimension(&self) -> usize;
+
+    /// The distance metric used by this index.
+    fn metric(&self) -> DistanceMetric;
+
+    /// Number of vectors currently in the index.
+    fn len(&self) -> usize;
+
+    /// Whether the index is empty.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}

@@ -1,0 +1,27 @@
+[package]
+name = "astraea-graph"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+astraea-core = { workspace = true }
+astraea-storage = { workspace = true }
+dashmap = { workspace = true }
+smallvec = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+test-utils = []
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "traversal_bench"
+harness = false

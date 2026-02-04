@@ -1,0 +1,21 @@
+[package]
+name = "astraea-vector"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+astraea-core = { workspace = true }
+ordered-float = { workspace = true }
+rand = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "vector_bench"
+harness = false

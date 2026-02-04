@@ -1,0 +1,19 @@
+[package]
+name = "astraea-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+astraea-core = { workspace = true }
+astraea-storage = { workspace = true }
+astraea-graph = { workspace = true }
+astraea-query = { workspace = true }
+astraea-vector = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
