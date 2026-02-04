@@ -1,5 +1,7 @@
 //! Thread-safe wrapper around [`HnswIndex`] implementing the [`VectorIndex`] trait.
 
+use std::path::Path;
+
 use parking_lot::RwLock;
 
 use astraea_core::error::Result;
@@ -49,6 +51,27 @@ impl HnswVectorIndex {
             inner: RwLock::new(HnswIndex::new(dimension, metric, m, ef_construction)),
             ef_search,
         }
+    }
+
+    /// Persist the index to the given file path.
+    ///
+    /// Acquires a read lock on the inner index and writes the full
+    /// HNSW state to a versioned binary file.
+    pub fn save_to_file(&self, path: &Path) -> Result<()> {
+        let idx = self.inner.read();
+        idx.save(path)
+    }
+
+    /// Load an index from the given file path.
+    ///
+    /// Reads and validates the binary file, then wraps the deserialized
+    /// `HnswIndex` in a new `HnswVectorIndex` with the default `ef_search`.
+    pub fn load_from_file(path: &Path) -> Result<Self> {
+        let idx = HnswIndex::load(path)?;
+        Ok(Self {
+            inner: RwLock::new(idx),
+            ef_search: DEFAULT_EF_SEARCH,
+        })
     }
 }
 

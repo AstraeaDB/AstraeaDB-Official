@@ -26,6 +26,12 @@ pub enum WalRecord {
     /// Checkpoint record stores the LSN value as a raw u64 because the core
     /// `Lsn` type does not implement Serialize/Deserialize.
     Checkpoint(u64),
+    /// Begin a new MVCC transaction with the given TransactionId (as raw u64).
+    BeginTransaction(u64),
+    /// Commit a transaction with the given TransactionId (as raw u64).
+    CommitTransaction(u64),
+    /// Abort a transaction with the given TransactionId (as raw u64).
+    AbortTransaction(u64),
 }
 
 /// Discriminant byte for each record type.
@@ -38,6 +44,9 @@ impl WalRecord {
             WalRecord::DeleteEdge(_) => 3,
             WalRecord::UpdateNodeProperties(..) => 4,
             WalRecord::Checkpoint(_) => 5,
+            WalRecord::BeginTransaction(_) => 6,
+            WalRecord::CommitTransaction(_) => 7,
+            WalRecord::AbortTransaction(_) => 8,
         }
     }
 }

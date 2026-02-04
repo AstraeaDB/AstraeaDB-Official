@@ -2,7 +2,7 @@
 //! and WAL to provide a complete disk-backed storage engine for nodes and edges.
 
 use astraea_core::error::{AstraeaError, Result};
-use astraea_core::traits::StorageEngine;
+use astraea_core::traits::{StorageEngine, TransactionalEngine};
 use astraea_core::types::*;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -11,7 +11,10 @@ use std::sync::Arc;
 
 use crate::buffer_pool::BufferPool;
 use crate::file_manager::FileManager;
+use crate::label_index::LabelIndex;
+use crate::mvcc::{TransactionManager, WriteOp};
 use crate::page::*;
+use crate::page_io::PageIO;
 use crate::wal::{WalRecord, WalWriter};
 
 /// Default buffer pool size (number of page frames).
@@ -115,6 +118,11 @@ pub struct DiskStorageEngine {
     edge_index: RwLock<HashMap<EdgeId, PageId>>,
     /// In-memory adjacency index for edge lookups by node.
     adjacency: RwLock<AdjacencyIndex>,
+    /// In-memory label index for fast label-based lookups.
+    label_index: RwLock<LabelIndex>,
+
+    /// MVCC transaction manager for transactional operations.
+    txn_manager: TransactionManager,
 
     /// Path to the data directory (for diagnostics).
     #[allow(dead_code)]
@@ -136,7 +144,7 @@ impl DiskStorageEngine {
         let wal_path = data_dir.join("astraea.wal");
 
         let file_manager = Arc::new(FileManager::new(&db_path)?);
-        let buffer_pool = BufferPool::new(Arc::clone(&file_manager), pool_size);
+        let buffer_pool = BufferPool::new(Arc::clone(&file_manager) as Arc<dyn PageIO>, pool_size);
         let wal = WalWriter::new(&wal_path)?;
 
         Ok(Self {
@@ -146,6 +154,8 @@ impl DiskStorageEngine {
             node_index: RwLock::new(HashMap::new()),
             edge_index: RwLock::new(HashMap::new()),
             adjacency: RwLock::new(AdjacencyIndex::new()),
+            label_index: RwLock::new(LabelIndex::new()),
+            txn_manager: TransactionManager::new(),
             data_dir,
         })
     }
@@ -293,6 +303,13 @@ impl StorageEngine for DiskStorageEngine {
         // Log to WAL first.
         self.wal.append(&WalRecord::InsertNode(node.clone()))?;
 
+        // If this node already exists, remove its old labels from the index
+        // before inserting the new ones (handles label changes on update).
+        if let Ok(Some(old_node)) = self.get_node(node.id) {
+            let mut li = self.label_index.write();
+            li.remove_node(node.id, &old_node.labels);
+        }
+
         // Serialize.
         let data = Self::serialize_node(node)?;
 
@@ -304,6 +321,10 @@ impl StorageEngine for DiskStorageEngine {
         // Update the in-memory index.
         let mut index = self.node_index.write();
         index.insert(node.id, page_id);
+
+        // Update the label index.
+        let mut li = self.label_index.write();
+        li.add_node(node.id, &node.labels);
 
         Ok(())
     }
@@ -324,6 +345,12 @@ impl StorageEngine for DiskStorageEngine {
     }
 
     fn delete_node(&self, id: NodeId) -> Result<bool> {
+        // Get labels before deleting so we can clean up the label index.
+        if let Ok(Some(node)) = self.get_node(id) {
+            let mut li = self.label_index.write();
+            li.remove_node(id, &node.labels);
+        }
+
         // Log to WAL.
         self.wal.append(&WalRecord::DeleteNode(id))?;
 
@@ -409,6 +436,89 @@ impl StorageEngine for DiskStorageEngine {
         let lsn = self.wal.current_lsn();
         self.wal.append(&WalRecord::Checkpoint(lsn.0))?;
         Ok(())
+    }
+
+    fn find_nodes_by_label(&self, label: &str) -> Result<Vec<NodeId>> {
+        Ok(self.label_index.read().get(label))
+    }
+}
+
+impl TransactionalEngine for DiskStorageEngine {
+    fn begin_transaction(&self) -> Result<TransactionId> {
+        let current_lsn = self.wal.current_lsn();
+        let txn_id = self.txn_manager.begin(current_lsn);
+
+        // Write a BeginTransaction WAL record.
+        self.wal
+            .append(&WalRecord::BeginTransaction(txn_id.0))?;
+
+        Ok(txn_id)
+    }
+
+    fn commit_transaction(&self, txn_id: TransactionId) -> Result<()> {
+        // Commit the transaction -- retrieves the buffered write set.
+        let write_set = self.txn_manager.commit(txn_id)?;
+
+        // Apply all buffered writes atomically to the real storage.
+        for op in write_set {
+            match op {
+                WriteOp::PutNode(node) => {
+                    self.put_node(&node)?;
+                }
+                WriteOp::DeleteNode(id) => {
+                    self.delete_node(id)?;
+                }
+                WriteOp::PutEdge(edge) => {
+                    self.put_edge(&edge)?;
+                }
+                WriteOp::DeleteEdge(id) => {
+                    self.delete_edge(id)?;
+                }
+            }
+        }
+
+        // Write a CommitTransaction WAL record.
+        self.wal
+            .append(&WalRecord::CommitTransaction(txn_id.0))?;
+
+        Ok(())
+    }
+
+    fn abort_transaction(&self, txn_id: TransactionId) -> Result<()> {
+        self.txn_manager.abort(txn_id)?;
+
+        // Write an AbortTransaction WAL record.
+        self.wal
+            .append(&WalRecord::AbortTransaction(txn_id.0))?;
+
+        Ok(())
+    }
+
+    fn put_node_tx(&self, node: &Node, txn_id: TransactionId) -> Result<()> {
+        self.txn_manager
+            .buffer_write(txn_id, node.id.0, WriteOp::PutNode(node.clone()))
+    }
+
+    fn delete_node_tx(&self, id: NodeId, txn_id: TransactionId) -> Result<bool> {
+        self.txn_manager
+            .buffer_write(txn_id, id.0, WriteOp::DeleteNode(id))?;
+        // We return true optimistically; the actual deletion happens on commit.
+        Ok(true)
+    }
+
+    fn put_edge_tx(&self, edge: &Edge, txn_id: TransactionId) -> Result<()> {
+        // Use a separate namespace for edge entity IDs to avoid conflicts
+        // with node IDs. Edge IDs are offset by a large constant.
+        let entity_id = edge.id.0.wrapping_add(1 << 63);
+        self.txn_manager
+            .buffer_write(txn_id, entity_id, WriteOp::PutEdge(edge.clone()))
+    }
+
+    fn delete_edge_tx(&self, id: EdgeId, txn_id: TransactionId) -> Result<bool> {
+        let entity_id = id.0.wrapping_add(1 << 63);
+        self.txn_manager
+            .buffer_write(txn_id, entity_id, WriteOp::DeleteEdge(id))?;
+        Ok(true)
     }
 }
 
@@ -517,5 +627,119 @@ mod tests {
         engine.put_node(&test_node(1)).unwrap();
         engine.put_edge(&test_edge(10, 1, 2)).unwrap();
         engine.flush().unwrap(); // Should not panic.
+    }
+
+    // --- Transactional integration tests ---
+
+    use astraea_core::traits::TransactionalEngine;
+
+    #[test]
+    fn test_transactional_put_commit() {
+        let (engine, _tmp) = make_engine();
+
+        // Begin a transaction.
+        let txn = engine.begin_transaction().unwrap();
+
+        // Buffer a node write within the transaction.
+        let node = test_node(42);
+        engine.put_node_tx(&node, txn).unwrap();
+
+        // Before commit, the node should NOT be visible in the storage.
+        assert!(engine.get_node(NodeId(42)).unwrap().is_none());
+
+        // Commit the transaction.
+        engine.commit_transaction(txn).unwrap();
+
+        // After commit, the node should be visible.
+        let retrieved = engine.get_node(NodeId(42)).unwrap().unwrap();
+        assert_eq!(retrieved.id, NodeId(42));
+        assert_eq!(retrieved.labels, vec!["Person".to_string()]);
+    }
+
+    #[test]
+    fn test_transactional_put_abort() {
+        let (engine, _tmp) = make_engine();
+
+        // Begin a transaction.
+        let txn = engine.begin_transaction().unwrap();
+
+        // Buffer a node write within the transaction.
+        let node = test_node(99);
+        engine.put_node_tx(&node, txn).unwrap();
+
+        // Abort the transaction.
+        engine.abort_transaction(txn).unwrap();
+
+        // The node should NOT exist in storage.
+        assert!(engine.get_node(NodeId(99)).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_transactional_edge_commit() {
+        let (engine, _tmp) = make_engine();
+
+        let txn = engine.begin_transaction().unwrap();
+
+        // Buffer a node and edge write.
+        let node1 = test_node(1);
+        let node2 = test_node(2);
+        let edge = test_edge(100, 1, 2);
+        engine.put_node_tx(&node1, txn).unwrap();
+        engine.put_node_tx(&node2, txn).unwrap();
+        engine.put_edge_tx(&edge, txn).unwrap();
+
+        // Nothing visible yet.
+        assert!(engine.get_edge(EdgeId(100)).unwrap().is_none());
+
+        // Commit.
+        engine.commit_transaction(txn).unwrap();
+
+        // Edge and nodes should now be visible.
+        let retrieved_edge = engine.get_edge(EdgeId(100)).unwrap().unwrap();
+        assert_eq!(retrieved_edge.source, NodeId(1));
+        assert_eq!(retrieved_edge.target, NodeId(2));
+        assert!(engine.get_node(NodeId(1)).unwrap().is_some());
+        assert!(engine.get_node(NodeId(2)).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_transactional_delete_commit() {
+        let (engine, _tmp) = make_engine();
+
+        // First, insert a node directly.
+        engine.put_node(&test_node(50)).unwrap();
+        assert!(engine.get_node(NodeId(50)).unwrap().is_some());
+
+        // Now delete it within a transaction.
+        let txn = engine.begin_transaction().unwrap();
+        engine.delete_node_tx(NodeId(50), txn).unwrap();
+
+        // Before commit, the node should still exist.
+        assert!(engine.get_node(NodeId(50)).unwrap().is_some());
+
+        // Commit.
+        engine.commit_transaction(txn).unwrap();
+
+        // After commit, the node should be gone.
+        assert!(engine.get_node(NodeId(50)).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_transactional_write_conflict() {
+        let (engine, _tmp) = make_engine();
+
+        let txn1 = engine.begin_transaction().unwrap();
+        let txn2 = engine.begin_transaction().unwrap();
+
+        // txn1 writes node 7.
+        engine.put_node_tx(&test_node(7), txn1).unwrap();
+
+        // txn2 tries to write the same node -- should fail.
+        let result = engine.put_node_tx(&test_node(7), txn2);
+        assert!(result.is_err());
+
+        // txn1 can still commit.
+        engine.commit_transaction(txn1).unwrap();
+        assert!(engine.get_node(NodeId(7)).unwrap().is_some());
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use parking_lot::RwLock;
 
@@ -9,10 +9,12 @@ use astraea_core::types::*;
 /// Simple in-memory storage engine for testing.
 ///
 /// Stores nodes and edges in HashMaps. No persistence, no pages, no WAL.
+/// Maintains a label index for fast label-based lookups.
 /// Useful for unit-testing graph operations and traversals.
 pub struct InMemoryStorage {
     nodes: RwLock<HashMap<NodeId, Node>>,
     edges: RwLock<HashMap<EdgeId, Edge>>,
+    label_index: RwLock<HashMap<String, HashSet<NodeId>>>,
 }
 
 impl InMemoryStorage {
@@ -20,6 +22,7 @@ impl InMemoryStorage {
         Self {
             nodes: RwLock::new(HashMap::new()),
             edges: RwLock::new(HashMap::new()),
+            label_index: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -32,6 +35,27 @@ impl Default for InMemoryStorage {
 
 impl StorageEngine for InMemoryStorage {
     fn put_node(&self, node: &Node) -> Result<()> {
+        // If the node already exists, remove its old labels from the index.
+        if let Some(old_node) = self.nodes.read().get(&node.id) {
+            let mut li = self.label_index.write();
+            for label in &old_node.labels {
+                if let Some(set) = li.get_mut(label) {
+                    set.remove(&node.id);
+                    if set.is_empty() {
+                        li.remove(label);
+                    }
+                }
+            }
+        }
+
+        // Add new labels to the index.
+        {
+            let mut li = self.label_index.write();
+            for label in &node.labels {
+                li.entry(label.clone()).or_default().insert(node.id);
+            }
+        }
+
         self.nodes.write().insert(node.id, node.clone());
         Ok(())
     }
@@ -41,7 +65,19 @@ impl StorageEngine for InMemoryStorage {
     }
 
     fn delete_node(&self, id: NodeId) -> Result<bool> {
-        Ok(self.nodes.write().remove(&id).is_some())
+        let removed = self.nodes.write().remove(&id);
+        if let Some(node) = &removed {
+            let mut li = self.label_index.write();
+            for label in &node.labels {
+                if let Some(set) = li.get_mut(label) {
+                    set.remove(&id);
+                    if set.is_empty() {
+                        li.remove(label);
+                    }
+                }
+            }
+        }
+        Ok(removed.is_some())
     }
 
     fn put_edge(&self, edge: &Edge) -> Result<()> {
@@ -73,6 +109,14 @@ impl StorageEngine for InMemoryStorage {
 
     fn flush(&self) -> Result<()> {
         Ok(()) // no-op for in-memory storage
+    }
+
+    fn find_nodes_by_label(&self, label: &str) -> Result<Vec<NodeId>> {
+        let li = self.label_index.read();
+        Ok(li
+            .get(label)
+            .map(|s| s.iter().copied().collect())
+            .unwrap_or_default())
     }
 }
 

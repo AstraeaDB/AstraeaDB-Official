@@ -9,12 +9,15 @@ ordered-float = { workspace = true }
 rand = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
+bincode = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
 criterion = { workspace = true }
+tempfile = { workspace = true }
+rand = { workspace = true }
 
 [[bench]]
 name = "vector_bench"

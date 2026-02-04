@@ -21,7 +21,13 @@ test-utils = []
 tempfile = { workspace = true }
 proptest = { workspace = true }
 criterion = { workspace = true }
+rand = { workspace = true }
 
 [[bench]]
 name = "traversal_bench"
 harness = false
+
+[[bench]]
+name = "graph_bench"
+harness = false
+required-features = ["test-utils"]

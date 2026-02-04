@@ -11,6 +11,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::page::PAGE_SIZE;
+use crate::page_io::PageIO;
 
 /// Manages a single database file organized as fixed-size pages.
 pub struct FileManager {
@@ -92,6 +93,24 @@ impl FileManager {
         let mut file = self.file.lock();
         let file_len = file.seek(SeekFrom::End(0))?;
         Ok(file_len / PAGE_SIZE as u64)
+    }
+}
+
+/// Implement the [`PageIO`] trait for `FileManager`.
+///
+/// The existing inherent methods already match the trait signatures exactly,
+/// so each trait method simply delegates to the corresponding inherent method.
+impl PageIO for FileManager {
+    fn read_page(&self, page_id: PageId) -> Result<[u8; PAGE_SIZE]> {
+        FileManager::read_page(self, page_id)
+    }
+
+    fn write_page(&self, page_id: PageId, data: &[u8; PAGE_SIZE]) -> Result<()> {
+        FileManager::write_page(self, page_id, data)
+    }
+
+    fn allocate_page(&self) -> Result<PageId> {
+        FileManager::allocate_page(self)
     }
 }
 

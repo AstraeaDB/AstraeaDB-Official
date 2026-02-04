@@ -30,8 +30,8 @@ pub enum AstraeaError {
     DuplicateEdge(EdgeId),
 
     // --- Transaction errors ---
-    #[error("transaction aborted: write-write conflict on node {0}")]
-    WriteConflict(NodeId),
+    #[error("transaction aborted: write-write conflict on entity {0}")]
+    WriteConflict(u64),
 
     #[error("transaction not active")]
     TransactionNotActive,

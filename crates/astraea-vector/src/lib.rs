@@ -6,5 +6,6 @@
 pub mod distance;
 pub mod hnsw;
 pub mod index;
+pub mod persistence;
 
 pub use index::HnswVectorIndex;

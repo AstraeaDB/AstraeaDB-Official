@@ -12,6 +12,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use ordered_float::OrderedFloat;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 use astraea_core::error::{AstraeaError, Result};
 use astraea_core::types::{DistanceMetric, NodeId};
@@ -70,6 +71,7 @@ impl PartialOrd for RevCandidate {
 ///
 /// This stores vectors and the multi-layer navigable small-world graph.
 /// Thread safety is handled externally (by `HnswVectorIndex` via `RwLock`).
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HnswIndex {
     /// Dimensionality of the vectors.
     dimension: usize,
@@ -144,6 +146,26 @@ impl HnswIndex {
     /// Return the configured metric.
     pub fn metric(&self) -> DistanceMetric {
         self.metric
+    }
+
+    /// Return the `m` parameter (max connections per non-zero layer).
+    pub fn m(&self) -> usize {
+        self.m
+    }
+
+    /// Return the `m_max0` parameter (max connections at layer 0).
+    pub fn m_max0(&self) -> usize {
+        self.m_max0
+    }
+
+    /// Return the `ef_construction` parameter.
+    pub fn ef_construction(&self) -> usize {
+        self.ef_construction
+    }
+
+    /// Return the number of layers currently in the graph.
+    pub fn num_layers(&self) -> usize {
+        self.layers.len()
     }
 
     /// Insert a vector for the given node.

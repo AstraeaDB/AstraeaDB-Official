@@ -29,6 +29,43 @@ pub trait StorageEngine: Send + Sync {
 
     /// Flush all dirty data to disk.
     fn flush(&self) -> Result<()>;
+
+    /// Find all node IDs that carry the given label.
+    ///
+    /// The default implementation returns an empty vector. Storage engines
+    /// that maintain a label index should override this for O(1) lookups.
+    fn find_nodes_by_label(&self, _label: &str) -> Result<Vec<NodeId>> {
+        Ok(Vec::new())
+    }
+}
+
+/// Extension trait for transactional storage operations.
+///
+/// Provides MVCC-based transactional access to the storage engine.
+/// Writes are buffered in the transaction and applied atomically on commit.
+pub trait TransactionalEngine: StorageEngine {
+    /// Begin a new transaction. Returns the assigned transaction ID.
+    fn begin_transaction(&self) -> Result<TransactionId>;
+
+    /// Commit a transaction, atomically applying all buffered writes.
+    fn commit_transaction(&self, txn_id: TransactionId) -> Result<()>;
+
+    /// Abort a transaction, discarding all buffered writes.
+    fn abort_transaction(&self, txn_id: TransactionId) -> Result<()>;
+
+    /// Buffer a node write within the given transaction.
+    fn put_node_tx(&self, node: &Node, txn_id: TransactionId) -> Result<()>;
+
+    /// Buffer a node deletion within the given transaction.
+    /// Returns false if the node was not found (but does not error).
+    fn delete_node_tx(&self, id: NodeId, txn_id: TransactionId) -> Result<bool>;
+
+    /// Buffer an edge write within the given transaction.
+    fn put_edge_tx(&self, edge: &Edge, txn_id: TransactionId) -> Result<()>;
+
+    /// Buffer an edge deletion within the given transaction.
+    /// Returns false if the edge was not found (but does not error).
+    fn delete_edge_tx(&self, id: EdgeId, txn_id: TransactionId) -> Result<bool>;
 }
 
 /// Graph-level operations: CRUD and traversals over the property graph.

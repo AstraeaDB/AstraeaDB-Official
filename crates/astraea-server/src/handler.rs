@@ -2,17 +2,20 @@ use std::sync::Arc;
 
 use astraea_core::traits::GraphOps;
 use astraea_core::types::*;
+use astraea_query::executor::Executor;
 
 use crate::protocol::{Request, Response};
 
 /// Handles incoming requests by dispatching to the graph engine.
 pub struct RequestHandler {
     graph: Arc<dyn GraphOps>,
+    executor: Executor,
 }
 
 impl RequestHandler {
     pub fn new(graph: Arc<dyn GraphOps>) -> Self {
-        Self { graph }
+        let executor = Executor::new(Arc::clone(&graph));
+        Self { graph, executor }
     }
 
     /// Process a single request and return a response.
@@ -179,7 +182,28 @@ impl RequestHandler {
                 Response::error("vector search not yet integrated with server")
             }
 
-            Request::Query { .. } => Response::error("GQL query execution not yet integrated"),
+            Request::Query { gql } => {
+                // Parse the GQL string into an AST.
+                let stmt = match astraea_query::parse(&gql) {
+                    Ok(s) => s,
+                    Err(e) => return Response::error(format!("parse error: {e}")),
+                };
+
+                // Execute the AST against the graph.
+                match self.executor.execute(stmt) {
+                    Ok(result) => Response::ok(serde_json::json!({
+                        "columns": result.columns,
+                        "rows": result.rows,
+                        "stats": {
+                            "nodes_created": result.stats.nodes_created,
+                            "edges_created": result.stats.edges_created,
+                            "nodes_deleted": result.stats.nodes_deleted,
+                            "edges_deleted": result.stats.edges_deleted,
+                        },
+                    })),
+                    Err(e) => Response::error(format!("execution error: {e}")),
+                }
+            }
 
             Request::Ping => Response::ok(serde_json::json!({
                 "pong": true,

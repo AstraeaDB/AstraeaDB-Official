@@ -208,12 +208,8 @@ impl GraphOps for Graph {
         traversal::shortest_path_dijkstra(self.storage.as_ref(), from, to)
     }
 
-    fn find_by_label(&self, _label: &str) -> Result<Vec<NodeId>> {
-        // TODO: implement label index scan. For now, this is a placeholder.
-        // A full implementation requires a label -> NodeId index in storage.
-        Err(AstraeaError::QueryExecution(
-            "label index scan not yet implemented".into(),
-        ))
+    fn find_by_label(&self, label: &str) -> Result<Vec<NodeId>> {
+        self.storage.find_nodes_by_label(label)
     }
 }
 
