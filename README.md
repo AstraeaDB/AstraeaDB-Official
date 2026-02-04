@@ -47,12 +47,12 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 |---|---|---:|
 | `astraea-core` | Foundational types (`Node`, `Edge`, `NodeId`), traits (`StorageEngine`, `GraphOps`, `VectorIndex`), and error types | 4 |
 | `astraea-storage` | Disk-backed storage engine: 8 KiB pages, LRU buffer pool, write-ahead log with CRC32 checksums | 20 |
-| `astraea-graph` | Graph CRUD operations and traversal algorithms (BFS, DFS, Dijkstra shortest path) | 24 |
+| `astraea-graph` | Graph CRUD operations and traversal algorithms (BFS, DFS, Dijkstra shortest path) | 37 |
 | `astraea-query` | Hand-written GQL/Cypher parser: lexer, recursive-descent parser, AST for MATCH/CREATE/DELETE | 25 |
 | `astraea-vector` | HNSW approximate nearest-neighbor index with cosine, Euclidean, and dot-product distance metrics | 26 |
 | `astraea-server` | Async TCP server (tokio) accepting newline-delimited JSON requests | 6 |
 | `astraea-cli` | Command-line interface: `serve`, `shell`, `status`, `import`, `export` | - |
-| **Total** | | **105** |
+| **Total** | | **118** |
 
 ## Data Model: Vector-Property Graph
 
@@ -284,8 +284,8 @@ let bob = graph.create_node(
     None,
 )?;
 
-// Add an edge
-graph.create_edge(alice, bob, "KNOWS".into(), serde_json::json!({}), 1.0)?;
+// Add an edge (None, None = always valid; use Some(epoch_ms) for temporal edges)
+graph.create_edge(alice, bob, "KNOWS".into(), serde_json::json!({}), 1.0, None, None)?;
 
 // Traverse
 let neighbors = graph.neighbors(alice, Direction::Outgoing)?;
@@ -441,8 +441,8 @@ with AstraeaClient(host="127.0.0.1", port=7687) as client:
 | `get_node(id)` | Get node by ID |
 | `update_node(id, properties)` | Merge properties into a node |
 | `delete_node(id)` | Delete node and all connected edges |
-| `create_edge(source, target, type, properties?, weight?)` | Create an edge, returns edge ID |
-| `get_edge(id)` | Get edge by ID |
+| `create_edge(source, target, type, properties?, weight?, valid_from?, valid_to?)` | Create an edge, returns edge ID. `valid_from`/`valid_to` are epoch-ms bounds for temporal validity |
+| `get_edge(id)` | Get edge by ID (includes `valid_from`/`valid_to`) |
 | `delete_edge(id)` | Delete an edge |
 | `neighbors(id, direction?, edge_type?)` | Get neighbors with optional filtering |
 | `bfs(start, max_depth?)` | Breadth-first traversal |
@@ -563,6 +563,201 @@ client$close()
 | `$bfs(start, max_depth?)` | Breadth-first traversal |
 | `$shortest_path(from, to, weighted?)` | Shortest path (BFS or Dijkstra) |
 
+## Example: Cybersecurity Threat Investigation
+
+This example demonstrates how AstraeaDB enables security analysts to investigate network alerts by tracing connections through a graph. A full runnable demo is provided at `examples/cybersecurity_demo.py` with matching Rust tests in the `astraea-graph` crate.
+
+### The Problem
+
+Cybersecurity tools typically deal in IP addresses, but IPs are ephemeral. When a firewall alerts on suspicious traffic from `10.0.1.50`, the analyst must manually:
+
+1. Search DHCP logs to find which hostname held that IP at the time of the alert
+2. Search asset management records to find which user is assigned to that hostname
+3. Search other log sources to understand the full scope of the incident
+
+With AstraeaDB, these datasets are loaded as a graph, and the investigation becomes a series of traversals.
+
+### Graph Model
+
+```
+User <--[ASSIGNED_TO]-- Laptop <--[DHCP_LEASE]-- IPAddress
+                                                    |
+                                              [TRAFFIC]  [TRIGGERED]
+                                                    |         |
+                                              IPAddress  FirewallAlert --[TARGETS]--> ExternalHost
+```
+
+| Node Label | Properties | Description |
+|---|---|---|
+| `User` | `name`, `department`, `role` | Corporate employee |
+| `Laptop` | `brand`, `model`, `serial_number`, `hostname` | Assigned device |
+| `IPAddress` | `address`, `network` | Internal (10.0.x.y) or external IP |
+| `ExternalHost` | `hostname`, `category`, `risk_level` | External server/website |
+| `FirewallAlert` | `alert_id`, `rule`, `severity`, `timestamp`, `action` | Security alert |
+
+| Edge Type | Direction | Key Feature |
+|---|---|---|
+| `ASSIGNED_TO` | Laptop -> User | Asset inventory |
+| `DHCP_LEASE` | IPAddress -> Laptop | **Temporal edge** with `valid_from`/`valid_to` (lease window) |
+| `TRAFFIC` | IPAddress -> IPAddress/ExternalHost | Network flow with port, protocol, bytes |
+| `TRIGGERED` | IPAddress -> FirewallAlert | Links source IP to alert |
+| `TARGETS` | FirewallAlert -> destination | Links alert to target |
+
+### The Scenario: Eve's Attack
+
+Three employees -- Alice (Engineering), Bob (Finance), and Eve (Marketing) -- each have laptops with DHCP-assigned IPs on the `10.0.1.0/24` network:
+
+| User | Laptop | Hostname | IP Address |
+|---|---|---|---|
+| Alice | MacBook Pro 16 | ALICE-MBP01 | 10.0.1.10 |
+| Bob | ThinkPad X1 | BOB-TP01 | 10.0.1.20 |
+| Eve | Latitude 5540 | EVE-LAT01 | 10.0.1.50 |
+
+Eve's attack chain:
+
+1. Downloads a password cracker from `darktools.example.com` (port 443)
+2. Firewall logs the connection (alert `FW-2025-0042`, severity: critical)
+3. Attempts RDP to Bob's machine at `10.0.1.20:3389` -- **blocked**
+4. Attempts SSH to Alice's machine at `10.0.1.10:22` -- **blocked**
+
+### Investigation with AstraeaDB
+
+**Step 1: Load datasets as graphs.**
+
+```python
+from examples.python_client import AstraeaClient
+
+with AstraeaClient() as client:
+    # Asset management: users and laptops
+    eve = client.create_node(["User"], {"name": "Eve", "department": "Marketing"})
+    laptop = client.create_node(["Laptop"], {"hostname": "EVE-LAT01", ...})
+    client.create_edge(laptop, eve, "ASSIGNED_TO", {"assigned_date": "2024-09-10"})
+
+    # DHCP leases with temporal validity (epoch milliseconds)
+    ip_eve = client.create_node(["IPAddress"], {"address": "10.0.1.50"})
+    client.create_edge(ip_eve, laptop, "DHCP_LEASE",
+        {"dhcp_server": "10.0.0.1"},
+        valid_from=1736928000000,  # 2025-01-15 08:00 UTC
+        valid_to=1736935200000,    # 2025-01-15 10:00 UTC
+    )
+
+    # Network traffic and firewall alerts
+    alert = client.create_node(["FirewallAlert"], {
+        "alert_id": "FW-2025-0042", "rule": "MALWARE_DOWNLOAD",
+        "severity": "critical",
+    })
+    client.create_edge(ip_eve, alert, "TRIGGERED", {"timestamp": 1736929800000})
+```
+
+**Step 2: Analyst investigates alert FW-2025-0042.**
+
+```python
+    # Who triggered this alert?
+    sources = client.neighbors(alert_id, "incoming", edge_type="TRIGGERED")
+    # -> [{"node_id": <ip_eve>, "edge_id": ...}]
+
+    source_ip = client.get_node(sources[0]["node_id"])
+    # -> {"address": "10.0.1.50", "network": "internal"}
+
+    # Trace IP -> Laptop via DHCP lease
+    leases = client.neighbors(source_ip_id, "outgoing", edge_type="DHCP_LEASE")
+    laptop = client.get_node(leases[0]["node_id"])
+    # -> {"hostname": "EVE-LAT01", "brand": "Dell", ...}
+
+    # Trace Laptop -> User
+    users = client.neighbors(laptop_id, "outgoing", edge_type="ASSIGNED_TO")
+    user = client.get_node(users[0]["node_id"])
+    # -> {"name": "Eve", "department": "Marketing", "role": "Analyst"}
+```
+
+**Step 3: Pivot -- what else has Eve's IP been doing?**
+
+```python
+    # All outbound traffic from 10.0.1.50
+    traffic = client.neighbors(source_ip_id, "outgoing", edge_type="TRAFFIC")
+    # -> darktools.example.com:443, 10.0.1.20:3389 (RDP), 10.0.1.10:22 (SSH)
+
+    # BFS to see full blast radius (2 hops from Eve's IP)
+    blast_radius = client.bfs(source_ip_id, max_depth=2)
+```
+
+### Expected Output
+
+```
+======================================================================
+  Phase 2: Analyst Investigation
+======================================================================
+
+[Step 1] Analyst sees alert FW-2025-0042 (MALWARE_DOWNLOAD)
+   Alert: Connection to known malware distribution site
+   Severity: critical
+
+[Step 2] Who triggered this alert? (follow TRIGGERED edges)
+   Source IP: 10.0.1.50
+
+[Step 3] Trace 10.0.1.50 -> Laptop via DHCP_LEASE
+   Laptop: EVE-LAT01
+   DHCP lease valid: 08:00 - 10:00 UTC
+
+[Step 4] Trace EVE-LAT01 -> User via ASSIGNED_TO
+   >>> IDENTIFIED USER: Eve
+       Department: Marketing
+       Role: Analyst
+
+[Step 5] Pivot: What else has 10.0.1.50 been doing?
+   Found 3 outbound traffic connections:
+   -> darktools.example.com:443 - Downloaded password_cracker.zip
+   -> 10.0.1.20:3389 - RDP connection attempt
+   -> 10.0.1.10:22 - SSH connection attempt
+
+[Step 6] Identify targets of lateral movement attempts
+   Alert MALWARE_DOWNLOAD (critical): target = darktools.example.com
+   Alert LATERAL_MOVEMENT_RDP (high): target = 10.0.1.20 -> BOB-TP01 -> Bob
+   Alert UNAUTHORIZED_SSH (high): target = 10.0.1.10 -> ALICE-MBP01 -> Alice
+
+======================================================================
+  Investigation Summary
+======================================================================
+
+  Alert:   FW-2025-0042 (MALWARE_DOWNLOAD, critical)
+  Source:  10.0.1.50
+  Laptop:  EVE-LAT01 (Dell Latitude 5540, SN-DEL-3001)
+  User:    Eve (Marketing, Analyst)
+
+  Activity from 10.0.1.50:
+    1. Downloaded password cracker from darktools.example.com
+    2. Attempted RDP to Bob's machine (10.0.1.20, BOB-TP01) - BLOCKED
+    3. Attempted SSH to Alice's machine (10.0.1.10, ALICE-MBP01) - BLOCKED
+
+  Recommendation: Isolate EVE-LAT01, revoke Eve's credentials,
+  initiate incident response procedure.
+```
+
+### Running the Demo
+
+```bash
+# Terminal 1: Start the server
+cargo run -p astraea-cli -- serve
+
+# Terminal 2: Run the cybersecurity demo
+python3 examples/cybersecurity_demo.py
+```
+
+### Rust Tests
+
+The same scenario is implemented as 13 Rust tests in the `astraea-graph` crate covering:
+
+- Full investigation chain (alert -> IP -> laptop -> user)
+- Temporal validity of DHCP leases
+- BFS blast-radius discovery
+- Shortest path between attacker and target IPs
+- Edge-type filtering for traffic analysis
+- Verification that innocent users have clean traffic profiles
+
+```bash
+cargo test --package astraea-graph cybersecurity
+```
+
 ## What Remains To Be Done
 
 ### Phase 1 Remaining (Foundation)
@@ -630,7 +825,8 @@ astraeadb/
 │   │   └── src/
 │   │       ├── graph.rs       # Graph struct, CRUD, GraphOps impl
 │   │       ├── traversal.rs   # BFS, DFS, Dijkstra
-│   │       └── test_utils.rs  # InMemoryStorage
+│   │       ├── test_utils.rs  # InMemoryStorage
+│   │       └── cybersecurity_test.rs  # Cybersecurity scenario tests
 │   ├── astraea-query/         # GQL parser
 │   │   └── src/
 │   │       ├── token.rs       # Token enum, Span

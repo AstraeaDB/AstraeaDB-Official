@@ -78,6 +78,8 @@ impl GraphOps for Graph {
         edge_type: String,
         properties: serde_json::Value,
         weight: f64,
+        valid_from: Option<i64>,
+        valid_to: Option<i64>,
     ) -> Result<EdgeId> {
         // Verify both endpoints exist.
         if self.storage.get_node(source)?.is_none() {
@@ -95,7 +97,10 @@ impl GraphOps for Graph {
             edge_type,
             properties,
             weight,
-            validity: ValidityInterval::always(),
+            validity: ValidityInterval {
+                valid_from,
+                valid_to,
+            },
         };
         self.storage.put_edge(&edge)?;
         Ok(id)
@@ -259,7 +264,7 @@ mod tests {
             .create_node(vec![], serde_json::json!({}), None)
             .unwrap();
         let e = graph
-            .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0)
+            .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
 
         let edge = graph.get_edge(e).unwrap().unwrap();
@@ -275,7 +280,7 @@ mod tests {
             .create_node(vec![], serde_json::json!({}), None)
             .unwrap();
 
-        let result = graph.create_edge(a, NodeId(999), "KNOWS".into(), serde_json::json!({}), 1.0);
+        let result = graph.create_edge(a, NodeId(999), "KNOWS".into(), serde_json::json!({}), 1.0, None, None);
         assert!(result.is_err());
     }
 
@@ -310,7 +315,7 @@ mod tests {
             .create_node(vec![], serde_json::json!({}), None)
             .unwrap();
         let e = graph
-            .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0)
+            .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
 
         graph.delete_node(a).unwrap();
@@ -335,10 +340,10 @@ mod tests {
             .unwrap();
 
         graph
-            .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0)
+            .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
         graph
-            .create_edge(c, a, "FOLLOWS".into(), serde_json::json!({}), 1.0)
+            .create_edge(c, a, "FOLLOWS".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
 
         let out = graph.neighbors(a, Direction::Outgoing).unwrap();
@@ -367,10 +372,10 @@ mod tests {
             .unwrap();
 
         graph
-            .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0)
+            .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
         graph
-            .create_edge(a, c, "FOLLOWS".into(), serde_json::json!({}), 1.0)
+            .create_edge(a, c, "FOLLOWS".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
 
         let knows = graph

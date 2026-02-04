@@ -44,6 +44,7 @@ pub trait GraphOps: Send + Sync {
 
     /// Create a new edge between two nodes.
     /// Returns the assigned EdgeId.
+    /// `valid_from` and `valid_to` are optional epoch-millisecond bounds for temporal validity.
     fn create_edge(
         &self,
         source: NodeId,
@@ -51,6 +52,8 @@ pub trait GraphOps: Send + Sync {
         edge_type: String,
         properties: serde_json::Value,
         weight: f64,
+        valid_from: Option<i64>,
+        valid_to: Option<i64>,
     ) -> Result<EdgeId>;
 
     /// Get a node by ID.

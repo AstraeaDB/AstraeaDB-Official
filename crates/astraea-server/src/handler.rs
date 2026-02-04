@@ -33,6 +33,8 @@ impl RequestHandler {
                 edge_type,
                 properties,
                 weight,
+                valid_from,
+                valid_to,
             } => {
                 match self.graph.create_edge(
                     NodeId(source),
@@ -40,6 +42,8 @@ impl RequestHandler {
                     edge_type,
                     properties,
                     weight,
+                    valid_from,
+                    valid_to,
                 ) {
                     Ok(id) => Response::ok(serde_json::json!({"edge_id": id.0})),
                     Err(e) => Response::error(e.to_string()),
@@ -65,6 +69,8 @@ impl RequestHandler {
                     "edge_type": edge.edge_type,
                     "properties": edge.properties,
                     "weight": edge.weight,
+                    "valid_from": edge.validity.valid_from,
+                    "valid_to": edge.validity.valid_to,
                 })),
                 Ok(None) => Response::error(format!("edge {id} not found")),
                 Err(e) => Response::error(e.to_string()),

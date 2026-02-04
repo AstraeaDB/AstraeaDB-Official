@@ -20,6 +20,12 @@ pub enum Request {
         properties: serde_json::Value,
         #[serde(default = "default_weight")]
         weight: f64,
+        /// Optional temporal validity start (epoch milliseconds, inclusive).
+        #[serde(default)]
+        valid_from: Option<i64>,
+        /// Optional temporal validity end (epoch milliseconds, exclusive).
+        #[serde(default)]
+        valid_to: Option<i64>,
     },
     /// Get a node by ID.
     GetNode { id: u64 },

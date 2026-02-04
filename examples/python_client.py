@@ -121,20 +121,33 @@ class AstraeaClient:
         edge_type: str,
         properties: Optional[dict] = None,
         weight: float = 1.0,
+        valid_from: Optional[int] = None,
+        valid_to: Optional[int] = None,
     ) -> int:
-        """Create an edge. Returns the edge ID."""
-        data = self._check(
-            self._send(
-                {
-                    "type": "CreateEdge",
-                    "source": source,
-                    "target": target,
-                    "edge_type": edge_type,
-                    "properties": properties or {},
-                    "weight": weight,
-                }
-            )
-        )
+        """Create an edge. Returns the edge ID.
+
+        Args:
+            source: Source node ID.
+            target: Target node ID.
+            edge_type: Relationship type label.
+            properties: Optional JSON properties.
+            weight: Edge weight (default 1.0).
+            valid_from: Optional temporal start (epoch milliseconds, inclusive).
+            valid_to: Optional temporal end (epoch milliseconds, exclusive).
+        """
+        req = {
+            "type": "CreateEdge",
+            "source": source,
+            "target": target,
+            "edge_type": edge_type,
+            "properties": properties or {},
+            "weight": weight,
+        }
+        if valid_from is not None:
+            req["valid_from"] = valid_from
+        if valid_to is not None:
+            req["valid_to"] = valid_to
+        data = self._check(self._send(req))
         return data["edge_id"]
 
     def get_edge(self, edge_id: int) -> dict:
