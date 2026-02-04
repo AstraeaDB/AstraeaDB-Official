@@ -369,6 +369,111 @@ impl RequestHandler {
                 }
             }
 
+            Request::NeighborsAt {
+                id,
+                direction,
+                timestamp,
+                edge_type,
+            } => {
+                let dir = match direction.as_str() {
+                    "incoming" => Direction::Incoming,
+                    "both" => Direction::Both,
+                    _ => Direction::Outgoing,
+                };
+
+                match self.graph.neighbors_at(NodeId(id), dir, timestamp) {
+                    Ok(neighbors) => {
+                        let items: Vec<serde_json::Value> = if let Some(et) = edge_type {
+                            // Post-filter by edge type (get the edge to check type)
+                            neighbors
+                                .into_iter()
+                                .filter(|(eid, _)| {
+                                    self.graph
+                                        .get_edge(*eid)
+                                        .ok()
+                                        .flatten()
+                                        .is_some_and(|e| e.edge_type == et)
+                                })
+                                .map(|(eid, nid)| {
+                                    serde_json::json!({"edge_id": eid.0, "node_id": nid.0})
+                                })
+                                .collect()
+                        } else {
+                            neighbors
+                                .into_iter()
+                                .map(|(eid, nid)| {
+                                    serde_json::json!({"edge_id": eid.0, "node_id": nid.0})
+                                })
+                                .collect()
+                        };
+                        Response::ok(serde_json::json!({"neighbors": items, "timestamp": timestamp}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::BfsAt {
+                start,
+                max_depth,
+                timestamp,
+            } => match self.graph.bfs_at(NodeId(start), max_depth, timestamp) {
+                Ok(nodes) => {
+                    let items: Vec<serde_json::Value> = nodes
+                        .into_iter()
+                        .map(|(nid, depth)| {
+                            serde_json::json!({"node_id": nid.0, "depth": depth})
+                        })
+                        .collect();
+                    Response::ok(serde_json::json!({"nodes": items, "timestamp": timestamp}))
+                }
+                Err(e) => Response::error(e.to_string()),
+            },
+
+            Request::ShortestPathAt {
+                from,
+                to,
+                timestamp,
+                weighted,
+            } => {
+                if weighted {
+                    match self
+                        .graph
+                        .shortest_path_weighted_at(NodeId(from), NodeId(to), timestamp)
+                    {
+                        Ok(Some((path, cost))) => {
+                            let node_ids: Vec<u64> =
+                                path.nodes().into_iter().map(|n| n.0).collect();
+                            Response::ok(serde_json::json!({
+                                "path": node_ids, "cost": cost, "length": path.len(),
+                                "timestamp": timestamp
+                            }))
+                        }
+                        Ok(None) => {
+                            Response::ok(serde_json::json!({"path": null, "timestamp": timestamp}))
+                        }
+                        Err(e) => Response::error(e.to_string()),
+                    }
+                } else {
+                    match self
+                        .graph
+                        .shortest_path_at(NodeId(from), NodeId(to), timestamp)
+                    {
+                        Ok(Some(path)) => {
+                            let node_ids: Vec<u64> =
+                                path.nodes().into_iter().map(|n| n.0).collect();
+                            Response::ok(serde_json::json!({
+                                "path": node_ids, "length": path.len(),
+                                "timestamp": timestamp
+                            }))
+                        }
+                        Ok(None) => {
+                            Response::ok(serde_json::json!({"path": null, "timestamp": timestamp}))
+                        }
+                        Err(e) => Response::error(e.to_string()),
+                    }
+                }
+            }
+
             Request::Ping => Response::ok(serde_json::json!({
                 "pong": true,
                 "version": env!("CARGO_PKG_VERSION"),

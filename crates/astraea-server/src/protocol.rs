@@ -124,6 +124,29 @@ pub enum Request {
         #[serde(default = "default_text_format")]
         format: String,
     },
+    /// Get neighbors of a node at a specific point in time.
+    NeighborsAt {
+        id: u64,
+        direction: String,
+        timestamp: i64,
+        #[serde(default)]
+        edge_type: Option<String>,
+    },
+    /// Run a BFS traversal at a specific point in time.
+    BfsAt {
+        start: u64,
+        #[serde(default = "default_max_depth")]
+        max_depth: usize,
+        timestamp: i64,
+    },
+    /// Find shortest path at a specific point in time.
+    ShortestPathAt {
+        from: u64,
+        to: u64,
+        timestamp: i64,
+        #[serde(default)]
+        weighted: bool,
+    },
     /// Server status / health check.
     Ping,
 }

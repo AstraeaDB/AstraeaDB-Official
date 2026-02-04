@@ -875,6 +875,7 @@ async fn main() {
             let server_config = astraea_server::ServerConfig {
                 bind_address: cfg.server.bind_address.clone(),
                 port: cfg.server.port,
+                connection: astraea_server::ConnectionConfig::default(),
             };
             let tcp_server =
                 astraea_server::AstraeaServer::new(server_config, tcp_handler);

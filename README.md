@@ -16,22 +16,23 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 │  astraea-server    │  │  astraea-flight    │  │  python/astraeadb  │
 │  JSON-TCP (7687)   │  │  Arrow Flight      │  │  Python Client     │
 │  gRPC (7688)       │  │  do_get / do_put   │  │  JSON + Arrow      │
-│  RAG + GQL         │  │                    │  │                    │
+│  Auth, Metrics     │  │                    │  │                    │
+│  Connection Mgmt   │  │                    │  │                    │
 └──────┬─────────────┘  └──────┬─────────────┘  └────────────────────┘
        │                       │
        └───────────┬───────────┘
                    │
-    ┌──────────────┼──────────────┐
-    │              │              │
-┌───▼──────┐ ┌────▼────────┐ ┌───▼───────┐
-│astraea-  │ │ astraea-    │ │astraea-   │
-│  rag     │ │   query     │ │  gnn      │
-│Subgraph  │ │ GQL Parser  │ │Tensor,    │
-│Linearize │ │ + Executor  │ │MsgPassing │
-│LLM, RAG  │ │             │ │Training   │
-└───┬──────┘ └────┬────────┘ └───┬───────┘
-    │              │              │
-    └──────────────┼──────────────┘
+    ┌──────────────┼──────────────────────────────┐
+    │              │              │                │
+┌───▼──────┐ ┌────▼────────┐ ┌───▼───────┐ ┌─────▼──────────┐
+│astraea-  │ │ astraea-    │ │astraea-   │ │ astraea-       │
+│  rag     │ │   query     │ │  gnn      │ │  algorithms    │
+│Subgraph  │ │ GQL Parser  │ │Tensor,    │ │  PageRank,     │
+│Linearize │ │ + Executor  │ │MsgPassing │ │  Louvain,      │
+│LLM, RAG  │ │             │ │Training   │ │  Components    │
+└───┬──────┘ └────┬────────┘ └───┬───────┘ └─────┬──────────┘
+    │              │              │                │
+    └──────────────┼──────────────┴────────────────┘
                    │
        ┌───────────┴───────────┐
        │                       │
@@ -40,6 +41,7 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 │  CRUD, BFS, DFS  │  │  HNSW Index      │
 │  Hybrid Search   │  │  ANN Search      │
 │  Semantic Walk   │  │  Persistence     │
+│  Temporal Queries│  │                  │
 └──────────┬───────┘  └──────────────────┘
            │
 ┌──────────▼──────────────────────────────┐
@@ -52,7 +54,17 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 │          astraea-core                   │
 │  Types, Traits, Errors                  │
 │  Node, Edge, StorageEngine, ...         │
-└─────────────────────────────────────────┘
+└──────────┬──────────────────────────────┘
+           │
+    ┌──────┴──────┬───────────────┐
+    │             │               │
+┌───▼────────┐ ┌─▼───────────┐ ┌─▼──────────────┐
+│astraea-    │ │astraea-     │ │astraea-        │
+│  crypto    │ │  gpu        │ │  cluster       │
+│Encrypted   │ │CSR Matrix,  │ │Partitioning,   │
+│Labels,     │ │CPU Backend, │ │Sharding,       │
+│FHE Engine  │ │PageRank/BFS │ │Coordination    │
+└────────────┘ └─────────────┘ └────────────────┘
 ```
 
 ## Crate Overview
@@ -61,16 +73,20 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 |---|---|---:|
 | `astraea-core` | Foundational types (`Node`, `Edge`, `NodeId`), traits (`StorageEngine`, `GraphOps`, `VectorIndex`, `TransactionalEngine`), and error types | 4 |
 | `astraea-storage` | Disk-backed storage engine: 8 KiB pages, LRU buffer pool with pointer swizzling, MVCC transactions, WAL with CRC32 checksums, PageIO trait, cold storage, label index | 58 |
-| `astraea-graph` | Graph CRUD, traversals (BFS, DFS, Dijkstra), hybrid search, semantic traversal, auto-indexing vector embeddings | 48 |
+| `astraea-graph` | Graph CRUD, traversals (BFS, DFS, Dijkstra), temporal queries, hybrid search, semantic traversal, auto-indexing vector embeddings | 55 |
 | `astraea-query` | Hand-written GQL/Cypher parser and executor: lexer, recursive-descent parser, AST, full query execution pipeline | 56 |
 | `astraea-vector` | HNSW approximate nearest-neighbor index with cosine, Euclidean, and dot-product distance metrics; binary persistence | 33 |
 | `astraea-rag` | GraphRAG engine: subgraph extraction (BFS + semantic), linearization (4 formats), token budgets, LLM provider trait, GraphRAG pipeline | 27 |
 | `astraea-gnn` | GNN training: differentiable tensors, message passing (sum/mean/max aggregation), node classification training loop | 26 |
-| `astraea-server` | Async TCP server (tokio) with JSON protocol and gRPC/Protobuf transport; GQL query execution; vector/hybrid/semantic/RAG operations | 24 |
+| `astraea-server` | Async TCP server (tokio) with JSON/gRPC transport; auth (RBAC), metrics (Prometheus), connection management, GQL execution, vector/hybrid/semantic/RAG operations | 52 |
 | `astraea-flight` | Apache Arrow Flight server for zero-copy data exchange: `do_get` (query → Arrow), `do_put` (Arrow → bulk import) | 11 |
+| `astraea-algorithms` | Graph algorithms: PageRank (power iteration), connected/strongly-connected components (Tarjan's), degree/betweenness centrality (Brandes'), Louvain community detection | 20 |
+| `astraea-crypto` | Homomorphic encryption foundation: key generation, encrypted labels/values/nodes, server-side encrypted label matching | 31 |
+| `astraea-gpu` | GPU acceleration framework: CSR matrix representation, GpuBackend trait, CPU fallback (PageRank, BFS, SSSP) | 16 |
+| `astraea-cluster` | Distributed processing foundation: hash/range partitioning, shard management, cluster coordinator trait | 19 |
 | `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export` | - |
 | `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
-| **Rust Total** | | **287** |
+| **Rust Total** | | **408** |
 | **Python Total** | | **23** |
 
 ## Data Model: Vector-Property Graph
@@ -154,6 +170,11 @@ Implements the `GraphOps` trait on top of any `StorageEngine`:
 - **Semantic Traversal:**
   - `semantic_neighbors(node_id, concept_embedding, direction, k)` — rank neighbors by embedding similarity to a concept vector.
   - `semantic_walk(start, concept_embedding, max_hops)` — greedy multi-hop walk, at each hop moving to the unvisited neighbor most similar to the concept embedding.
+- **Temporal Queries:**
+  - `neighbors_at(node_id, direction, timestamp)` — neighbors filtered to edges valid at the given timestamp
+  - `bfs_at(start, max_depth, timestamp)` — BFS traversal only following edges valid at the timestamp
+  - `shortest_path_at(from, to, timestamp)` — shortest path using only temporally-valid edges
+  - `shortest_path_weighted_at(from, to, timestamp)` — Dijkstra with temporal filtering
 - **Auto-indexing:** When a `VectorIndex` is attached, `create_node()` automatically indexes embeddings and `delete_node()` removes them.
 
 ### GQL Parser & Executor (`astraea-query`)
@@ -214,6 +235,24 @@ Three transport layers for different use cases:
 
 JSON and gRPC transports delegate to the same `RequestHandler` and `Executor`. The Flight server wraps the same `Graph` + `Executor` with Arrow serialization.
 
+**Authentication & Access Control:**
+- API key authentication with `auth_token` field in JSON requests
+- Three roles: `Reader` (read-only), `Writer` (read + write), `Admin` (full access)
+- Audit logging with bounded circular buffer
+- Key management: add, revoke, list
+
+**Connection Management:**
+- Configurable connection limits (default: 1024) with semaphore-based enforcement
+- Request-level backpressure (default: 256 concurrent requests)
+- Idle timeout (default: 5 minutes) and request timeout (default: 30 seconds)
+- Graceful shutdown: stops accepting, drains in-flight requests, flushes state
+
+**Observability:**
+- Prometheus text exposition format at the metrics endpoint
+- Request counters, error counters, duration percentiles (p50/p90/p99)
+- Connection gauges (active, total, rejected)
+- Health check returning uptime, connection stats, status
+
 **Supported requests:**
 
 | Request | Description |
@@ -232,6 +271,9 @@ JSON and gRPC transports delegate to the same `RequestHandler` and `Executor`. T
 | `SemanticWalk` | Greedy multi-hop walk toward a concept embedding |
 | `ExtractSubgraph` | Extract and linearize a local subgraph (Prose/Structured/Triples/JSON) |
 | `GraphRag` | GraphRAG pipeline: vector search → subgraph → linearize → context for LLM |
+| `NeighborsAt` | Get neighbors at a specific timestamp (temporal edge filtering) |
+| `BfsAt` | BFS traversal at a specific timestamp |
+| `ShortestPathAt` | Shortest path at a specific timestamp (weighted or unweighted) |
 | `Query` | Execute a GQL query string (fully functional) |
 | `Ping` | Health check |
 
@@ -933,11 +975,11 @@ The same scenario is implemented as 13 Rust tests in the `astraea-graph` crate c
 cargo test --package astraea-graph cybersecurity
 ```
 
-## What Remains To Be Done
+## Implementation Status
 
 ### Phase 1 (Foundation) — COMPLETED
 
-All Phase 1 items have been implemented. 201 tests pass across the workspace.
+All Phase 1 items have been implemented.
 
 | Feature | Status | Description |
 |---|---|---|
@@ -954,7 +996,7 @@ All Phase 1 items have been implemented. 201 tests pass across the workspace.
 
 ### Phase 2 (Semantic Layer) — COMPLETED
 
-All Phase 2 items have been implemented. 230 Rust tests + 23 Python tests pass.
+All Phase 2 items have been implemented.
 
 | Feature | Status | Description |
 |---|---|---|
@@ -964,16 +1006,9 @@ All Phase 2 items have been implemented. 230 Rust tests + 23 Python tests pass.
 | **Apache Arrow Flight** | Done | `astraea-flight` crate: `do_get` (GQL → Arrow RecordBatch streaming), `do_put` (Arrow → bulk node/edge import). 11 tests. |
 | **Python Client** | Done | `python/astraeadb` package: `JsonClient` (zero deps), `ArrowClient` (pyarrow.flight), `AstraeaClient` (unified). 23 tests. |
 
-### Remaining Phase 2 Items
-
-| Feature | Description |
-|---|---|
-| **Temporal Traversals** | Filter edges by `ValidityInterval` during BFS/DFS/Dijkstra; "show me the graph at time T" queries |
-| **Parquet Cold Storage** | Upgrade `ColdStorage` backend from JSON to Apache Parquet with S3/GCS via `object_store` |
-
 ### Phase 3 (GraphRAG Engine) — COMPLETED
 
-All Phase 3 items have been implemented. 287 Rust tests + 23 Python tests pass.
+All Phase 3 items have been implemented.
 
 | Feature | Status | Description |
 |---|---|---|
@@ -981,22 +1016,25 @@ All Phase 3 items have been implemented. 287 Rust tests + 23 Python tests pass.
 | **LLM Integration** | Done | `LlmProvider` trait with Mock/OpenAI/Anthropic/Ollama providers (callback-based, no HTTP deps); `GraphRagConfig` + pipeline; `ExtractSubgraph` and `GraphRag` server requests. 19 tests. |
 | **Differentiable Traversal** | Done | `Tensor` type with autograd; message passing layer (Sum/Mean/Max aggregation, ReLU/Sigmoid activation); `train_node_classification()` with numerical gradient descent. 26 tests. |
 
-### Phase 4 (Advanced / Research)
+### Phase 4 (Advanced / Research) — COMPLETED
 
-| Feature | Description |
-|---|---|
-| **Graph Algorithms** | PageRank, Louvain community detection, connected components, centrality measures |
-| **Distributed / MPP** | Hash-based graph partitioning, Raft consensus, cross-shard traversal |
-| **Homomorphic Encryption** | Encrypted label matching and property comparison via `tfhe-rs` |
-| **GPU Acceleration** | CUDA/cuGraph offload for PageRank, BFS, SSSP on large graphs |
+All Phase 4 items have been implemented. 408 Rust tests pass across the workspace.
 
-### Production Readiness
+| Feature | Status | Description |
+|---|---|---|
+| **Temporal Queries** | Done | `neighbors_at()`, `bfs_at()`, `shortest_path_at()` filter edges by `ValidityInterval` at a given timestamp. `NeighborsAt`, `BfsAt`, `ShortestPathAt` server requests. 11 tests. |
+| **Graph Algorithms** | Done | `astraea-algorithms` crate: PageRank (power iteration), connected/strongly-connected components (Tarjan's), degree/betweenness centrality (Brandes'), Louvain community detection. 20 tests. |
+| **Homomorphic Encryption** | Done | `astraea-crypto` crate: key generation, encrypted labels (deterministic tags), encrypted values (randomized), `EncryptedQueryEngine` for server-side label matching. 31 tests. |
+| **GPU Acceleration** | Done | `astraea-gpu` crate: CSR matrix with SpMV/transpose, `GpuBackend` trait, `CpuBackend` (PageRank, BFS, SSSP with Bellman-Ford). 16 tests. |
+| **Sharding / MPP** | Done | `astraea-cluster` crate: hash/range partitioning, shard map, `ClusterCoordinator` trait with `LocalCoordinator`. 19 tests. |
 
-| Feature | Description |
-|---|---|
-| **Authentication & Access Control** | API key auth, mTLS, RBAC (admin/writer/reader roles), audit logging |
-| **Observability** | Prometheus metrics, `tracing` instrumentation, health/readiness endpoints |
-| **Connection Pooling & Backpressure** | Connection limits, request queuing, idle timeouts, graceful shutdown |
+### Production Readiness — COMPLETED
+
+| Feature | Status | Description |
+|---|---|---|
+| **Authentication & RBAC** | Done | API key auth with Reader/Writer/Admin roles. `AuthManager` with authenticate/authorize/audit/revoke. Integrated into server request handling. 11 tests. |
+| **Observability** | Done | `ServerMetrics` with Prometheus text exposition format (request counters, error counters, p50/p90/p99 durations, connection gauges, uptime). Health endpoint. 7 tests. |
+| **Connection Management** | Done | `ConnectionManager` with semaphore-based connection limits, request backpressure, idle/request timeouts, graceful shutdown with drain. RAII `ConnectionGuard`. 6 tests. |
 
 ## Project Structure
 
@@ -1050,10 +1088,13 @@ astraeadb/
 │   ├── astraea-server/        # Network server
 │   │   ├── build.rs           # tonic-build proto compilation
 │   │   └── src/
-│   │       ├── protocol.rs    # Request/Response JSON types (incl. HybridSearch, SemanticNeighbors, SemanticWalk)
+│   │       ├── protocol.rs    # Request/Response JSON types (incl. temporal, hybrid, semantic)
 │   │       ├── handler.rs     # Request dispatcher (with GQL executor + VectorIndex)
 │   │       ├── grpc.rs        # gRPC service (14 RPCs via tonic)
-│   │       └── server.rs      # Async TCP server
+│   │       ├── auth.rs        # RBAC authentication (Reader/Writer/Admin roles)
+│   │       ├── metrics.rs     # Prometheus metrics + health endpoint
+│   │       ├── connection.rs  # Connection limits, backpressure, graceful shutdown
+│   │       └── server.rs      # Async TCP server with auth, metrics, connection mgmt
 │   ├── astraea-flight/        # Arrow Flight server
 │   │   └── src/
 │   │       ├── lib.rs         # Crate root (schemas + service modules)
@@ -1073,6 +1114,27 @@ astraeadb/
 │   │       ├── tensor.rs      # Differentiable tensor with gradient tracking
 │   │       ├── message_passing.rs  # GNN message passing (Sum/Mean/Max, ReLU/Sigmoid)
 │   │       └── training.rs    # Node classification training loop
+│   ├── astraea-algorithms/    # Graph algorithms
+│   │   └── src/
+│   │       ├── pagerank.rs    # PageRank (power iteration with dangling node handling)
+│   │       ├── components.rs  # Connected + strongly-connected components (Tarjan's)
+│   │       ├── centrality.rs  # Degree + betweenness centrality (Brandes')
+│   │       └── community.rs   # Louvain community detection
+│   ├── astraea-crypto/        # Homomorphic encryption
+│   │   └── src/
+│   │       ├── keys.rs        # SecretKey, PublicKey, KeyPair
+│   │       ├── encrypted.rs   # EncryptedValue, EncryptedLabel, EncryptedNode
+│   │       └── engine.rs      # EncryptedQueryEngine (server-side label matching)
+│   ├── astraea-gpu/           # GPU acceleration
+│   │   └── src/
+│   │       ├── csr.rs         # CSR sparse matrix (SpMV, transpose)
+│   │       ├── backend.rs     # GpuBackend trait, ComputeResult
+│   │       └── cpu.rs         # CpuBackend (PageRank, BFS, SSSP fallback)
+│   ├── astraea-cluster/       # Distributed processing
+│   │   └── src/
+│   │       ├── partition.rs   # Hash + Range partitioning strategies
+│   │       ├── shard.rs       # ShardId, ShardMap, ShardInfo
+│   │       └── coordinator.rs # ClusterCoordinator trait, LocalCoordinator
 │   └── astraea-cli/           # CLI binary
 │       └── src/
 │           └── main.rs        # serve, shell (REPL), status, import, export

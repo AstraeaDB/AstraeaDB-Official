@@ -341,6 +341,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "astraea-algorithms"
+version = "0.1.0"
+dependencies = [
+ "astraea-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "astraea-cli"
 version = "0.1.0"
 dependencies = [
@@ -359,6 +368,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "astraea-cluster"
+version = "0.1.0"
+dependencies = [
+ "astraea-core",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "astraea-core"
 version = "0.1.0"
 dependencies = [
@@ -369,6 +388,17 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "astraea-crypto"
+version = "0.1.0"
+dependencies = [
+ "astraea-core",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -397,6 +427,15 @@ dependencies = [
  "astraea-graph",
  "astraea-vector",
  "rand 0.8.5",
+ "serde_json",
+]
+
+[[package]]
+name = "astraea-gpu"
+version = "0.1.0"
+dependencies = [
+ "astraea-core",
+ "serde",
  "serde_json",
 ]
 

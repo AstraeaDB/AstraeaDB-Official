@@ -253,6 +253,54 @@ impl GraphOps for Graph {
         self.storage.find_nodes_by_label(label)
     }
 
+    fn neighbors_at(
+        &self,
+        node_id: NodeId,
+        direction: Direction,
+        timestamp: i64,
+    ) -> Result<Vec<(EdgeId, NodeId)>> {
+        let edges = self.storage.get_edges(node_id, direction)?;
+        Ok(edges
+            .into_iter()
+            .filter(|e| e.validity.contains(timestamp))
+            .map(|e| {
+                let neighbor = if e.source == node_id {
+                    e.target
+                } else {
+                    e.source
+                };
+                (e.id, neighbor)
+            })
+            .collect())
+    }
+
+    fn bfs_at(
+        &self,
+        start: NodeId,
+        max_depth: usize,
+        timestamp: i64,
+    ) -> Result<Vec<(NodeId, usize)>> {
+        traversal::bfs_at(self.storage.as_ref(), start, max_depth, timestamp)
+    }
+
+    fn shortest_path_at(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        timestamp: i64,
+    ) -> Result<Option<GraphPath>> {
+        traversal::shortest_path_unweighted_at(self.storage.as_ref(), from, to, timestamp)
+    }
+
+    fn shortest_path_weighted_at(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        timestamp: i64,
+    ) -> Result<Option<(GraphPath, f64)>> {
+        traversal::shortest_path_dijkstra_at(self.storage.as_ref(), from, to, timestamp)
+    }
+
     fn hybrid_search(
         &self,
         anchor: NodeId,

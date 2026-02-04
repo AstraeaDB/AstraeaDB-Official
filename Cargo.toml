@@ -10,6 +10,10 @@ members = [
     "crates/astraea-cli",
     "crates/astraea-rag",
     "crates/astraea-gnn",
+    "crates/astraea-cluster",
+    "crates/astraea-gpu",
+    "crates/astraea-algorithms",
+    "crates/astraea-crypto",
 ]
 resolver = "3"
 
@@ -28,6 +32,10 @@ astraea-vector = { path = "crates/astraea-vector" }
 astraea-server = { path = "crates/astraea-server" }
 astraea-gnn = { path = "crates/astraea-gnn" }
 astraea-rag = { path = "crates/astraea-rag" }
+astraea-cluster = { path = "crates/astraea-cluster" }
+astraea-gpu = { path = "crates/astraea-gpu" }
+astraea-algorithms = { path = "crates/astraea-algorithms" }
+astraea-crypto = { path = "crates/astraea-crypto" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

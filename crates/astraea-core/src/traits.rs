@@ -191,6 +191,56 @@ pub trait GraphOps: Send + Sync {
             "semantic walk not supported by this implementation".into(),
         ))
     }
+
+    // ---- Temporal query methods ----
+
+    /// Get neighbors of a node, only including edges valid at the given timestamp.
+    fn neighbors_at(
+        &self,
+        _node_id: NodeId,
+        _direction: Direction,
+        _timestamp: i64,
+    ) -> Result<Vec<(EdgeId, NodeId)>> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "temporal neighbors not supported by this implementation".into(),
+        ))
+    }
+
+    /// Breadth-first search from a starting node, only traversing edges valid at the given timestamp.
+    fn bfs_at(
+        &self,
+        _start: NodeId,
+        _max_depth: usize,
+        _timestamp: i64,
+    ) -> Result<Vec<(NodeId, usize)>> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "temporal BFS not supported by this implementation".into(),
+        ))
+    }
+
+    /// Find the shortest path between two nodes, only traversing edges valid at the given timestamp.
+    fn shortest_path_at(
+        &self,
+        _from: NodeId,
+        _to: NodeId,
+        _timestamp: i64,
+    ) -> Result<Option<GraphPath>> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "temporal shortest path not supported by this implementation".into(),
+        ))
+    }
+
+    /// Find the weighted shortest path between two nodes at a specific timestamp.
+    fn shortest_path_weighted_at(
+        &self,
+        _from: NodeId,
+        _to: NodeId,
+        _timestamp: i64,
+    ) -> Result<Option<(GraphPath, f64)>> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "temporal weighted shortest path not supported by this implementation".into(),
+        ))
+    }
 }
 
 /// Vector index trait for approximate nearest neighbor search.

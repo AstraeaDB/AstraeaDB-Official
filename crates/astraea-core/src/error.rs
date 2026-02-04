@@ -69,6 +69,16 @@ pub enum AstraeaError {
     // --- Configuration errors ---
     #[error("configuration error: {0}")]
     Config(String),
+
+    // --- Authentication errors ---
+    #[error("authentication required")]
+    AuthenticationRequired,
+
+    #[error("invalid credentials")]
+    InvalidCredentials,
+
+    #[error("access denied: {0}")]
+    AccessDenied(String),
 }
 
 /// Convenience alias.
