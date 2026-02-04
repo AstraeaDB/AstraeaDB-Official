@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 astraea-core = { workspace = true }
 astraea-storage = { workspace = true }
+astraea-vector = { workspace = true }
 dashmap = { workspace = true }
 smallvec = { workspace = true }
 parking_lot = { workspace = true }

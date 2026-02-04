@@ -614,7 +614,7 @@ mod tests {
         let storage = astraea_graph::test_utils::InMemoryStorage::new();
         let graph = astraea_graph::Graph::new(Box::new(storage));
         let graph = std::sync::Arc::new(graph);
-        Arc::new(RequestHandler::new(graph))
+        Arc::new(RequestHandler::new(graph, None))
     }
 
     #[tokio::test]

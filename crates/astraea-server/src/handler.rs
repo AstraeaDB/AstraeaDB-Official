@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use astraea_core::traits::GraphOps;
+use astraea_core::traits::{GraphOps, VectorIndex};
 use astraea_core::types::*;
 use astraea_query::executor::Executor;
 
@@ -10,12 +10,13 @@ use crate::protocol::{Request, Response};
 pub struct RequestHandler {
     graph: Arc<dyn GraphOps>,
     executor: Executor,
+    vector_index: Option<Arc<dyn VectorIndex>>,
 }
 
 impl RequestHandler {
-    pub fn new(graph: Arc<dyn GraphOps>) -> Self {
+    pub fn new(graph: Arc<dyn GraphOps>, vector_index: Option<Arc<dyn VectorIndex>>) -> Self {
         let executor = Executor::new(Arc::clone(&graph));
-        Self { graph, executor }
+        Self { graph, executor, vector_index }
     }
 
     /// Process a single request and return a response.
@@ -178,8 +179,94 @@ impl RequestHandler {
                 }
             }
 
-            Request::VectorSearch { .. } => {
-                Response::error("vector search not yet integrated with server")
+            Request::HybridSearch {
+                anchor,
+                query,
+                max_hops,
+                k,
+                alpha,
+            } => {
+                match self
+                    .graph
+                    .hybrid_search(NodeId(anchor), &query, max_hops, k, alpha)
+                {
+                    Ok(results) => {
+                        let items: Vec<serde_json::Value> = results
+                            .into_iter()
+                            .map(|(nid, score)| {
+                                serde_json::json!({"node_id": nid.0, "score": score})
+                            })
+                            .collect();
+                        Response::ok(serde_json::json!({"results": items}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::SemanticNeighbors {
+                id,
+                concept,
+                direction,
+                k,
+            } => {
+                let dir = match direction.as_str() {
+                    "incoming" => Direction::Incoming,
+                    "both" => Direction::Both,
+                    _ => Direction::Outgoing,
+                };
+                match self
+                    .graph
+                    .semantic_neighbors(NodeId(id), &concept, dir, k)
+                {
+                    Ok(results) => {
+                        let items: Vec<serde_json::Value> = results
+                            .into_iter()
+                            .map(|(nid, dist)| {
+                                serde_json::json!({"node_id": nid.0, "distance": dist})
+                            })
+                            .collect();
+                        Response::ok(serde_json::json!({"results": items}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::SemanticWalk {
+                start,
+                concept,
+                max_hops,
+            } => {
+                match self
+                    .graph
+                    .semantic_walk(NodeId(start), &concept, max_hops)
+                {
+                    Ok(path) => {
+                        let items: Vec<serde_json::Value> = path
+                            .into_iter()
+                            .map(|(nid, dist)| {
+                                serde_json::json!({"node_id": nid.0, "distance": dist})
+                            })
+                            .collect();
+                        Response::ok(serde_json::json!({"path": items}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::VectorSearch { query, k } => {
+                match &self.vector_index {
+                    Some(vi) => match vi.search(&query, k) {
+                        Ok(results) => {
+                            let items: Vec<serde_json::Value> = results
+                                .into_iter()
+                                .map(|r| serde_json::json!({"node_id": r.node_id.0, "distance": r.distance}))
+                                .collect();
+                            Response::ok(serde_json::json!({"results": items}))
+                        }
+                        Err(e) => Response::error(e.to_string()),
+                    },
+                    None => Response::error("vector index not configured"),
+                }
             }
 
             Request::Query { gql } => {
@@ -209,6 +296,292 @@ impl RequestHandler {
                 "pong": true,
                 "version": env!("CARGO_PKG_VERSION"),
             })),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use astraea_graph::test_utils::InMemoryStorage;
+    use astraea_graph::Graph;
+    use astraea_vector::HnswVectorIndex;
+
+    /// Helper: create a handler with a vector index.
+    fn handler_with_vector_index(dim: usize) -> (RequestHandler, Arc<dyn VectorIndex>) {
+        let storage = InMemoryStorage::new();
+        let vector_index: Arc<dyn VectorIndex> =
+            Arc::new(HnswVectorIndex::new(dim, DistanceMetric::Cosine));
+        let graph = Graph::with_vector_index(Box::new(storage), Arc::clone(&vector_index));
+        let handler = RequestHandler::new(Arc::new(graph), Some(Arc::clone(&vector_index)));
+        (handler, vector_index)
+    }
+
+    /// Helper: create a handler without a vector index.
+    fn handler_without_vector_index() -> RequestHandler {
+        let storage = InMemoryStorage::new();
+        let graph = Graph::new(Box::new(storage));
+        RequestHandler::new(Arc::new(graph), None)
+    }
+
+    #[test]
+    fn test_vector_search_basic() {
+        let (handler, vi) = handler_with_vector_index(3);
+
+        // Insert some vectors directly into the index for testing.
+        vi.insert(NodeId(100), &[1.0, 0.0, 0.0]).unwrap();
+        vi.insert(NodeId(200), &[0.0, 1.0, 0.0]).unwrap();
+        vi.insert(NodeId(300), &[0.0, 0.0, 1.0]).unwrap();
+
+        let resp = handler.handle(Request::VectorSearch {
+            query: vec![1.0, 0.0, 0.0],
+            k: 2,
+        });
+
+        match resp {
+            Response::Ok { data } => {
+                let results = data.get("results").unwrap().as_array().unwrap();
+                assert_eq!(results.len(), 2);
+                // The closest should be node 100 (exact match).
+                assert_eq!(results[0].get("node_id").unwrap().as_u64().unwrap(), 100);
+            }
+            Response::Error { message } => panic!("expected Ok, got Error: {}", message),
+        }
+    }
+
+    #[test]
+    fn test_vector_search_no_index() {
+        let handler = handler_without_vector_index();
+
+        let resp = handler.handle(Request::VectorSearch {
+            query: vec![1.0, 0.0, 0.0],
+            k: 5,
+        });
+
+        match resp {
+            Response::Error { message } => {
+                assert_eq!(message, "vector index not configured");
+            }
+            Response::Ok { .. } => panic!("expected Error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_auto_index_on_create_node() {
+        let (handler, _vi) = handler_with_vector_index(3);
+
+        // Create a node with an embedding via the handler.
+        let create_resp = handler.handle(Request::CreateNode {
+            labels: vec!["TestNode".into()],
+            properties: serde_json::json!({"name": "alpha"}),
+            embedding: Some(vec![0.5, 0.5, 0.0]),
+        });
+        match &create_resp {
+            Response::Ok { data } => {
+                assert!(data.get("node_id").is_some());
+            }
+            Response::Error { message } => panic!("create failed: {}", message),
+        }
+
+        // Create a second node with a different embedding.
+        handler.handle(Request::CreateNode {
+            labels: vec!["TestNode".into()],
+            properties: serde_json::json!({"name": "beta"}),
+            embedding: Some(vec![0.0, 0.0, 1.0]),
+        });
+
+        // Now search for the embedding that matches the first node.
+        let search_resp = handler.handle(Request::VectorSearch {
+            query: vec![0.5, 0.5, 0.0],
+            k: 1,
+        });
+
+        match search_resp {
+            Response::Ok { data } => {
+                let results = data.get("results").unwrap().as_array().unwrap();
+                assert_eq!(results.len(), 1);
+                // The closest should be node 1 (the first created node).
+                assert_eq!(results[0].get("node_id").unwrap().as_u64().unwrap(), 1);
+            }
+            Response::Error { message } => panic!("search failed: {}", message),
+        }
+    }
+
+    /// Helper: create a handler with nodes and edges for semantic tests.
+    /// Returns (handler, n1_id, n2_id, n3_id).
+    fn handler_with_semantic_graph() -> RequestHandler {
+        let storage = InMemoryStorage::new();
+        let vector_index: Arc<dyn VectorIndex> =
+            Arc::new(HnswVectorIndex::new(3, DistanceMetric::Euclidean));
+        let graph = Graph::with_vector_index(Box::new(storage), Arc::clone(&vector_index));
+        let handler = RequestHandler::new(Arc::new(graph), Some(Arc::clone(&vector_index)));
+
+        // Create nodes with embeddings.
+        handler.handle(Request::CreateNode {
+            labels: vec!["Thing".into()],
+            properties: serde_json::json!({"name": "A"}),
+            embedding: Some(vec![1.0, 0.0, 0.0]),
+        }); // id=1
+        handler.handle(Request::CreateNode {
+            labels: vec!["Thing".into()],
+            properties: serde_json::json!({"name": "closeA"}),
+            embedding: Some(vec![0.9, 0.1, 0.0]),
+        }); // id=2
+        handler.handle(Request::CreateNode {
+            labels: vec!["Thing".into()],
+            properties: serde_json::json!({"name": "C"}),
+            embedding: Some(vec![0.0, 0.0, 1.0]),
+        }); // id=3
+
+        // Edges: 1->2, 2->3
+        handler.handle(Request::CreateEdge {
+            source: 1,
+            target: 2,
+            edge_type: "LINK".into(),
+            properties: serde_json::json!({}),
+            weight: 1.0,
+            valid_from: None,
+            valid_to: None,
+        });
+        handler.handle(Request::CreateEdge {
+            source: 2,
+            target: 3,
+            edge_type: "LINK".into(),
+            properties: serde_json::json!({}),
+            weight: 1.0,
+            valid_from: None,
+            valid_to: None,
+        });
+
+        handler
+    }
+
+    #[test]
+    fn test_hybrid_search_handler() {
+        let handler = handler_with_semantic_graph();
+
+        let resp = handler.handle(Request::HybridSearch {
+            anchor: 1,
+            query: vec![1.0, 0.0, 0.0],
+            max_hops: 2,
+            k: 10,
+            alpha: 0.5,
+        });
+
+        match resp {
+            Response::Ok { data } => {
+                let results = data.get("results").unwrap().as_array().unwrap();
+                assert!(!results.is_empty());
+                // Node 2 (closeA) should be the best match (close in both graph and vector).
+                assert_eq!(results[0].get("node_id").unwrap().as_u64().unwrap(), 2);
+                // Each result should have a "score" field.
+                assert!(results[0].get("score").is_some());
+            }
+            Response::Error { message } => panic!("expected Ok, got Error: {message}"),
+        }
+    }
+
+    #[test]
+    fn test_semantic_neighbors_handler() {
+        let handler = handler_with_semantic_graph();
+
+        let resp = handler.handle(Request::SemanticNeighbors {
+            id: 1,
+            concept: vec![1.0, 0.0, 0.0],
+            direction: "outgoing".into(),
+            k: 10,
+        });
+
+        match resp {
+            Response::Ok { data } => {
+                let results = data.get("results").unwrap().as_array().unwrap();
+                assert_eq!(results.len(), 1); // only neighbor of node 1 is node 2
+                assert_eq!(results[0].get("node_id").unwrap().as_u64().unwrap(), 2);
+                assert!(results[0].get("distance").is_some());
+            }
+            Response::Error { message } => panic!("expected Ok, got Error: {message}"),
+        }
+    }
+
+    #[test]
+    fn test_semantic_walk_handler() {
+        let handler = handler_with_semantic_graph();
+
+        let resp = handler.handle(Request::SemanticWalk {
+            start: 1,
+            concept: vec![0.0, 0.0, 1.0],
+            max_hops: 5,
+        });
+
+        match resp {
+            Response::Ok { data } => {
+                let path = data.get("path").unwrap().as_array().unwrap();
+                // Path should include at least start (1) and end (3).
+                assert!(path.len() >= 2);
+                assert_eq!(path[0].get("node_id").unwrap().as_u64().unwrap(), 1);
+                // Last node should be node 3 (closest to concept [0,0,1]).
+                assert_eq!(
+                    path.last().unwrap().get("node_id").unwrap().as_u64().unwrap(),
+                    3
+                );
+                assert!(path.last().unwrap().get("distance").is_some());
+            }
+            Response::Error { message } => panic!("expected Ok, got Error: {message}"),
+        }
+    }
+
+    #[test]
+    fn test_auto_remove_on_delete_node() {
+        let (handler, _vi) = handler_with_vector_index(3);
+
+        // Create a node with an embedding.
+        let create_resp = handler.handle(Request::CreateNode {
+            labels: vec!["Temp".into()],
+            properties: serde_json::json!({}),
+            embedding: Some(vec![1.0, 0.0, 0.0]),
+        });
+        let node_id = match &create_resp {
+            Response::Ok { data } => data.get("node_id").unwrap().as_u64().unwrap(),
+            Response::Error { message } => panic!("create failed: {}", message),
+        };
+
+        // Verify the node is searchable.
+        let search_resp = handler.handle(Request::VectorSearch {
+            query: vec![1.0, 0.0, 0.0],
+            k: 1,
+        });
+        match &search_resp {
+            Response::Ok { data } => {
+                let results = data.get("results").unwrap().as_array().unwrap();
+                assert_eq!(results.len(), 1);
+                assert_eq!(results[0].get("node_id").unwrap().as_u64().unwrap(), node_id);
+            }
+            Response::Error { message } => panic!("search failed before delete: {}", message),
+        }
+
+        // Delete the node.
+        let del_resp = handler.handle(Request::DeleteNode { id: node_id });
+        match &del_resp {
+            Response::Ok { .. } => {}
+            Response::Error { message } => panic!("delete failed: {}", message),
+        }
+
+        // Verify the node is no longer in vector search results.
+        let search_resp2 = handler.handle(Request::VectorSearch {
+            query: vec![1.0, 0.0, 0.0],
+            k: 10,
+        });
+        match search_resp2 {
+            Response::Ok { data } => {
+                let results = data.get("results").unwrap().as_array().unwrap();
+                // Should be empty -- the only node was deleted.
+                assert!(
+                    results.is_empty(),
+                    "expected no results after delete, got: {:?}",
+                    results
+                );
+            }
+            Response::Error { message } => panic!("search failed after delete: {}", message),
         }
     }
 }

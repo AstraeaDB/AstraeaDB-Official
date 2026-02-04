@@ -1,0 +1,24 @@
+[package]
+name = "astraea-flight"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+astraea-core = { workspace = true }
+astraea-graph = { workspace = true }
+astraea-query = { workspace = true }
+arrow = { workspace = true }
+arrow-flight = { workspace = true }
+arrow-schema = { workspace = true }
+# Use tonic 0.14 to match arrow-flight's internal tonic version.
+# arrow-flight 57 generates its FlightService trait against tonic 0.14.
+tonic = "0.14"
+tokio = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+astraea-graph = { workspace = true, features = ["test-utils"] }
+tokio = { workspace = true }
+parking_lot = { workspace = true }

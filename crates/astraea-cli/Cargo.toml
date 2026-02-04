@@ -7,6 +7,7 @@ edition.workspace = true
 astraea-core = { workspace = true }
 astraea-graph = { workspace = true, features = ["test-utils"] }
 astraea-server = { workspace = true }
+astraea-vector = { workspace = true }
 clap = { workspace = true }
 toml = { workspace = true }
 tokio = { workspace = true }

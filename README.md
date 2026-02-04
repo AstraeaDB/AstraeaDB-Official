@@ -10,38 +10,41 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
                     │   serve | shell | import | export│
                     └──────────────┬──────────────────┘
                                    │
-                    ┌──────────────▼──────────────────┐
-                    │        astraea-server            │
-                    │   JSON-over-TCP (port 7687)      │
-                    │   gRPC/Protobuf (port 7688)      │
-                    │   async tokio, per-connection     │
-                    └──────┬───────────┬──────────────┘
-                           │           │
-              ┌────────────▼──┐   ┌────▼───────────┐
-              │ astraea-query │   │ astraea-vector  │
-              │  GQL Parser   │   │  HNSW Index     │
-              │  + Executor   │   │  ANN Search     │
-              │  Lexer → AST  │   │  Persistence    │
-              └───────────────┘   └────────────────┘
-                           │           │
-                    ┌──────▼───────────▼──────────────┐
-                    │        astraea-graph             │
-                    │   CRUD, BFS, DFS, Dijkstra       │
-                    │   GraphOps trait implementation   │
-                    └──────────────┬──────────────────┘
-                                   │
-                    ┌──────────────▼──────────────────┐
-                    │       astraea-storage            │
-                    │  Pages (8 KiB) → Buffer Pool     │
-                    │  Pointer Swizzling, MVCC, WAL    │
-                    │  PageIO trait, Cold Storage       │
-                    └──────────────┬──────────────────┘
-                                   │
-                    ┌──────────────▼──────────────────┐
-                    │        astraea-core              │
-                    │  Types, Traits, Errors            │
-                    │  Node, Edge, StorageEngine, ...   │
-                    └─────────────────────────────────┘
+          ┌────────────────────────┼────────────────────────┐
+          │                        │                        │
+┌─────────▼──────────┐  ┌─────────▼──────────┐  ┌─────────▼──────────┐
+│  astraea-server    │  │  astraea-flight    │  │  python/astraeadb  │
+│  JSON-TCP (7687)   │  │  Arrow Flight      │  │  Python Client     │
+│  gRPC (7688)       │  │  do_get / do_put   │  │  JSON + Arrow      │
+└──────┬─────────────┘  └──────┬─────────────┘  └────────────────────┘
+       │                       │
+       └───────────┬───────────┘
+                   │
+              ┌────▼──────────────────────────────┐
+              │          astraea-query             │
+              │  GQL Parser + Executor             │
+              └────┬──────────────────────────────┘
+                   │
+       ┌───────────┴───────────┐
+       │                       │
+┌──────▼───────────┐  ┌───────▼──────────┐
+│  astraea-graph   │  │  astraea-vector  │
+│  CRUD, BFS, DFS  │  │  HNSW Index      │
+│  Hybrid Search   │  │  ANN Search      │
+│  Semantic Walk   │  │  Persistence     │
+└──────────┬───────┘  └──────────────────┘
+           │
+┌──────────▼──────────────────────────────┐
+│          astraea-storage                │
+│  Pages → Buffer Pool → Pointer Swizzle │
+│  MVCC, WAL, PageIO, Cold Storage       │
+└──────────┬──────────────────────────────┘
+           │
+┌──────────▼──────────────────────────────┐
+│          astraea-core                   │
+│  Types, Traits, Errors                  │
+│  Node, Edge, StorageEngine, ...         │
+└─────────────────────────────────────────┘
 ```
 
 ## Crate Overview
@@ -50,12 +53,15 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 |---|---|---:|
 | `astraea-core` | Foundational types (`Node`, `Edge`, `NodeId`), traits (`StorageEngine`, `GraphOps`, `VectorIndex`, `TransactionalEngine`), and error types | 4 |
 | `astraea-storage` | Disk-backed storage engine: 8 KiB pages, LRU buffer pool with pointer swizzling, MVCC transactions, WAL with CRC32 checksums, PageIO trait, cold storage, label index | 58 |
-| `astraea-graph` | Graph CRUD operations and traversal algorithms (BFS, DFS, Dijkstra shortest path) | 37 |
+| `astraea-graph` | Graph CRUD, traversals (BFS, DFS, Dijkstra), hybrid search, semantic traversal, auto-indexing vector embeddings | 48 |
 | `astraea-query` | Hand-written GQL/Cypher parser and executor: lexer, recursive-descent parser, AST, full query execution pipeline | 56 |
 | `astraea-vector` | HNSW approximate nearest-neighbor index with cosine, Euclidean, and dot-product distance metrics; binary persistence | 33 |
-| `astraea-server` | Async TCP server (tokio) with JSON protocol and gRPC/Protobuf transport; GQL query execution | 13 |
+| `astraea-server` | Async TCP server (tokio) with JSON protocol and gRPC/Protobuf transport; GQL query execution; vector search | 20 |
+| `astraea-flight` | Apache Arrow Flight server for zero-copy data exchange: `do_get` (query → Arrow), `do_put` (Arrow → bulk import) | 11 |
 | `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export` | - |
-| **Total** | | **201** |
+| `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
+| **Rust Total** | | **230** |
+| **Python Total** | | **23** |
 
 ## Data Model: Vector-Property Graph
 
@@ -133,6 +139,12 @@ Implements the `GraphOps` trait on top of any `StorageEngine`:
   - `shortest_path(from, to)` — unweighted shortest path via BFS
   - `shortest_path_weighted(from, to)` — Dijkstra's algorithm using edge weights
 - **Neighbor queries** support direction filtering (`Outgoing`, `Incoming`, `Both`) and edge-type filtering.
+- **Hybrid Search:**
+  - `hybrid_search(anchor, query_embedding, max_hops, k, alpha)` — BFS from anchor to collect candidates, score by vector distance, blend: `final_score = alpha * vector_score + (1 - alpha) * graph_score`, return top-k.
+- **Semantic Traversal:**
+  - `semantic_neighbors(node_id, concept_embedding, direction, k)` — rank neighbors by embedding similarity to a concept vector.
+  - `semantic_walk(start, concept_embedding, max_hops)` — greedy multi-hop walk, at each hop moving to the unvisited neighbor most similar to the concept embedding.
+- **Auto-indexing:** When a `VectorIndex` is attached, `create_node()` automatically indexes embeddings and `delete_node()` removes them.
 
 ### GQL Parser & Executor (`astraea-query`)
 
@@ -182,14 +194,15 @@ let results = index.search(&query_vector, 10)?;
 // results: Vec<SimilarityResult { node_id, distance }>
 ```
 
-### Network Server (`astraea-server`)
+### Network Server (`astraea-server` + `astraea-flight`)
 
-Two transport layers for different use cases:
+Three transport layers for different use cases:
 
 1. **JSON-over-TCP** (port 7687): Newline-delimited JSON wire protocol. Each request/response is a single JSON line, debuggable with `telnet` or `netcat`.
 2. **gRPC/Protobuf** (port 7688): Schema-enforced API via `tonic`/`prost` with 14 RPCs. Better performance and type safety for production clients.
+3. **Arrow Flight** (port 7689): Zero-copy data exchange via Apache Arrow Flight. `do_get` streams GQL query results as Arrow RecordBatches; `do_put` accepts Arrow tables for bulk node/edge import. Ideal for Python/Polars/Pandas integration.
 
-Both transports delegate to the same `RequestHandler` and `Executor`.
+JSON and gRPC transports delegate to the same `RequestHandler` and `Executor`. The Flight server wraps the same `Graph` + `Executor` with Arrow serialization.
 
 **Supported requests:**
 
@@ -203,7 +216,10 @@ Both transports delegate to the same `RequestHandler` and `Executor`.
 | `Neighbors` | Get neighbors with direction and edge-type filtering |
 | `Bfs` | Breadth-first traversal with depth limit |
 | `ShortestPath` | Unweighted or weighted (Dijkstra) shortest path |
-| `VectorSearch` | k-nearest-neighbor search (server integration planned for Phase 2) |
+| `VectorSearch` | k-nearest-neighbor search via attached HNSW index |
+| `HybridSearch` | Blended graph proximity + vector similarity (configurable alpha) |
+| `SemanticNeighbors` | Rank neighbors by embedding similarity to a concept |
+| `SemanticWalk` | Greedy multi-hop walk toward a concept embedding |
 | `Query` | Execute a GQL query string (fully functional) |
 | `Ping` | Health check |
 
@@ -358,6 +374,38 @@ for result in results {
 }
 ```
 
+### Hybrid Search & Semantic Traversal
+
+```rust
+use astraea_graph::Graph;
+use astraea_vector::HnswVectorIndex;
+use astraea_core::traits::{GraphOps, VectorIndex};
+use astraea_core::types::{Direction, DistanceMetric};
+use std::sync::Arc;
+
+// Create a graph with an attached vector index
+let storage = InMemoryStorage::new();
+let vector_index = Arc::new(HnswVectorIndex::new(128, DistanceMetric::Cosine));
+let graph = Graph::with_vector_index(Box::new(storage), vector_index);
+
+// Nodes with embeddings are auto-indexed
+let alice = graph.create_node(
+    vec!["Person".into()],
+    serde_json::json!({"name": "Alice"}),
+    Some(vec![0.1; 128]),  // embedding auto-indexed
+)?;
+
+// Hybrid search: combine graph proximity + vector similarity
+// alpha=0.5 blends equally; alpha=1.0 = pure vector; alpha=0.0 = pure graph
+let results = graph.hybrid_search(alice, &query_embedding, 3, 10, 0.5)?;
+
+// Semantic neighbors: rank neighbors by similarity to a concept
+let similar = graph.semantic_neighbors(alice, &concept_vec, Direction::Outgoing, 5)?;
+
+// Semantic walk: greedy multi-hop walk toward a concept
+let path = graph.semantic_walk(alice, &concept_vec, 4)?;
+```
+
 ### Parsing & Executing GQL Queries
 
 ```rust
@@ -377,80 +425,35 @@ let result = executor.execute(ast)?;
 
 ### Python Client
 
-A Python client is provided in `examples/python_client.py`. It wraps the TCP/JSON protocol in a clean API.
+AstraeaDB provides two Python clients in the `python/astraeadb` package:
 
-**Prerequisites:** Python 3.10+ (no external dependencies required — uses only the standard library).
+- **`JsonClient`** — TCP/JSON protocol with zero external dependencies. Works out of the box with Python 3.10+.
+- **`ArrowClient`** — Arrow Flight protocol for zero-copy data exchange. Requires `pip install astraeadb[arrow]` (installs `pyarrow`).
+- **`AstraeaClient`** — Unified client that auto-selects Arrow for bulk queries and falls back to JSON.
 
-**Start the server, then run the demo:**
+A legacy example client is also available at `examples/python_client.py`.
+
+**Installation:**
 
 ```bash
-# Terminal 1: start the server
-cargo run -p astraea-cli -- serve
+# Basic (JSON only, no dependencies)
+pip install ./python
 
-# Terminal 2: run the Python demo
-python3 examples/python_client.py
+# With Arrow Flight support
+pip install ./python[arrow]
 ```
 
-**Example output:**
-
-```
-============================================================
-AstraeaDB Python Client Demo: Social Network
-============================================================
-
-1. Creating nodes (people)...
-   Created: Alice(id=1), Bob(id=2), Charlie(id=3), Diana(id=4), Eve(id=5)
-
-2. Creating edges (relationships)...
-   Created 6 edges (5 KNOWS + 1 FOLLOWS)
-
-3. Reading nodes...
-   Alice: labels=['Person'], properties={'age': 30, 'city': 'NYC', 'name': 'Alice'}
-
-4. Updating Alice's properties...
-   Alice now: {'age': 30, 'city': 'San Francisco', 'name': 'Alice', 'title': 'Engineer'}
-
-5. Querying neighbors...
-   Alice's outgoing neighbors: 3 connections
-     -> Charlie (edge_id=2)
-     -> Bob (edge_id=1)
-     -> Eve (edge_id=6)
-   Alice KNOWS: 2 people
-   Who knows Diana: 2 people
-     <- Bob
-     <- Charlie
-
-6. BFS traversal from Alice (depth=2)...
-   Depth 0: Alice
-   Depth 1: Charlie
-   Depth 1: Bob
-   Depth 1: Eve
-   Depth 2: Diana
-
-7. Shortest path from Alice to Eve...
-   Unweighted (fewest hops): Alice -> Eve (1 hops)
-   Weighted (lowest cost):   Alice -> Eve (cost=0.30)
-
-8. Deleting Eve...
-   No path from Alice to Eve (Eve was deleted)
-
-9. Server health check...
-   Server version: 0.1.0, pong: True
-
-============================================================
-Demo complete.
-============================================================
-```
-
-**Using the client in your own code:**
+**Using the client:**
 
 ```python
-from examples.python_client import AstraeaClient
+from astraeadb import AstraeaClient
 
 with AstraeaClient(host="127.0.0.1", port=7687) as client:
-    # Create nodes
-    alice = client.create_node(["Person"], {"name": "Alice", "age": 30})
-    bob = client.create_node(["Person"], {"name": "Bob", "age": 25})
+    # Create nodes (embeddings are auto-indexed server-side)
+    alice = client.create_node(["Person"], {"name": "Alice", "age": 30},
+                               embedding=[0.1] * 128)
+    bob = client.create_node(["Person"], {"name": "Bob", "age": 25},
+                             embedding=[0.2] * 128)
 
     # Create an edge
     client.create_edge(alice, bob, "KNOWS", {"since": 2020}, weight=0.9)
@@ -464,14 +467,46 @@ with AstraeaClient(host="127.0.0.1", port=7687) as client:
     # Shortest path (weighted Dijkstra)
     path = client.shortest_path(alice, bob, weighted=True)
 
-    # Update properties (merge semantics)
-    client.update_node(alice, {"city": "San Francisco"})
+    # Vector search (k-nearest-neighbors)
+    results = client.vector_search([0.15] * 128, k=5)
 
-    # Delete a node (cascades to edges)
-    client.delete_node(bob)
+    # Hybrid search (graph proximity + vector similarity)
+    results = client.hybrid_search(anchor=alice, query_embedding=[0.15] * 128,
+                                   max_hops=3, k=10, alpha=0.5)
+
+    # Semantic neighbors (rank by embedding similarity)
+    results = client.semantic_neighbors(alice, concept_embedding=[0.1] * 128,
+                                        direction="outgoing", k=5)
+
+    # Semantic walk (greedy multi-hop toward a concept)
+    path = client.semantic_walk(alice, concept_embedding=[0.1] * 128, max_hops=4)
+
+    # Execute GQL queries
+    result = client.query("MATCH (a:Person) WHERE a.age > 25 RETURN a.name")
 
     # Health check
     status = client.ping()
+```
+
+**Arrow Flight client for bulk operations:**
+
+```python
+from astraeadb import ArrowClient
+
+arrow = ArrowClient(host="127.0.0.1", flight_port=7689)
+
+# Execute query, get results as an Apache Arrow Table
+table = arrow.query("MATCH (a:Person) RETURN a.name, a.age")
+df = table.to_pandas()  # zero-copy to Pandas
+
+# Bulk import nodes from an Arrow Table
+import pyarrow as pa
+nodes_table = pa.table({
+    "id": [1, 2, 3],
+    "labels": ["Person", "Person", "Person"],
+    "properties": ['{"name":"Alice"}', '{"name":"Bob"}', '{"name":"Charlie"}'],
+})
+arrow.bulk_insert_nodes(nodes_table)
 ```
 
 **Client API reference:**
@@ -483,12 +518,16 @@ with AstraeaClient(host="127.0.0.1", port=7687) as client:
 | `get_node(id)` | Get node by ID |
 | `update_node(id, properties)` | Merge properties into a node |
 | `delete_node(id)` | Delete node and all connected edges |
-| `create_edge(source, target, type, properties?, weight?, valid_from?, valid_to?)` | Create an edge, returns edge ID. `valid_from`/`valid_to` are epoch-ms bounds for temporal validity |
-| `get_edge(id)` | Get edge by ID (includes `valid_from`/`valid_to`) |
-| `delete_edge(id)` | Delete an edge |
+| `create_edge(source, target, type, properties?, weight?, valid_from?, valid_to?)` | Create an edge, returns edge ID |
+| `get_edge(id)` / `delete_edge(id)` | Get or delete an edge |
 | `neighbors(id, direction?, edge_type?)` | Get neighbors with optional filtering |
 | `bfs(start, max_depth?)` | Breadth-first traversal |
 | `shortest_path(from, to, weighted?)` | Shortest path (BFS or Dijkstra) |
+| `vector_search(embedding, k?)` | k-nearest-neighbor search |
+| `hybrid_search(anchor, embedding, max_hops?, k?, alpha?)` | Blended graph + vector search |
+| `semantic_neighbors(node, embedding, direction?, k?)` | Rank neighbors by concept similarity |
+| `semantic_walk(start, embedding, max_hops?)` | Greedy semantic walk |
+| `query(gql_string)` | Execute a GQL query |
 
 ### R Client
 
@@ -819,15 +858,22 @@ All Phase 1 items have been implemented. 201 tests pass across the workspace.
 | **gRPC Transport** | Done | tonic/prost gRPC service with 14 RPCs. 7 tests. |
 | **Benchmarks** | Done | 16 criterion benchmarks across storage, vector, and graph crates. |
 
-### Phase 2 (Semantic Layer)
+### Phase 2 (Semantic Layer) — COMPLETED
+
+All Phase 2 items have been implemented. 230 Rust tests + 23 Python tests pass.
+
+| Feature | Status | Description |
+|---|---|---|
+| **Hybrid Search API** | Done | BFS graph proximity + vector distance blended with configurable alpha. 3 tests. |
+| **Semantic Traversal** | Done | `semantic_neighbors()` ranks neighbors by embedding distance; `semantic_walk()` greedy multi-hop walk toward a concept. 8 tests. |
+| **Vector Server Integration** | Done | `VectorIndex` wired into `Graph` and `RequestHandler`; auto-indexes embeddings on `create_node()`, auto-removes on `delete_node()`. 7 tests. |
+| **Apache Arrow Flight** | Done | `astraea-flight` crate: `do_get` (GQL → Arrow RecordBatch streaming), `do_put` (Arrow → bulk node/edge import). 11 tests. |
+| **Python Client** | Done | `python/astraeadb` package: `JsonClient` (zero deps), `ArrowClient` (pyarrow.flight), `AstraeaClient` (unified). 23 tests. |
+
+### Remaining Phase 2 Items
 
 | Feature | Description |
 |---|---|
-| **Hybrid Search API** | Combine vector similarity scores with graph distance scores; blend with configurable alpha |
-| **Semantic Traversal** | Rank neighbors by embedding similarity to a concept; multi-hop semantic walk |
-| **Vector Server Integration** | Wire `VectorIndex` into `RequestHandler`; auto-index embeddings on node creation |
-| **Apache Arrow Zero-Copy IPC** | Arrow Flight server for zero-copy data exchange with Python/Polars/Pandas |
-| **Python Client (Arrow Flight)** | Production-quality Python client with `pyarrow.flight` transport |
 | **Temporal Traversals** | Filter edges by `ValidityInterval` during BFS/DFS/Dijkstra; "show me the graph at time T" queries |
 | **Parquet Cold Storage** | Upgrade `ColdStorage` backend from JSON to Apache Parquet with S3/GCS via `object_store` |
 
@@ -908,15 +954,29 @@ astraeadb/
 │   ├── astraea-server/        # Network server
 │   │   ├── build.rs           # tonic-build proto compilation
 │   │   └── src/
-│   │       ├── protocol.rs    # Request/Response JSON types
-│   │       ├── handler.rs     # Request dispatcher (with GQL executor)
+│   │       ├── protocol.rs    # Request/Response JSON types (incl. HybridSearch, SemanticNeighbors, SemanticWalk)
+│   │       ├── handler.rs     # Request dispatcher (with GQL executor + VectorIndex)
 │   │       ├── grpc.rs        # gRPC service (14 RPCs via tonic)
 │   │       └── server.rs      # Async TCP server
+│   ├── astraea-flight/        # Arrow Flight server
+│   │   └── src/
+│   │       ├── lib.rs         # Crate root (schemas + service modules)
+│   │       ├── schemas.rs     # Arrow schemas for nodes, edges, query results
+│   │       └── service.rs     # FlightService impl: do_get (GQL→Arrow), do_put (Arrow→import)
 │   └── astraea-cli/           # CLI binary
 │       └── src/
 │           └── main.rs        # serve, shell (REPL), status, import, export
+├── python/
+│   ├── pyproject.toml         # Package config (optional [arrow] extra)
+│   ├── astraeadb/
+│   │   ├── __init__.py        # Exports AstraeaClient, JsonClient, ArrowClient
+│   │   ├── json_client.py     # TCP/JSON client (zero deps)
+│   │   ├── arrow_client.py    # Arrow Flight client (pyarrow)
+│   │   └── client.py          # Unified client (auto-selects transport)
+│   └── tests/
+│       └── test_json_client.py # 23 unit tests
 ├── examples/
-│   ├── python_client.py       # Python TCP/JSON client
+│   ├── python_client.py       # Legacy Python TCP/JSON client
 │   ├── cybersecurity_demo.py  # Cybersecurity investigation demo
 │   └── r_client.R             # R TCP/JSON client
 └── target/                    # Build artifacts

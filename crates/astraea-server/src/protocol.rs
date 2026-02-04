@@ -71,6 +71,33 @@ pub enum Request {
         #[serde(default = "default_k")]
         k: usize,
     },
+    /// Hybrid search combining graph proximity and vector similarity.
+    HybridSearch {
+        anchor: u64,
+        query: Vec<f32>,
+        #[serde(default = "default_max_depth")]
+        max_hops: usize,
+        #[serde(default = "default_k")]
+        k: usize,
+        #[serde(default = "default_alpha")]
+        alpha: f32,
+    },
+    /// Rank neighbors by semantic similarity to a concept embedding.
+    SemanticNeighbors {
+        id: u64,
+        concept: Vec<f32>,
+        #[serde(default = "default_direction")]
+        direction: String,
+        #[serde(default = "default_k")]
+        k: usize,
+    },
+    /// Greedy multi-hop walk toward a semantic concept.
+    SemanticWalk {
+        start: u64,
+        concept: Vec<f32>,
+        #[serde(default = "default_max_depth")]
+        max_hops: usize,
+    },
     /// Execute a GQL query string.
     Query { gql: String },
     /// Server status / health check.
@@ -117,6 +144,14 @@ fn default_max_depth() -> usize {
 
 fn default_k() -> usize {
     10
+}
+
+fn default_alpha() -> f32 {
+    0.5
+}
+
+fn default_direction() -> String {
+    "outgoing".to_string()
 }
 
 #[cfg(test)]

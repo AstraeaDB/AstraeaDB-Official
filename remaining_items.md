@@ -653,7 +653,11 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 
 ## 2. Phase 2 Gaps (Semantic Layer)
 
+> **All 5 Phase 2 items are now COMPLETED.** 230 Rust tests + 23 Python tests pass. See individual items below for implementation details.
+
 ### 2.1 Hybrid Vector + Graph Search
+
+**Status:** COMPLETED
 
 **Priority:** Critical for Phase 2 — this is the central differentiator of the "Vector-Property Graph" model.
 
@@ -711,9 +715,18 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - The blend factor `alpha` controls the tradeoff.
 - Results are returned ranked by blended score.
 
+**What was implemented:**
+- Added `hybrid_search()` to the `GraphOps` trait with a default "not supported" error. Implemented on `Graph`.
+- Algorithm: BFS from anchor up to `max_hops` → compute graph score (`depth / (max_hops+1)`) and vector score (`compute_distance()`) → blend with `alpha * vector_score + (1-alpha) * graph_score` → sort ascending, truncate to top-k.
+- Added `HybridSearch` request to protocol with fields: `anchor`, `query`, `max_hops` (default 3), `k` (default 10), `alpha` (default 0.5).
+- Added handler returning `{"results": [{"node_id": ..., "score": ...}]}`.
+- 4 tests: alpha=0 pure graph, alpha=1 pure vector, alpha=0.5 blended, handler end-to-end.
+
 ---
 
 ### 2.2 Semantic Traversal
+
+**Status:** COMPLETED
 
 **Priority:** High for Phase 2 — the "navigate-by-meaning" feature from the original plan.
 
@@ -752,9 +765,20 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - Neighbors can be ranked by semantic similarity to an arbitrary concept vector.
 - Multi-hop semantic walk produces a path that moves toward the concept.
 
+**What was implemented:**
+- Added `semantic_neighbors()` and `semantic_walk()` to the `GraphOps` trait with default "not supported" errors. Implemented on `Graph`.
+- **`semantic_neighbors()`**: Gets neighbors in a given direction, computes embedding distance to concept vector for each, sorts by distance, returns top-k. Nodes without embeddings are excluded.
+- **`semantic_walk()`**: Greedy multi-hop walk — at each step, moves to the unvisited outgoing neighbor whose embedding is closest to the concept. Maintains visited set to prevent cycles.
+- Added `SemanticNeighbors` and `SemanticWalk` requests to protocol.
+- Added handlers returning `{"results": [...]}` and `{"path": [...]}` respectively.
+- 9 tests: neighbor ranking, k-limiting, walk toward concept, intermediate nodes, dead-end stops, no-embedding exclusion, cycle avoidance, handler end-to-end (x2).
+- Added `astraea-vector` as dependency of `astraea-graph` for `compute_distance()`.
+
 ---
 
 ### 2.3 Vector Search Server Integration
+
+**Status:** COMPLETED
 
 **Priority:** High — the server handler at `crates/astraea-server/src/handler.rs:178` returns `"vector search not yet integrated with server"`.
 
@@ -781,9 +805,22 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - `{"type":"VectorSearch","query":[0.1,0.2,...],"k":5}` returns nearest neighbors.
 - Embeddings are automatically indexed when nodes are created.
 
+**What was implemented:**
+- Added `vector_index: Option<Arc<dyn VectorIndex>>` field to `Graph` struct.
+- New constructors: `Graph::with_vector_index()`, `Graph::set_vector_index()`, `Graph::vector_index()` getter.
+- **Auto-indexing**: `create_node()` inserts embedding into vector index (if both present). Failures logged but don't fail node creation.
+- **Auto-removal**: `delete_node()` removes from vector index before deleting from storage.
+- Added `vector_index: Option<Arc<dyn VectorIndex>>` to `RequestHandler`. Updated constructor signature.
+- Implemented `VectorSearch` handler: returns `{"results": [{"node_id": ..., "distance": ...}]}` or error if no index configured.
+- Updated CLI serve command to create 128-dim Cosine `HnswVectorIndex` and pass to both Graph and RequestHandler.
+- Updated gRPC service test helpers.
+- 4 new server tests: basic search, no-index error, auto-index on create, auto-remove on delete.
+
 ---
 
 ### 2.4 Apache Arrow Zero-Copy IPC
+
+**Status:** COMPLETED
 
 **Priority:** Medium — enables high-throughput data exchange with Python/Polars/Pandas.
 
@@ -828,9 +865,21 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - Python clients can receive query results as Arrow tables with no serialization overhead.
 - Bulk import via Arrow Flight is significantly faster than JSON-per-line.
 
+**What was implemented:**
+- Created new `crates/astraea-flight/` crate with Arrow Flight server.
+- `AstraeaFlightService` wrapping `Arc<dyn GraphOps>` and a GQL `Executor`.
+- **`do_get`**: Takes a Ticket with GQL query string → parses/executes → converts `QueryResult` to Arrow `RecordBatch` with `FlightDataEncoderBuilder` → streams back.
+- **`do_put`**: Receives Arrow `RecordBatch` stream → auto-detects nodes vs edges by schema → deserializes and bulk-inserts via `GraphOps::create_node()`/`create_edge()` → returns count metadata.
+- Arrow schemas: `node_schema()`, `edge_schema()`, `query_result_schema()` (dynamic columns as nullable Utf8).
+- `run_flight_server()` convenience function.
+- Dependencies: `arrow = "57"`, `arrow-flight = "57"`, `arrow-schema = "57"`, `futures = "0.3"`.
+- 11 tests: do_get (basic, empty, invalid query, WHERE filter), import_nodes, import_edges (with/without temporal).
+
 ---
 
 ### 2.5 Python Client (Arrow Flight)
+
+**Status:** COMPLETED
 
 **Priority:** Medium — depends on items 2.3 and 2.4.
 
@@ -864,6 +913,14 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - `pip install astraeadb` provides a working client.
 - Query results arrive as `pyarrow.Table` or `pandas.DataFrame`.
 - Bulk insert accepts a DataFrame or Arrow table.
+
+**What was implemented:**
+- Created `python/` directory with proper Python package structure.
+- **`JsonClient`** (`json_client.py`): TCP/JSON protocol client with zero external dependencies. Full API: CRUD, traversals, queries, vector search, hybrid search, semantic operations.
+- **`ArrowClient`** (`arrow_client.py`): Apache Arrow Flight client using `pyarrow.flight`. Methods: `query()` (returns `pa.Table`), `query_batches()` (streaming), `bulk_insert_nodes()`, `bulk_insert_edges()`, `query_to_pandas()`.
+- **`AstraeaClient`** (`client.py`): Unified client that auto-selects Arrow Flight for queries when `pyarrow` is installed, falls back to JSON/TCP otherwise. CRUD always uses JSON/TCP.
+- `pyproject.toml` with optional `[arrow]` dependency (`pyarrow>=14.0`).
+- 23 unit tests using mocked sockets (no server needed): all CRUD operations, traversals, queries, vector/hybrid/semantic operations, error handling, context manager.
 
 ---
 
@@ -1396,11 +1453,11 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 | 1.8 | CLI Commands | Medium | 1 | **DONE** | 1.1 (shell needs executor) |
 | 1.9 | gRPC Transport | Medium | 1 | **DONE** | — |
 | 1.10 | Benchmarks | Low | 1 | **DONE** | — |
-| 2.1 | Hybrid Search | Critical | 2 | Not started | 1.1, 2.3 |
-| 2.2 | Semantic Traversal | High | 2 | Not started | 2.3 |
-| 2.3 | Vector Server Integration | High | 2 | Not started | — |
-| 2.4 | Arrow Zero-Copy IPC | Medium | 2 | Not started | 1.1 |
-| 2.5 | Python Client (Arrow) | Medium | 2 | Not started | 2.4 |
+| 2.1 | Hybrid Search | Critical | 2 | **DONE** | 1.1, 2.3 |
+| 2.2 | Semantic Traversal | High | 2 | **DONE** | 2.3 |
+| 2.3 | Vector Server Integration | High | 2 | **DONE** | — |
+| 2.4 | Arrow Zero-Copy IPC | Medium | 2 | **DONE** | 1.1 |
+| 2.5 | Python Client (Arrow) | Medium | 2 | **DONE** | 2.4 |
 | 3.1 | Subgraph Extraction | Critical | 3 | Not started | — |
 | 3.2 | LLM Integration | High | 3 | Not started | 3.1 |
 | 3.3 | Differentiable Traversal | Low | 3 | Not started | 2.1 |

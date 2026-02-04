@@ -846,9 +846,17 @@ async fn main() {
             println!("Data directory: {}", cfg.storage.data_dir.display());
             println!("Buffer pool size: {} pages", cfg.storage.buffer_pool_size);
 
-            // Create the in-memory graph (will use DiskStorageEngine later).
+            // Create vector index (128-dim cosine by default).
+            let vector_index = std::sync::Arc::new(
+                astraea_vector::HnswVectorIndex::new(128, astraea_core::types::DistanceMetric::Cosine),
+            );
+
+            // Create the in-memory graph with vector index (will use DiskStorageEngine later).
             let storage = astraea_graph::test_utils::InMemoryStorage::new();
-            let graph = astraea_graph::Graph::new(Box::new(storage));
+            let graph = astraea_graph::Graph::with_vector_index(
+                Box::new(storage),
+                std::sync::Arc::clone(&vector_index) as std::sync::Arc<dyn astraea_core::traits::VectorIndex>,
+            );
             let graph: std::sync::Arc<dyn astraea_core::traits::GraphOps> =
                 std::sync::Arc::new(graph);
 
@@ -856,10 +864,12 @@ async fn main() {
             // AstraeaServer::new takes an owned RequestHandler (wraps it in
             // Arc internally), so we construct a separate one for TCP. The
             // gRPC server takes Arc<RequestHandler> directly.
+            let vi: Option<std::sync::Arc<dyn astraea_core::traits::VectorIndex>> =
+                Some(std::sync::Arc::clone(&vector_index) as std::sync::Arc<dyn astraea_core::traits::VectorIndex>);
             let tcp_handler =
-                astraea_server::RequestHandler::new(std::sync::Arc::clone(&graph));
+                astraea_server::RequestHandler::new(std::sync::Arc::clone(&graph), vi.clone());
             let grpc_handler = std::sync::Arc::new(
-                astraea_server::RequestHandler::new(std::sync::Arc::clone(&graph)),
+                astraea_server::RequestHandler::new(std::sync::Arc::clone(&graph), vi),
             );
 
             let server_config = astraea_server::ServerConfig {

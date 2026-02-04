@@ -138,6 +138,59 @@ pub trait GraphOps: Send + Sync {
 
     /// Find all nodes matching a label.
     fn find_by_label(&self, label: &str) -> Result<Vec<NodeId>>;
+
+    /// Hybrid search combining graph proximity and vector similarity.
+    ///
+    /// 1. BFS from `anchor` up to `max_hops` to collect candidate nodes
+    /// 2. For each candidate with an embedding, compute vector distance to `query_embedding`
+    /// 3. Blend: `final_score = alpha * vector_score + (1 - alpha) * graph_score`
+    /// 4. Sort ascending (lower = better), return top-k
+    ///
+    /// `alpha`: 0.0 = pure graph proximity, 1.0 = pure vector similarity.
+    fn hybrid_search(
+        &self,
+        _anchor: NodeId,
+        _query_embedding: &[f32],
+        _max_hops: usize,
+        _k: usize,
+        _alpha: f32,
+    ) -> Result<Vec<(NodeId, f32)>> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "hybrid search not supported by this implementation".into(),
+        ))
+    }
+
+    /// Rank neighbors of a node by semantic similarity to a concept embedding.
+    ///
+    /// Returns up to `k` neighbors sorted by ascending distance (most similar first).
+    /// Neighbors without embeddings are excluded.
+    fn semantic_neighbors(
+        &self,
+        _node_id: NodeId,
+        _concept_embedding: &[f32],
+        _direction: Direction,
+        _k: usize,
+    ) -> Result<Vec<(NodeId, f32)>> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "semantic neighbors not supported by this implementation".into(),
+        ))
+    }
+
+    /// Greedy multi-hop walk toward a semantic concept.
+    ///
+    /// At each hop, moves to the unvisited neighbor most similar to `concept_embedding`.
+    /// Returns the full path of (NodeId, distance) pairs including the start node.
+    /// Stops when `max_hops` is reached or no unvisited neighbors with embeddings exist.
+    fn semantic_walk(
+        &self,
+        _start: NodeId,
+        _concept_embedding: &[f32],
+        _max_hops: usize,
+    ) -> Result<Vec<(NodeId, f32)>> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "semantic walk not supported by this implementation".into(),
+        ))
+    }
 }
 
 /// Vector index trait for approximate nearest neighbor search.
