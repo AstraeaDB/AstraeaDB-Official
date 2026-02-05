@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo.png" alt="AstraeaDB Logo" width="200">
+</p>
+
 # AstraeaDB
 
 A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **Vector-Property Graph** model with an **HNSW vector index**, enabling both structural graph traversals and semantic similarity search in a single system.
