@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GraphRAG with Claude - AstraeaDB Tutorial</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a2e;
+  --sidebar-bg: #16213e;
+  --sidebar-fg: #e0e0e0;
+  --sidebar-hover: #0f3460;
+  --sidebar-active: #e94560;
+  --code-bg: #1e1e2e;
+  --code-fg: #cdd6f4;
+  --border: #e0e0e0;
+  --accent: #0f3460;
+  --accent-light: #e8eef6;
+  --table-stripe: #f8f9fa;
+  --kw: #cba6f7;
+  --str: #a6e3a1;
+  --num: #fab387;
+  --comment: #6c7086;
+  --fn: #89b4fa;
+  --type: #f9e2af;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; color: var(--fg); background: var(--bg); line-height: 1.7; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: 0; left: 0; width: 280px; height: 100vh;
+  background: var(--sidebar-bg); color: var(--sidebar-fg);
+  overflow-y: auto; z-index: 100; padding: 20px 0;
+  transition: transform 0.3s;
+}
+.sidebar h1 { font-size: 1.3em; padding: 0 20px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 10px; }
+.sidebar h1 span { color: var(--sidebar-active); }
+.sidebar nav a {
+  display: block; padding: 6px 20px; color: var(--sidebar-fg);
+  font-size: 0.88em; text-decoration: none; border-left: 3px solid transparent;
+}
+.sidebar nav a:hover { background: var(--sidebar-hover); border-left-color: var(--sidebar-active); text-decoration: none; }
+.sidebar nav a.sub { padding-left: 36px; font-size: 0.82em; opacity: 0.8; }
+.sidebar nav .sep { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 20px; }
+.sidebar nav .back { opacity: 0.6; font-size: 0.8em; margin-bottom: 10px; }
+
+/* Main content */
+.main { margin-left: 280px; padding: 40px 50px 80px; max-width: 960px; }
+.main h2 { font-size: 1.8em; margin: 50px 0 15px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); color: var(--accent); }
+.main h2:first-child { margin-top: 0; }
+.main h3 { font-size: 1.3em; margin: 30px 0 10px; color: #333; }
+.main h4 { font-size: 1.05em; margin: 20px 0 8px; }
+.main p { margin: 10px 0; }
+.main ul, .main ol { margin: 10px 0 10px 25px; }
+.main li { margin: 4px 0; }
+
+/* Code blocks */
+pre {
+  background: var(--code-bg); color: var(--code-fg); padding: 16px 20px;
+  border-radius: 6px; overflow-x: auto; font-size: 0.88em;
+  margin: 12px 0; line-height: 1.5; font-family: "SF Mono", "Fira Code", Consolas, monospace;
+}
+code {
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.9em;
+}
+p code, li code, td code {
+  background: var(--accent-light); padding: 1px 5px; border-radius: 3px;
+  color: var(--accent); font-size: 0.88em;
+}
+.kw { color: var(--kw); }
+.str { color: var(--str); }
+.num { color: var(--num); }
+.cm { color: var(--comment); font-style: italic; }
+.fn { color: var(--fn); }
+.ty { color: var(--type); }
+
+/* Tables */
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+th, td { padding: 10px 14px; text-align: left; border: 1px solid var(--border); }
+th { background: var(--accent); color: white; font-weight: 600; }
+tr:nth-child(even) { background: var(--table-stripe); }
+td code { font-size: 0.85em; }
+
+/* Info boxes */
+.info { background: #e8f4fd; border-left: 4px solid #2196F3; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+.warn { background: #fff8e1; border-left: 4px solid #ff9800; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+.tip { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+.note { background: #f3e5f5; border-left: 4px solid #9c27b0; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+
+/* Step numbering */
+.step {
+  display: flex; align-items: flex-start; margin: 25px 0;
+  background: var(--table-stripe); padding: 15px; border-radius: 8px;
+}
+.step-num {
+  background: var(--accent); color: white; width: 32px; height: 32px;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-weight: bold; flex-shrink: 0; margin-right: 15px;
+}
+.step-content { flex: 1; }
+.step-content h4 { margin-top: 0; }
+
+/* Diagram */
+.diagram { background: var(--code-bg); color: var(--code-fg); padding: 20px; border-radius: 6px; overflow-x: auto; font-family: "SF Mono", Consolas, monospace; font-size: 0.82em; white-space: pre; margin: 12px 0; line-height: 1.4; }
+
+/* Mobile menu */
+.menu-toggle { display: none; position: fixed; top: 12px; left: 12px; z-index: 200; background: var(--sidebar-bg); color: white; border: none; padding: 8px 12px; border-radius: 4px; font-size: 1.2em; cursor: pointer; }
+
+@media (max-width: 800px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; padding: 60px 20px 60px; }
+  .menu-toggle { display: block; }
+}
+</style>
+</head>
+<body>
+
+<button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">&#9776;</button>
+
+<aside class="sidebar">
+<h1><span>GraphRAG</span> + Claude</h1>
+<nav>
+<a href="wiki.html" class="back">&larr; Back to Wiki</a>
+<div class="sep"></div>
+<a href="#intro">Introduction</a>
+<a href="#concepts">Key Concepts</a>
+<a href="#prerequisites">Prerequisites</a>
+<div class="sep"></div>
+<a href="#build-graph">Build a Knowledge Graph</a>
+<a href="#extract-subgraph">Extract Subgraphs</a>
+<a href="#linearization">Linearization Formats</a>
+<a href="#token-budget">Token Budgeting</a>
+<div class="sep"></div>
+<a href="#configure-claude">Configure Claude</a>
+<a href="#rust-api">Rust API</a>
+<a href="#python-api">Python API</a>
+<a href="#json-protocol">JSON Protocol</a>
+<div class="sep"></div>
+<a href="#example-cybersec">Example: Security Analysis</a>
+<a href="#example-research">Example: Research Assistant</a>
+<a href="#best-practices">Best Practices</a>
+</nav>
+</aside>
+
+<main class="main">
+
+<!-- ============================================================ -->
+<h2 id="intro">Introduction</h2>
+
+<p><strong>GraphRAG</strong> (Graph-enhanced Retrieval-Augmented Generation) combines the structural power of knowledge graphs with the reasoning capabilities of Large Language Models like <strong>Claude</strong>. Instead of simply retrieving documents, GraphRAG extracts relevant subgraphs from your data, converts them to a text format Claude can understand, and uses that context to answer questions with graph-aware intelligence.</p>
+
+<div class="diagram">
+                        GraphRAG Pipeline
+
+  Question ──► Vector Search ──► Subgraph Extraction ──► Linearization
+      │              │                   │                    │
+      │         Find nearest        BFS from anchor      Convert to text
+      │         node by embedding   (2 hops, 50 nodes)   (structured/prose)
+      │              │                   │                    │
+      │              ▼                   ▼                    ▼
+      │         ┌────────┐         ┌──────────┐        ┌───────────┐
+      │         │ Anchor │ ──────► │ Subgraph │ ─────► │  Context  │
+      │         │  Node  │         │  Nodes   │        │   Text    │
+      │         └────────┘         └──────────┘        └───────────┘
+      │                                                       │
+      ▼                                                       ▼
+  ┌────────────────────────────────────────────────────────────────┐
+  │                         Claude API                             │
+  │   System: "Here is context from a knowledge graph..."          │
+  │   User: "Question + Context"                                   │
+  └────────────────────────────────────────────────────────────────┘
+      │
+      ▼
+   Answer (with graph-aware reasoning)
+</div>
+
+<h3>Why GraphRAG + Claude?</h3>
+
+<table>
+<tr><th>Traditional RAG</th><th>GraphRAG with Claude</th></tr>
+<tr>
+  <td>Retrieves text chunks</td>
+  <td>Retrieves connected entities and relationships</td>
+</tr>
+<tr>
+  <td>No relationship awareness</td>
+  <td>Understands how entities connect</td>
+</tr>
+<tr>
+  <td>Context is flat text</td>
+  <td>Context is structured graph data</td>
+</tr>
+<tr>
+  <td>Limited multi-hop reasoning</td>
+  <td>Follows paths through the graph</td>
+</tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="concepts">Key Concepts</h2>
+
+<h3>Subgraph Extraction</h3>
+<p>Starting from an <strong>anchor node</strong> (found via vector search or specified directly), the system performs a Breadth-First Search (BFS) to collect nearby nodes and the edges connecting them. You control:</p>
+<ul>
+<li><code>hops</code> &mdash; How many relationship steps to traverse (default: 2)</li>
+<li><code>max_nodes</code> &mdash; Maximum nodes to include (default: 50)</li>
+</ul>
+
+<h3>Linearization</h3>
+<p>The extracted subgraph is converted to text that Claude can process. AstraeaDB supports four formats:</p>
+
+<table>
+<tr><th>Format</th><th>Best For</th><th>Example</th></tr>
+<tr>
+  <td><code>structured</code></td>
+  <td>Default; clear hierarchy</td>
+  <td><code>Node [Person: Alice] -[KNOWS]-> [Person: Bob]</code></td>
+</tr>
+<tr>
+  <td><code>prose</code></td>
+  <td>Natural language</td>
+  <td><code>Alice is a Person who KNOWS Bob.</code></td>
+</tr>
+<tr>
+  <td><code>triples</code></td>
+  <td>RDF-style facts</td>
+  <td><code>(Alice, KNOWS, Bob)</code></td>
+</tr>
+<tr>
+  <td><code>json</code></td>
+  <td>Precise data</td>
+  <td><code>{"nodes": [...], "edges": [...]}</code></td>
+</tr>
+</table>
+
+<h3>Token Budgeting</h3>
+<p>Claude has a context window limit. The pipeline estimates tokens (~4 chars per token) and automatically reduces the subgraph size if it would exceed your budget.</p>
+
+<!-- ============================================================ -->
+<h2 id="prerequisites">Prerequisites</h2>
+
+<h3>1. AstraeaDB Server</h3>
+<pre><span class="cm"># Build and start the server</span>
+cargo build --workspace
+cargo run -p astraea-cli -- serve</pre>
+
+<h3>2. Anthropic API Key</h3>
+<p>Get your API key from <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a></p>
+<pre><span class="cm"># Set environment variable</span>
+<span class="kw">export</span> ANTHROPIC_API_KEY=<span class="str">"sk-ant-api03-..."</span></pre>
+
+<h3>3. Python Client (Optional)</h3>
+<pre>pip install astraeadb anthropic</pre>
+
+<!-- ============================================================ -->
+<h2 id="build-graph">Build a Knowledge Graph</h2>
+
+<p>Before using GraphRAG, you need data in your graph. Let's create a simple knowledge graph about a software company.</p>
+
+<h3>Using Python</h3>
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> JsonClient
+
+<span class="kw">with</span> JsonClient() <span class="kw">as</span> client:
+    <span class="cm"># Create nodes with embeddings (from your embedding model)</span>
+    alice = client.create_node(
+        labels=[<span class="str">"Person"</span>, <span class="str">"Engineer"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"role"</span>: <span class="str">"Senior Backend Engineer"</span>},
+        embedding=[<span class="num">0.1</span>, <span class="num">0.2</span>, <span class="num">0.3</span>, ...]  <span class="cm"># 128-dim vector</span>
+    )
+
+    bob = client.create_node(
+        labels=[<span class="str">"Person"</span>, <span class="str">"Manager"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Bob"</span>, <span class="str">"role"</span>: <span class="str">"Engineering Manager"</span>},
+        embedding=[<span class="num">0.15</span>, <span class="num">0.25</span>, <span class="num">0.35</span>, ...]
+    )
+
+    project = client.create_node(
+        labels=[<span class="str">"Project"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"GraphDB"</span>, <span class="str">"status"</span>: <span class="str">"active"</span>},
+        embedding=[<span class="num">0.5</span>, <span class="num">0.1</span>, <span class="num">0.2</span>, ...]
+    )
+
+    <span class="cm"># Create relationships</span>
+    client.create_edge(alice, bob, <span class="str">"REPORTS_TO"</span>)
+    client.create_edge(alice, project, <span class="str">"WORKS_ON"</span>, {<span class="str">"since"</span>: <span class="str">"2024-01"</span>})
+    client.create_edge(bob, project, <span class="str">"MANAGES"</span>)</pre>
+
+<div class="tip">
+<strong>Tip:</strong> Use a real embedding model (OpenAI, Cohere, or local models) for production. The embeddings enable semantic search to find the right anchor node for questions.
+</div>
+
+<h3>Using JSON Protocol</h3>
+<pre>echo <span class="str">'{"type":"CreateNode","labels":["Person"],"properties":{"name":"Alice"},"embedding":[0.1,0.2,0.3]}'</span> | nc localhost 7687</pre>
+
+<!-- ============================================================ -->
+<h2 id="extract-subgraph">Extract Subgraphs</h2>
+
+<p>The <code>ExtractSubgraph</code> operation retrieves a portion of the graph centered on a node.</p>
+
+<h3>JSON Request</h3>
+<pre>{
+  <span class="str">"type"</span>: <span class="str">"ExtractSubgraph"</span>,
+  <span class="str">"center"</span>: <span class="num">1</span>,              <span class="cm">// Anchor node ID</span>
+  <span class="str">"hops"</span>: <span class="num">2</span>,                <span class="cm">// BFS depth</span>
+  <span class="str">"max_nodes"</span>: <span class="num">50</span>,          <span class="cm">// Node limit</span>
+  <span class="str">"format"</span>: <span class="str">"structured"</span>   <span class="cm">// Linearization format</span>
+}</pre>
+
+<h3>Response</h3>
+<pre>{
+  <span class="str">"status"</span>: <span class="str">"ok"</span>,
+  <span class="str">"data"</span>: {
+    <span class="str">"center"</span>: <span class="num">1</span>,
+    <span class="str">"node_count"</span>: <span class="num">5</span>,
+    <span class="str">"edge_count"</span>: <span class="num">4</span>,
+    <span class="str">"text"</span>: <span class="str">"Node [Person: Alice] (role: \"Senior Backend Engineer\")\n  -[REPORTS_TO]-> [Person: Bob] ..."</span>
+  }
+}</pre>
+
+<!-- ============================================================ -->
+<h2 id="linearization">Linearization Formats</h2>
+
+<p>Choose the format that works best for your use case and Claude's understanding.</p>
+
+<h3>Structured (Default)</h3>
+<p>Indented tree format with arrows showing relationships. Best for general use.</p>
+<pre>Node [Person: Alice] (role: "Senior Backend Engineer")
+  -[REPORTS_TO]-> [Person: Bob] (role: "Engineering Manager")
+  -[WORKS_ON {since: "2024-01"}]-> [Project: GraphDB] (status: "active")
+Node [Person: Bob] (role: "Engineering Manager")
+  -[MANAGES]-> [Project: GraphDB]</pre>
+
+<h3>Prose</h3>
+<p>Natural language sentences. Best when you want Claude to read it like text.</p>
+<pre>Alice is a Person and Engineer (role: "Senior Backend Engineer"). Alice REPORTS_TO Bob.
+Alice WORKS_ON GraphDB (since: "2024-01"). Bob is a Person and Manager
+(role: "Engineering Manager"). Bob MANAGES GraphDB. GraphDB is a Project (status: "active").</pre>
+
+<h3>Triples</h3>
+<p>Subject-predicate-object format. Best for fact-based reasoning.</p>
+<pre>(Alice, REPORTS_TO, Bob)
+(Alice, WORKS_ON, GraphDB)
+(Bob, MANAGES, GraphDB)</pre>
+
+<h3>JSON</h3>
+<p>Full JSON structure. Best when you need precise property access.</p>
+<pre>{
+  "nodes": [
+    {"id": 1, "labels": ["Person", "Engineer"], "properties": {"name": "Alice", "role": "Senior Backend Engineer"}},
+    {"id": 2, "labels": ["Person", "Manager"], "properties": {"name": "Bob", "role": "Engineering Manager"}},
+    {"id": 3, "labels": ["Project"], "properties": {"name": "GraphDB", "status": "active"}}
+  ],
+  "edges": [
+    {"source": 1, "target": 2, "type": "REPORTS_TO"},
+    {"source": 1, "target": 3, "type": "WORKS_ON", "properties": {"since": "2024-01"}},
+    {"source": 2, "target": 3, "type": "MANAGES"}
+  ]
+}</pre>
+
+<!-- ============================================================ -->
+<h2 id="token-budget">Token Budgeting</h2>
+
+<p>Claude models have context window limits. The GraphRAG pipeline respects your token budget automatically.</p>
+
+<table>
+<tr><th>Claude Model</th><th>Context Window</th><th>Recommended Budget</th></tr>
+<tr><td>claude-3-haiku</td><td>200K tokens</td><td>150,000</td></tr>
+<tr><td>claude-3-5-sonnet</td><td>200K tokens</td><td>150,000</td></tr>
+<tr><td>claude-3-opus</td><td>200K tokens</td><td>150,000</td></tr>
+<tr><td>claude-sonnet-4</td><td>200K tokens</td><td>150,000</td></tr>
+</table>
+
+<div class="info">
+<strong>How it works:</strong> The pipeline uses ~4 characters per token estimation. If your subgraph exceeds the budget, it automatically reduces the number of nodes while preserving those closest to the anchor (BFS order).
+</div>
+
+<h3>Setting Token Budget (Rust)</h3>
+<pre><span class="kw">let</span> config = GraphRagConfig {
+    hops: <span class="num">2</span>,
+    max_context_nodes: <span class="num">100</span>,
+    text_format: TextFormat::Structured,
+    token_budget: <span class="num">4000</span>,  <span class="cm">// Fits in smaller context windows</span>
+    system_prompt: <span class="kw">None</span>,
+};</pre>
+
+<!-- ============================================================ -->
+<h2 id="configure-claude">Configure Claude as LLM Provider</h2>
+
+<p>AstraeaDB's <code>astraea-rag</code> crate provides an <code>AnthropicProvider</code> that formats requests for Claude's Messages API.</p>
+
+<h3>Rust Configuration</h3>
+<pre><span class="kw">use</span> astraea_rag::{AnthropicProvider, LlmConfig, ProviderType};
+
+<span class="kw">let</span> config = LlmConfig {
+    provider: ProviderType::Anthropic,
+    model: <span class="str">"claude-sonnet-4-20250514"</span>.into(),
+    api_key: <span class="kw">Some</span>(std::env::var(<span class="str">"ANTHROPIC_API_KEY"</span>).unwrap()),
+    endpoint: <span class="str">"https://api.anthropic.com/v1"</span>.into(),
+    temperature: <span class="num">0.7</span>,
+    max_tokens: <span class="num">1024</span>,
+};
+
+<span class="kw">let</span> anthropic = AnthropicProvider::new(config);</pre>
+
+<h3>HTTP Callback Pattern</h3>
+<p>The provider is HTTP-agnostic. You inject your HTTP client as a callback:</p>
+
+<pre><span class="kw">let</span> anthropic = AnthropicProvider::new(config)
+    .with_http_fn(|url, body| {
+        <span class="cm">// Use reqwest, hyper, or any HTTP client</span>
+        <span class="kw">let</span> client = reqwest::blocking::Client::new();
+        <span class="kw">let</span> response = client
+            .post(url)
+            .header(<span class="str">"x-api-key"</span>, std::env::var(<span class="str">"ANTHROPIC_API_KEY"</span>).unwrap())
+            .header(<span class="str">"anthropic-version"</span>, <span class="str">"2023-06-01"</span>)
+            .header(<span class="str">"content-type"</span>, <span class="str">"application/json"</span>)
+            .json(body)
+            .send()?
+            .text()?;
+        <span class="kw">Ok</span>(response)
+    });</pre>
+
+<h3>Request Format Sent to Claude</h3>
+<p>The provider formats requests for Claude's Messages API:</p>
+<pre>{
+  <span class="str">"model"</span>: <span class="str">"claude-sonnet-4-20250514"</span>,
+  <span class="str">"max_tokens"</span>: <span class="num">1024</span>,
+  <span class="str">"system"</span>: <span class="str">"You are a helpful assistant. Use the following knowledge graph context..."</span>,
+  <span class="str">"messages"</span>: [
+    {
+      <span class="str">"role"</span>: <span class="str">"user"</span>,
+      <span class="str">"content"</span>: <span class="str">"Based on the context above, answer: Who manages the GraphDB project?"</span>
+    }
+  ],
+  <span class="str">"temperature"</span>: <span class="num">0.7</span>
+}</pre>
+
+<!-- ============================================================ -->
+<h2 id="rust-api">Rust API</h2>
+
+<h3>Full Pipeline Example</h3>
+<pre><span class="kw">use</span> astraea_rag::{
+    graph_rag_query_anchored,
+    GraphRagConfig, GraphRagResult,
+    AnthropicProvider, LlmConfig, ProviderType,
+    TextFormat,
+};
+<span class="kw">use</span> astraea_core::types::NodeId;
+
+<span class="kw">fn</span> <span class="fn">main</span>() -> Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    <span class="cm">// 1. Set up the graph (your GraphOps implementation)</span>
+    <span class="kw">let</span> graph = MyGraph::load(<span class="str">"data/"</span>)?;
+
+    <span class="cm">// 2. Configure Claude</span>
+    <span class="kw">let</span> llm_config = LlmConfig {
+        provider: ProviderType::Anthropic,
+        model: <span class="str">"claude-sonnet-4-20250514"</span>.into(),
+        api_key: <span class="kw">Some</span>(std::env::var(<span class="str">"ANTHROPIC_API_KEY"</span>)?),
+        endpoint: <span class="str">"https://api.anthropic.com/v1"</span>.into(),
+        temperature: <span class="num">0.7</span>,
+        max_tokens: <span class="num">2048</span>,
+    };
+
+    <span class="kw">let</span> claude = AnthropicProvider::new(llm_config)
+        .with_http_fn(http_callback);
+
+    <span class="cm">// 3. Configure GraphRAG</span>
+    <span class="kw">let</span> rag_config = GraphRagConfig {
+        hops: <span class="num">2</span>,
+        max_context_nodes: <span class="num">50</span>,
+        text_format: TextFormat::Structured,
+        token_budget: <span class="num">8000</span>,
+        system_prompt: <span class="kw">Some</span>(
+            <span class="str">"You are analyzing a knowledge graph about a software company. \
+             Answer questions based on the graph context provided."</span>.into()
+        ),
+    };
+
+    <span class="cm">// 4. Run the query</span>
+    <span class="kw">let</span> result: GraphRagResult = graph_rag_query_anchored(
+        &amp;graph,
+        &amp;claude,
+        <span class="str">"Who is working on the GraphDB project and who do they report to?"</span>,
+        NodeId(<span class="num">3</span>),  <span class="cm">// GraphDB project node</span>
+        &amp;rag_config,
+    )?;
+
+    println!(<span class="str">"Answer: {}"</span>, result.answer);
+    println!(<span class="str">"Context included {} nodes ({} tokens)"</span>,
+             result.nodes_in_context, result.estimated_tokens);
+
+    <span class="kw">Ok</span>(())
+}</pre>
+
+<h3>With Vector Search</h3>
+<p>If you don't know the anchor node, use vector search to find it:</p>
+<pre><span class="kw">use</span> astraea_rag::graph_rag_query;
+
+<span class="cm">// Encode question to embedding (using your embedding model)</span>
+<span class="kw">let</span> question = <span class="str">"Who manages the database project?"</span>;
+<span class="kw">let</span> question_embedding = embedding_model.encode(question)?;
+
+<span class="kw">let</span> result = graph_rag_query(
+    &amp;graph,
+    &amp;vector_index,  <span class="cm">// Your VectorIndex implementation</span>
+    &amp;claude,
+    question,
+    &amp;question_embedding,
+    &amp;rag_config,
+)?;
+
+println!(<span class="str">"Found anchor node: {}"</span>, result.anchor_node_id);
+println!(<span class="str">"Answer: {}"</span>, result.answer);</pre>
+
+<!-- ============================================================ -->
+<h2 id="python-api">Python API</h2>
+
+<p>While the Python client doesn't have built-in GraphRAG methods yet, you can use raw JSON requests combined with the Anthropic Python SDK.</p>
+
+<h3>Complete Python Example</h3>
+<pre><span class="kw">import</span> json
+<span class="kw">import</span> socket
+<span class="kw">import</span> anthropic
+
+<span class="kw">class</span> <span class="ty">GraphRAGClient</span>:
+    <span class="str">"""GraphRAG client combining AstraeaDB with Claude."""</span>
+
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, host=<span class="str">"127.0.0.1"</span>, port=<span class="num">7687</span>):
+        self.host = host
+        self.port = port
+        self.sock = <span class="kw">None</span>
+        self.claude = anthropic.Anthropic()
+
+    <span class="kw">def</span> <span class="fn">connect</span>(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((self.host, self.port))
+        self.reader = self.sock.makefile(<span class="str">'r'</span>)
+
+    <span class="kw">def</span> <span class="fn">close</span>(self):
+        <span class="kw">if</span> self.sock:
+            self.sock.close()
+
+    <span class="kw">def</span> <span class="fn">_send</span>(self, request: dict) -> dict:
+        data = json.dumps(request) + <span class="str">"\n"</span>
+        self.sock.sendall(data.encode())
+        response = self.reader.readline()
+        <span class="kw">return</span> json.loads(response)
+
+    <span class="kw">def</span> <span class="fn">extract_subgraph</span>(self, center: int, hops: int = <span class="num">2</span>,
+                          max_nodes: int = <span class="num">50</span>, format: str = <span class="str">"structured"</span>) -> dict:
+        <span class="str">"""Extract a subgraph centered on a node."""</span>
+        resp = self._send({
+            <span class="str">"type"</span>: <span class="str">"ExtractSubgraph"</span>,
+            <span class="str">"center"</span>: center,
+            <span class="str">"hops"</span>: hops,
+            <span class="str">"max_nodes"</span>: max_nodes,
+            <span class="str">"format"</span>: format
+        })
+        <span class="kw">if</span> resp.get(<span class="str">"status"</span>) == <span class="str">"error"</span>:
+            <span class="kw">raise</span> RuntimeError(resp.get(<span class="str">"message"</span>))
+        <span class="kw">return</span> resp.get(<span class="str">"data"</span>, {})
+
+    <span class="kw">def</span> <span class="fn">ask_claude</span>(self, question: str, context: str,
+                    model: str = <span class="str">"claude-sonnet-4-20250514"</span>) -> str:
+        <span class="str">"""Send a question with graph context to Claude."""</span>
+        message = self.claude.messages.create(
+            model=model,
+            max_tokens=<span class="num">2048</span>,
+            system=<span class="str">f"""You are a helpful assistant analyzing a knowledge graph.
+Use the following graph context to answer questions:
+
+{context}"""</span>,
+            messages=[
+                {<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: question}
+            ]
+        )
+        <span class="kw">return</span> message.content[<span class="num">0</span>].text
+
+    <span class="kw">def</span> <span class="fn">graphrag_query</span>(self, question: str, anchor: int,
+                        hops: int = <span class="num">2</span>, max_nodes: int = <span class="num">50</span>) -> str:
+        <span class="str">"""Full GraphRAG pipeline: extract subgraph + ask Claude."""</span>
+        <span class="cm"># 1. Extract subgraph</span>
+        subgraph = self.extract_subgraph(anchor, hops, max_nodes)
+        context = subgraph.get(<span class="str">"text"</span>, <span class="str">""</span>)
+
+        <span class="cm"># 2. Ask Claude</span>
+        answer = self.ask_claude(question, context)
+
+        <span class="kw">return</span> answer
+
+
+<span class="cm"># Usage</span>
+<span class="kw">if</span> __name__ == <span class="str">"__main__"</span>:
+    client = GraphRAGClient()
+    client.connect()
+
+    <span class="kw">try</span>:
+        <span class="cm"># Ask a question about node 1's neighborhood</span>
+        answer = client.graphrag_query(
+            question=<span class="str">"Who does Alice work with and what projects are they on?"</span>,
+            anchor=<span class="num">1</span>,  <span class="cm"># Alice's node ID</span>
+            hops=<span class="num">2</span>,
+            max_nodes=<span class="num">50</span>
+        )
+        print(<span class="str">"Answer:"</span>, answer)
+    <span class="kw">finally</span>:
+        client.close()</pre>
+
+<!-- ============================================================ -->
+<h2 id="json-protocol">JSON Protocol</h2>
+
+<p>You can use GraphRAG directly via the TCP/JSON protocol.</p>
+
+<h3>GraphRag Request</h3>
+<pre>{
+  <span class="str">"type"</span>: <span class="str">"GraphRag"</span>,
+  <span class="str">"question"</span>: <span class="str">"Who compromised the server?"</span>,
+  <span class="str">"anchor"</span>: <span class="num">1</span>,                    <span class="cm">// Optional: specific node ID</span>
+  <span class="str">"question_embedding"</span>: [<span class="num">0.1</span>, ...], <span class="cm">// Optional: for vector search</span>
+  <span class="str">"hops"</span>: <span class="num">2</span>,
+  <span class="str">"max_nodes"</span>: <span class="num">50</span>,
+  <span class="str">"format"</span>: <span class="str">"structured"</span>
+}</pre>
+
+<div class="warn">
+<strong>Note:</strong> The <code>GraphRag</code> request requires the server to have an LLM provider configured. If no provider is configured, use <code>ExtractSubgraph</code> and call Claude yourself.
+</div>
+
+<h3>Response</h3>
+<pre>{
+  <span class="str">"status"</span>: <span class="str">"ok"</span>,
+  <span class="str">"data"</span>: {
+    <span class="str">"answer"</span>: <span class="str">"Based on the graph, the server 10.0.0.5 was compromised by..."</span>,
+    <span class="str">"anchor_node_id"</span>: <span class="num">1</span>,
+    <span class="str">"nodes_in_context"</span>: <span class="num">12</span>,
+    <span class="str">"estimated_tokens"</span>: <span class="num">1847</span>
+  }
+}</pre>
+
+<!-- ============================================================ -->
+<h2 id="example-cybersec">Example: Security Analysis</h2>
+
+<p>Let's walk through using GraphRAG for cybersecurity investigation.</p>
+
+<h3>Scenario</h3>
+<p>You have a knowledge graph of network events: servers, users, processes, and their relationships. An alert fired and you want to understand the attack path.</p>
+
+<h3>Step 1: Build the Threat Graph</h3>
+<pre><span class="cm"># Create nodes for entities</span>
+attacker = client.create_node([<span class="str">"User"</span>, <span class="str">"Suspicious"</span>], {
+    <span class="str">"username"</span>: <span class="str">"unknown_user"</span>,
+    <span class="str">"first_seen"</span>: <span class="str">"2024-01-15T03:22:00Z"</span>
+})
+
+server = client.create_node([<span class="str">"Server"</span>], {
+    <span class="str">"hostname"</span>: <span class="str">"prod-db-01"</span>,
+    <span class="str">"ip"</span>: <span class="str">"10.0.0.5"</span>,
+    <span class="str">"role"</span>: <span class="str">"database"</span>
+})
+
+process = client.create_node([<span class="str">"Process"</span>], {
+    <span class="str">"name"</span>: <span class="str">"reverse_shell.py"</span>,
+    <span class="str">"pid"</span>: <span class="num">31337</span>,
+    <span class="str">"started"</span>: <span class="str">"2024-01-15T03:25:00Z"</span>
+})
+
+<span class="cm"># Create attack path edges</span>
+client.create_edge(attacker, server, <span class="str">"SSH_LOGIN"</span>, {<span class="str">"timestamp"</span>: <span class="str">"2024-01-15T03:22:00Z"</span>})
+client.create_edge(attacker, process, <span class="str">"SPAWNED"</span>)
+client.create_edge(process, server, <span class="str">"RUNNING_ON"</span>)</pre>
+
+<h3>Step 2: Ask Claude to Analyze</h3>
+<pre>answer = client.graphrag_query(
+    question=<span class="str">"""Analyze this security incident:
+    1. What was the attack vector?
+    2. What systems were compromised?
+    3. What actions did the attacker take?
+    4. Recommend immediate response steps."""</span>,
+    anchor=attacker,  <span class="cm"># Start from the suspicious user</span>
+    hops=<span class="num">3</span>            <span class="cm"># Follow the full attack path</span>
+)
+
+print(answer)</pre>
+
+<h3>Claude's Response</h3>
+<pre><span class="cm">## Security Incident Analysis
+
+**Attack Vector:** SSH brute-force or credential theft
+The attacker "unknown_user" gained initial access via SSH login to prod-db-01
+(10.0.0.5) at 03:22 UTC.
+
+**Compromised Systems:**
+- prod-db-01 (10.0.0.5) - Production database server
+
+**Attacker Actions:**
+1. SSH login at 03:22 UTC
+2. Spawned malicious process "reverse_shell.py" (PID 31337) at 03:25 UTC
+3. Established persistence via reverse shell
+
+**Immediate Response:**
+1. Isolate prod-db-01 from network immediately
+2. Kill process 31337 and check for persistence mechanisms
+3. Reset all credentials that had access to this server
+4. Review SSH logs for brute-force patterns
+5. Check for lateral movement to other systems</span></pre>
+
+<!-- ============================================================ -->
+<h2 id="example-research">Example: Research Assistant</h2>
+
+<p>Use GraphRAG to build a research assistant that understands relationships between papers, authors, and concepts.</p>
+
+<h3>Build the Research Graph</h3>
+<pre><span class="cm"># Papers with embeddings from abstract</span>
+paper1 = client.create_node([<span class="str">"Paper"</span>], {
+    <span class="str">"title"</span>: <span class="str">"Attention Is All You Need"</span>,
+    <span class="str">"year"</span>: <span class="num">2017</span>,
+    <span class="str">"citations"</span>: <span class="num">50000</span>
+}, embedding=embed(<span class="str">"transformer attention mechanism..."</span>))
+
+paper2 = client.create_node([<span class="str">"Paper"</span>], {
+    <span class="str">"title"</span>: <span class="str">"BERT: Pre-training of Deep Bidirectional Transformers"</span>,
+    <span class="str">"year"</span>: <span class="num">2018</span>
+}, embedding=embed(<span class="str">"bidirectional language model..."</span>))
+
+<span class="cm"># Authors</span>
+vaswani = client.create_node([<span class="str">"Author"</span>], {<span class="str">"name"</span>: <span class="str">"Ashish Vaswani"</span>})
+
+<span class="cm"># Concepts</span>
+attention = client.create_node([<span class="str">"Concept"</span>], {<span class="str">"name"</span>: <span class="str">"Self-Attention"</span>})
+
+<span class="cm"># Relationships</span>
+client.create_edge(paper1, vaswani, <span class="str">"AUTHORED_BY"</span>)
+client.create_edge(paper1, attention, <span class="str">"INTRODUCES"</span>)
+client.create_edge(paper2, paper1, <span class="str">"CITES"</span>)
+client.create_edge(paper2, attention, <span class="str">"USES"</span>)</pre>
+
+<h3>Ask Research Questions</h3>
+<pre>answer = client.graphrag_query(
+    question=<span class="str">"What papers introduced the self-attention mechanism and what subsequent work built on it?"</span>,
+    anchor=attention_node_id,
+    hops=<span class="num">2</span>
+)
+
+<span class="cm"># Claude responds with graph-aware understanding of paper lineage</span></pre>
+
+<!-- ============================================================ -->
+<h2 id="best-practices">Best Practices</h2>
+
+<h3>1. Choose the Right Anchor</h3>
+<div class="tip">
+<strong>Vector search is powerful:</strong> If you're not sure which node to start from, use vector search with a question embedding to find the most relevant node automatically.
+</div>
+
+<h3>2. Tune Hop Depth</h3>
+<ul>
+<li><strong>1 hop</strong> &mdash; Immediate neighbors only. Fast but limited context.</li>
+<li><strong>2 hops</strong> &mdash; Good default. Captures most relevant relationships.</li>
+<li><strong>3+ hops</strong> &mdash; Broader context but may include irrelevant nodes.</li>
+</ul>
+
+<h3>3. Match Format to Task</h3>
+<table>
+<tr><th>Task</th><th>Recommended Format</th></tr>
+<tr><td>General Q&A</td><td><code>structured</code></td></tr>
+<tr><td>Summarization</td><td><code>prose</code></td></tr>
+<tr><td>Fact extraction</td><td><code>triples</code></td></tr>
+<tr><td>Data analysis</td><td><code>json</code></td></tr>
+</table>
+
+<h3>4. Use System Prompts</h3>
+<p>Guide Claude's behavior with domain-specific system prompts:</p>
+<pre>system_prompt = <span class="str">"""You are a security analyst examining network threat graphs.
+Focus on:
+- Attack patterns and TTPs
+- Lateral movement paths
+- Indicators of compromise
+Always cite specific nodes and relationships from the context."""</span></pre>
+
+<h3>5. Handle Large Graphs</h3>
+<ul>
+<li>Set appropriate <code>max_nodes</code> to avoid overwhelming context</li>
+<li>Use <code>token_budget</code> to ensure responses fit</li>
+<li>Consider multiple queries with different anchors for complex investigations</li>
+</ul>
+
+<h3>6. Validate and Iterate</h3>
+<p>Check the <code>nodes_in_context</code> and <code>estimated_tokens</code> in responses to understand what Claude saw. If answers seem incomplete, try:</p>
+<ul>
+<li>Different anchor nodes</li>
+<li>More hops</li>
+<li>Different linearization formats</li>
+</ul>
+
+<!-- ============================================================ -->
+<div style="margin-top:60px; padding-top:20px; border-top:1px solid var(--border); color:#888; font-size:0.85em;">
+<p>AstraeaDB GraphRAG Tutorial &mdash; <a href="wiki.html">Back to Wiki</a></p>
+<p>Questions? See the <a href="https://github.com/anthropics/claude-code" target="_blank">GitHub repository</a></p>
+</div>
+
+</main>
+</body>
+</html>

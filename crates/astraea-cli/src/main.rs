@@ -876,9 +876,11 @@ async fn main() {
                 bind_address: cfg.server.bind_address.clone(),
                 port: cfg.server.port,
                 connection: astraea_server::ConnectionConfig::default(),
+                tls: None, // TLS can be configured via TlsConfig if needed
             };
             let tcp_server =
-                astraea_server::AstraeaServer::new(server_config, tcp_handler);
+                astraea_server::AstraeaServer::new(server_config, tcp_handler)
+                    .expect("Failed to create server");
 
             let grpc_bind = cfg.server.bind_address.clone();
 

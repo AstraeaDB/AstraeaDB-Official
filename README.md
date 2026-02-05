@@ -72,13 +72,13 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | Crate | Purpose | Tests |
 |---|---|---:|
 | `astraea-core` | Foundational types (`Node`, `Edge`, `NodeId`), traits (`StorageEngine`, `GraphOps`, `VectorIndex`, `TransactionalEngine`), and error types | 4 |
-| `astraea-storage` | Disk-backed storage engine: 8 KiB pages, LRU buffer pool with pointer swizzling, MVCC transactions, WAL with CRC32 checksums, PageIO trait, cold storage, label index | 58 |
+| `astraea-storage` | Disk-backed storage engine: 8 KiB pages, LRU buffer pool with pointer swizzling, MVCC transactions, WAL with CRC32 checksums, PageIO trait (+ io_uring on Linux), cold storage (JSON, Parquet, S3/GCS/Azure), label index | 75 |
 | `astraea-graph` | Graph CRUD, traversals (BFS, DFS, Dijkstra), temporal queries, hybrid search, semantic traversal, auto-indexing vector embeddings | 55 |
 | `astraea-query` | Hand-written GQL/Cypher parser and executor: lexer, recursive-descent parser, AST, full query execution pipeline | 56 |
 | `astraea-vector` | HNSW approximate nearest-neighbor index with cosine, Euclidean, and dot-product distance metrics; binary persistence | 33 |
 | `astraea-rag` | GraphRAG engine: subgraph extraction (BFS + semantic), linearization (4 formats), token budgets, LLM provider trait, GraphRAG pipeline | 27 |
 | `astraea-gnn` | GNN training: differentiable tensors, message passing (sum/mean/max aggregation), node classification training loop | 26 |
-| `astraea-server` | Async TCP server (tokio) with JSON/gRPC transport; auth (RBAC), metrics (Prometheus), connection management, GQL execution, vector/hybrid/semantic/RAG operations | 52 |
+| `astraea-server` | Async TCP server (tokio) with JSON/gRPC transport; auth (RBAC + mTLS), metrics (Prometheus), connection management, GQL execution, vector/hybrid/semantic/RAG operations | 68 |
 | `astraea-flight` | Apache Arrow Flight server for zero-copy data exchange: `do_get` (query → Arrow), `do_put` (Arrow → bulk import) | 11 |
 | `astraea-algorithms` | Graph algorithms: PageRank (power iteration), connected/strongly-connected components (Tarjan's), degree/betweenness centrality (Brandes'), Louvain community detection | 20 |
 | `astraea-crypto` | Homomorphic encryption foundation: key generation, encrypted labels/values/nodes, server-side encrypted label matching | 31 |
@@ -86,7 +86,7 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `astraea-cluster` | Distributed processing foundation: hash/range partitioning, shard management, cluster coordinator trait | 19 |
 | `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export` | - |
 | `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
-| **Rust Total** | | **408** |
+| **Rust Total** | | **441** |
 | **Python Total** | | **23** |
 
 ## Data Model: Vector-Property Graph
@@ -125,8 +125,13 @@ let edge = Edge {
 
 A three-tier storage architecture:
 
-- **Tier 1 (Cold):** `ColdStorage` trait with pluggable backends (currently `JsonFileColdStorage` for local files; Parquet/S3 planned). Data on disk in fixed 8 KiB pages with CRC32 checksums.
-- **Tier 2 (Warm):** An LRU buffer pool caches frequently accessed pages in memory with pin/unpin semantics. The `PageIO` trait abstracts disk I/O, enabling pluggable backends (memmap2 default; io_uring planned).
+- **Tier 1 (Cold):** `ColdStorage` trait with three pluggable backends:
+  - `JsonFileColdStorage` — human-readable JSON files on local disk
+  - `ParquetColdStorage` — columnar Apache Parquet format with Arrow schema mapping
+  - `ObjectStoreColdStorage` — cloud object stores (S3, GCS, Azure) or local filesystem via `object_store` crate
+- **Tier 2 (Warm):** An LRU buffer pool caches frequently accessed pages in memory with pin/unpin semantics. The `PageIO` trait abstracts disk I/O with two backends:
+  - `FileManager` — cross-platform memmap2-based I/O (default)
+  - `UringPageIO` — Linux io_uring async I/O (feature-gated: `--features io-uring`)
 - **Tier 3 (Hot):** **Pointer swizzling** promotes frequently-accessed pages to permanently-pinned status, preventing eviction and enabling zero-copy access. In-memory indices and the HNSW vector index provide nanosecond-level lookups.
 
 **MVCC Transactions:** Snapshot isolation with first-writer-wins conflict detection. `TransactionalEngine` trait provides `begin_transaction()`, `commit_transaction()`, `abort_transaction()`, and transactional read/write methods. Write sets are buffered per-transaction and applied atomically on commit.
@@ -237,6 +242,10 @@ JSON and gRPC transports delegate to the same `RequestHandler` and `Executor`. T
 
 **Authentication & Access Control:**
 - API key authentication with `auth_token` field in JSON requests
+- **mTLS (mutual TLS):** Optional TLS encryption with client certificate verification
+  - `TlsConfig` with `cert_path`, `key_path`, `ca_cert_path`, `require_client_cert`
+  - Client certificate CN automatically maps to role (`admin`, `writer`, `reader`)
+  - Uses `rustls` for modern, safe TLS implementation
 - Three roles: `Reader` (read-only), `Writer` (read + write), `Admin` (full access)
 - Audit logging with bounded circular buffer
 - Key management: add, revoke, list
@@ -988,8 +997,8 @@ All Phase 1 items have been implemented.
 | **Label Index** | Done | `HashMap<String, HashSet<NodeId>>` for O(1) label lookups. 5 tests. |
 | **MVCC Transactions** | Done | Snapshot isolation, first-writer-wins conflict detection, `TransactionalEngine` trait. 15 tests. |
 | **HNSW Persistence** | Done | Versioned binary format with bincode. Save/load without rebuilding. 7 tests. |
-| **Cold Tier Storage** | Done | `ColdStorage` trait + `JsonFileColdStorage` backend. Parquet/S3 deferred. 7 tests. |
-| **PageIO Trait** | Done | `PageIO` abstraction for pluggable I/O. io_uring backend deferred. 2 tests. |
+| **Cold Tier Storage** | Done | `ColdStorage` trait with 3 backends: `JsonFileColdStorage`, `ParquetColdStorage` (Arrow schema), `ObjectStoreColdStorage` (S3/GCS/Azure). 24 tests. |
+| **PageIO Trait** | Done | `PageIO` abstraction with `FileManager` (memmap2) + `UringPageIO` (Linux io_uring, feature-gated). 6 tests. |
 | **CLI Commands** | Done | `import`, `export`, `shell` (REPL with rustyline), `status`. |
 | **gRPC Transport** | Done | tonic/prost gRPC service with 14 RPCs. 7 tests. |
 | **Benchmarks** | Done | 16 criterion benchmarks across storage, vector, and graph crates. |
@@ -1033,6 +1042,7 @@ All Phase 4 items have been implemented. 408 Rust tests pass across the workspac
 | Feature | Status | Description |
 |---|---|---|
 | **Authentication & RBAC** | Done | API key auth with Reader/Writer/Admin roles. `AuthManager` with authenticate/authorize/audit/revoke. Integrated into server request handling. 11 tests. |
+| **mTLS** | Done | Full TLS/mTLS support via `TlsConfig`. Server/client cert loading, client CN extraction, CN-to-role mapping. `TlsAcceptor` integration. `rustls` + `tokio-rustls`. 16 tests. |
 | **Observability** | Done | `ServerMetrics` with Prometheus text exposition format (request counters, error counters, p50/p90/p99 durations, connection gauges, uptime). Health endpoint. 7 tests. |
 | **Connection Management** | Done | `ConnectionManager` with semaphore-based connection limits, request backpressure, idle/request timeouts, graceful shutdown with drain. RAII `ConnectionGuard`. 6 tests. |
 
@@ -1056,11 +1066,14 @@ astraeadb/
 │   │       ├── page.rs        # 8 KiB page format, checksums
 │   │       ├── page_io.rs     # PageIO trait for pluggable I/O backends
 │   │       ├── file_manager.rs# Disk I/O (implements PageIO)
+│   │       ├── uring_page_io.rs # Linux io_uring backend (feature-gated)
 │   │       ├── buffer_pool.rs # LRU page cache with pointer swizzling
 │   │       ├── wal.rs         # Write-ahead log (incl. transaction records)
 │   │       ├── label_index.rs # HashMap-based label-to-NodeId index
 │   │       ├── mvcc.rs        # MVCC transaction manager (snapshot isolation)
 │   │       ├── cold_storage.rs# ColdStorage trait + JsonFileColdStorage
+│   │       ├── parquet_cold.rs# ParquetColdStorage (Arrow schema mapping)
+│   │       ├── object_store_cold.rs # ObjectStoreColdStorage (S3/GCS/Azure)
 │   │       └── engine.rs      # DiskStorageEngine (+ TransactionalEngine impl)
 │   ├── astraea-graph/         # Graph operations
 │   │   ├── benches/
@@ -1092,9 +1105,10 @@ astraeadb/
 │   │       ├── handler.rs     # Request dispatcher (with GQL executor + VectorIndex)
 │   │       ├── grpc.rs        # gRPC service (14 RPCs via tonic)
 │   │       ├── auth.rs        # RBAC authentication (Reader/Writer/Admin roles)
+│   │       ├── tls.rs         # TLS/mTLS support (rustls, cert loading, CN mapping)
 │   │       ├── metrics.rs     # Prometheus metrics + health endpoint
 │   │       ├── connection.rs  # Connection limits, backpressure, graceful shutdown
-│   │       └── server.rs      # Async TCP server with auth, metrics, connection mgmt
+│   │       └── server.rs      # Async TCP/TLS server with auth, metrics, connection mgmt
 │   ├── astraea-flight/        # Arrow Flight server
 │   │   └── src/
 │   │       ├── lib.rs         # Crate root (schemas + service modules)

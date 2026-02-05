@@ -1,13 +1,16 @@
 //! Abstract trait for page-level I/O operations.
 //!
 //! This module defines the [`PageIO`] trait, which decouples the buffer pool
-//! and storage engine from a specific I/O implementation. The default backend
-//! is [`FileManager`](crate::file_manager::FileManager), which uses standard
-//! file I/O (seek + read/write).
+//! and storage engine from a specific I/O implementation.
 //!
-//! Future backends can implement this trait to provide alternative I/O
-//! strategies — for example, an `io_uring`-based backend for asynchronous
-//! Linux I/O without system-call overhead.
+//! # Available Implementations
+//!
+//! - [`FileManager`](crate::file_manager::FileManager): The default, cross-platform
+//!   backend using standard file I/O (seek + read/write).
+//!
+//! - [`UringPageIO`](crate::uring_page_io::UringPageIO): Linux-only, feature-gated
+//!   backend using `io_uring` for high-performance asynchronous I/O. Enable with
+//!   the `io-uring` feature flag.
 
 use astraea_core::error::Result;
 use astraea_core::types::PageId;
@@ -19,8 +22,8 @@ use crate::page::PAGE_SIZE;
 /// This trait allows swapping the underlying I/O implementation:
 /// - [`FileManager`](crate::file_manager::FileManager) uses standard file I/O
 ///   (seek + read/write) — the default, cross-platform backend.
-/// - A future `UringPageIO` would use `io_uring` for async Linux I/O
-///   (feature-gated, Linux-only).
+/// - [`UringPageIO`](crate::uring_page_io::UringPageIO) uses `io_uring` for
+///   high-performance async Linux I/O (feature-gated with `io-uring`, Linux-only).
 ///
 /// All implementations must be `Send + Sync` so they can be shared across
 /// threads via `Arc<dyn PageIO>`.

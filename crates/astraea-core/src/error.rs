@@ -16,6 +16,9 @@ pub enum AstraeaError {
     #[error("storage I/O error: {0}")]
     StorageIo(#[from] std::io::Error),
 
+    #[error("storage error: {0}")]
+    Storage(String),
+
     // --- Graph errors ---
     #[error("node {0} not found")]
     NodeNotFound(NodeId),
@@ -79,6 +82,10 @@ pub enum AstraeaError {
 
     #[error("access denied: {0}")]
     AccessDenied(String),
+
+    // --- TLS errors ---
+    #[error("TLS error: {0}")]
+    Tls(String),
 }
 
 /// Convenience alias.

@@ -1,15 +1,17 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
-use tracing::{error, info, warn};
+use tokio_rustls::TlsAcceptor;
+use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthManager;
 use crate::connection::{ConnectionConfig, ConnectionManager};
 use crate::handler::RequestHandler;
 use crate::metrics::ServerMetrics;
 use crate::protocol::{Request, Response};
+use crate::tls::{extract_client_cn, TlsConfig};
 
 /// Configuration for the AstraeaDB server.
 #[derive(Debug, Clone)]
@@ -17,6 +19,8 @@ pub struct ServerConfig {
     pub bind_address: String,
     pub port: u16,
     pub connection: ConnectionConfig,
+    /// Optional TLS configuration. When set, enables TLS/mTLS.
+    pub tls: Option<TlsConfig>,
 }
 
 impl Default for ServerConfig {
@@ -25,6 +29,7 @@ impl Default for ServerConfig {
             bind_address: "127.0.0.1".into(),
             port: 7687,
             connection: ConnectionConfig::default(),
+            tls: None,
         }
     }
 }
@@ -32,25 +37,59 @@ impl Default for ServerConfig {
 /// TCP server that accepts newline-delimited JSON requests.
 ///
 /// Protocol: each request is a single JSON line, each response is a single JSON line.
-/// Supports connection limits, request timeouts, idle timeouts, metrics, auth, and graceful shutdown.
+/// Supports connection limits, request timeouts, idle timeouts, metrics, auth, TLS/mTLS, and graceful shutdown.
 pub struct AstraeaServer {
     config: ServerConfig,
     handler: Arc<RequestHandler>,
     auth: Arc<AuthManager>,
     metrics: Arc<ServerMetrics>,
     connection_manager: Arc<ConnectionManager>,
+    tls_acceptor: Option<TlsAcceptor>,
 }
 
 impl AstraeaServer {
-    pub fn new(config: ServerConfig, handler: RequestHandler) -> Self {
-        let connection_manager =
-            Arc::new(ConnectionManager::new(config.connection.clone()));
+    /// Create a new server. If TLS is configured, this will load the certificates.
+    ///
+    /// # Errors
+    /// Returns an error if TLS is configured but certificates cannot be loaded.
+    pub fn new(config: ServerConfig, handler: RequestHandler) -> Result<Self, crate::tls::TlsError> {
+        let connection_manager = Arc::new(ConnectionManager::new(config.connection.clone()));
+
+        // Build TLS acceptor if TLS is configured
+        let tls_acceptor = if let Some(ref tls_config) = config.tls {
+            info!("TLS enabled, loading certificates...");
+            let acceptor = tls_config.build_acceptor()?;
+            info!(
+                "TLS configured: cert={}, require_client_cert={}",
+                tls_config.cert_path.display(),
+                tls_config.require_client_cert
+            );
+            Some(acceptor)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            config,
+            handler: Arc::new(handler),
+            auth: Arc::new(AuthManager::disabled()),
+            metrics: Arc::new(ServerMetrics::new()),
+            connection_manager,
+            tls_acceptor,
+        })
+    }
+
+    /// Create a new server without TLS validation at construction time.
+    /// Use this for testing or when you want to defer TLS setup.
+    pub fn new_without_tls(config: ServerConfig, handler: RequestHandler) -> Self {
+        let connection_manager = Arc::new(ConnectionManager::new(config.connection.clone()));
         Self {
             config,
             handler: Arc::new(handler),
             auth: Arc::new(AuthManager::disabled()),
             metrics: Arc::new(ServerMetrics::new()),
             connection_manager,
+            tls_acceptor: None,
         }
     }
 
@@ -74,7 +113,12 @@ impl AstraeaServer {
     pub async fn run(&self) -> std::io::Result<()> {
         let addr = format!("{}:{}", self.config.bind_address, self.config.port);
         let listener = TcpListener::bind(&addr).await?;
-        info!("AstraeaDB server listening on {}", addr);
+
+        if self.tls_acceptor.is_some() {
+            info!("AstraeaDB server listening on {} (TLS enabled)", addr);
+        } else {
+            info!("AstraeaDB server listening on {} (plaintext)", addr);
+        }
 
         loop {
             // Check for shutdown.
@@ -121,18 +165,55 @@ impl AstraeaServer {
             let metrics = Arc::clone(&self.metrics);
             let idle_timeout = self.connection_manager.idle_timeout();
             let request_timeout = self.connection_manager.request_timeout();
+            let tls_acceptor = self.tls_acceptor.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(
-                    stream,
-                    handler,
-                    auth,
-                    metrics.clone(),
-                    idle_timeout,
-                    request_timeout,
-                )
-                .await
-                {
+                let result = if let Some(acceptor) = tls_acceptor {
+                    // TLS connection
+                    match acceptor.accept(stream).await {
+                        Ok(tls_stream) => {
+                            // Extract client certificate CN if available
+                            let client_cn = tls_stream
+                                .get_ref()
+                                .1
+                                .peer_certificates()
+                                .and_then(|certs| extract_client_cn(certs));
+
+                            if let Some(ref cn) = client_cn {
+                                debug!("TLS client authenticated: CN={}", cn);
+                            }
+
+                            handle_connection(
+                                tls_stream,
+                                handler,
+                                auth,
+                                metrics.clone(),
+                                idle_timeout,
+                                request_timeout,
+                                client_cn,
+                            )
+                            .await
+                        }
+                        Err(e) => {
+                            error!("TLS handshake error from {}: {}", peer_addr, e);
+                            Err(std::io::Error::new(std::io::ErrorKind::Other, e))
+                        }
+                    }
+                } else {
+                    // Plain TCP connection
+                    handle_connection(
+                        stream,
+                        handler,
+                        auth,
+                        metrics.clone(),
+                        idle_timeout,
+                        request_timeout,
+                        None,
+                    )
+                    .await
+                };
+
+                if let Err(e) = result {
                     error!("Connection error from {}: {}", peer_addr, e);
                 }
                 metrics.connection_closed();
@@ -148,17 +229,26 @@ impl AstraeaServer {
 
         Ok(())
     }
+
+    /// Check if TLS is enabled for this server.
+    pub fn is_tls_enabled(&self) -> bool {
+        self.tls_acceptor.is_some()
+    }
 }
 
-async fn handle_connection(
-    stream: tokio::net::TcpStream,
+async fn handle_connection<S>(
+    stream: S,
     handler: Arc<RequestHandler>,
     auth: Arc<AuthManager>,
     metrics: Arc<ServerMetrics>,
     idle_timeout: std::time::Duration,
     request_timeout: std::time::Duration,
-) -> std::io::Result<()> {
-    let (reader, mut writer) = stream.into_split();
+    _client_cn: Option<String>,
+) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
 

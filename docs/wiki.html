@@ -148,6 +148,7 @@ td code { font-size: 0.85em; }
 <div class="sep"></div>
 <a href="#cybersecurity-demo">Cybersecurity Demo</a>
 <a href="#api-reference">API Reference</a>
+<a href="#glossary">Glossary</a>
 </nav>
 </aside>
 
@@ -156,25 +157,27 @@ td code { font-size: 0.85em; }
 <!-- ============================================================ -->
 <h2 id="introduction">Introduction</h2>
 
-<p><strong>AstraeaDB</strong> is a cloud-native, AI-first graph database written in <strong>Rust</strong>. It combines a <strong>Vector-Property Graph</strong> model with an <strong>HNSW vector index</strong>, enabling both structural graph traversals and semantic similarity search in a single system.</p>
+<p><strong>AstraeaDB</strong> is a cloud-native, AI-first graph database written in <strong>Rust</strong>. It combines a <strong>Vector-Property Graph</strong> model with an <strong>HNSW (Hierarchical Navigable Small World) vector index</strong>, enabling both structural graph traversals and semantic similarity search in a single system.</p>
 
 <h3>Key Differentiators</h3>
 <ul>
-<li><strong>Unified Data Model</strong> &mdash; Nodes carry labels, JSON properties, and optional float32 embeddings. Edges carry types, weights, and temporal validity intervals.</li>
-<li><strong>Hybrid Search</strong> &mdash; Blend graph proximity and vector similarity with a configurable alpha parameter.</li>
-<li><strong>Semantic Traversal</strong> &mdash; Navigate the graph by meaning: find neighbors most similar to an abstract concept.</li>
-<li><strong>Temporal Queries</strong> &mdash; Travel through time: query the graph as it existed at any point in time.</li>
-<li><strong>GraphRAG</strong> &mdash; Extract subgraphs, linearize to text, and feed to an LLM in one atomic operation.</li>
-<li><strong>GQL Support</strong> &mdash; Hand-written ISO GQL / Cypher parser and executor.</li>
-<li><strong>Three Transport Layers</strong> &mdash; JSON-over-TCP, gRPC/Protobuf, and Apache Arrow Flight.</li>
-<li><strong>Pure Rust</strong> &mdash; Zero garbage-collection pauses, memory safety, 408 tests across 14 crates.</li>
+<li><strong>Unified Data Model</strong> &mdash; Nodes carry labels, JSON properties, and optional float32 embeddings (numeric vectors that capture semantic meaning). Edges carry types, weights, and temporal validity intervals.</li>
+<li><strong>Hybrid Search</strong> &mdash; Blend graph proximity (how many hops away) and vector similarity (how semantically close) with a configurable alpha parameter.</li>
+<li><strong>Semantic Traversal</strong> &mdash; Navigate the graph by meaning: find neighbors most similar to an abstract concept represented as a vector.</li>
+<li><strong>Temporal Queries</strong> &mdash; Travel through time: query the graph as it existed at any point in time using edge validity intervals.</li>
+<li><strong>GraphRAG</strong> &mdash; Graph-enhanced Retrieval-Augmented Generation: extract subgraphs, convert to text, and feed to an LLM (Large Language Model) in one atomic operation.</li>
+<li><strong>GQL Support</strong> &mdash; Hand-written ISO GQL (Graph Query Language) / Cypher parser and executor for declarative graph queries.</li>
+<li><strong>Three Transport Layers</strong> &mdash; JSON-over-TCP, gRPC (Google's high-performance RPC framework), and Apache Arrow Flight (columnar data streaming).</li>
+<li><strong>Pure Rust</strong> &mdash; Zero garbage-collection pauses, memory safety, 441 tests across 14 crates.</li>
+<li><strong>Cloud-Native Storage</strong> &mdash; Cold storage backends for S3, GCS, Azure, and Parquet (columnar file format).</li>
+<li><strong>Production Security</strong> &mdash; API key RBAC (Role-Based Access Control) and mTLS (mutual TLS) with client certificate authentication.</li>
 </ul>
 
 <h3>Project Stats</h3>
 <table>
 <tr><th>Metric</th><th>Value</th></tr>
 <tr><td>Rust Crates</td><td>14</td></tr>
-<tr><td>Rust Tests</td><td>408</td></tr>
+<tr><td>Rust Tests</td><td>441</td></tr>
 <tr><td>Python Tests</td><td>23</td></tr>
 <tr><td>Rust Edition</td><td>2024</td></tr>
 <tr><td>License</td><td>MIT</td></tr>
@@ -279,13 +282,13 @@ astraea&gt; .quit</pre>
 <table>
 <tr><th>Crate</th><th>Purpose</th><th>Tests</th></tr>
 <tr><td><code>astraea-core</code></td><td>Types (<code>Node</code>, <code>Edge</code>, <code>NodeId</code>), traits (<code>StorageEngine</code>, <code>GraphOps</code>, <code>VectorIndex</code>, <code>TransactionalEngine</code>), errors</td><td>4</td></tr>
-<tr><td><code>astraea-storage</code></td><td>8 KiB pages, LRU buffer pool, pointer swizzling, MVCC, WAL, label index, cold storage, PageIO</td><td>58</td></tr>
+<tr><td><code>astraea-storage</code></td><td>8 KiB pages, LRU buffer pool, pointer swizzling, MVCC, WAL, label index, cold storage (JSON/Parquet/S3), PageIO (memmap2/io_uring)</td><td>75</td></tr>
 <tr><td><code>astraea-graph</code></td><td>CRUD, BFS, DFS, Dijkstra, temporal queries, hybrid search, semantic traversal</td><td>55</td></tr>
 <tr><td><code>astraea-query</code></td><td>GQL lexer, recursive-descent parser, full query executor</td><td>56</td></tr>
 <tr><td><code>astraea-vector</code></td><td>HNSW index, cosine/Euclidean/dot-product, binary persistence</td><td>33</td></tr>
 <tr><td><code>astraea-rag</code></td><td>Subgraph extraction, linearization (4 formats), LLM providers, GraphRAG pipeline</td><td>27</td></tr>
 <tr><td><code>astraea-gnn</code></td><td>Differentiable tensors, message passing, node classification training</td><td>26</td></tr>
-<tr><td><code>astraea-server</code></td><td>TCP/gRPC server, auth (RBAC), metrics (Prometheus), connection management</td><td>52</td></tr>
+<tr><td><code>astraea-server</code></td><td>TCP/gRPC server, auth (RBAC + mTLS), metrics (Prometheus), connection management</td><td>68</td></tr>
 <tr><td><code>astraea-flight</code></td><td>Arrow Flight: <code>do_get</code> (query &rarr; Arrow), <code>do_put</code> (Arrow &rarr; import)</td><td>11</td></tr>
 <tr><td><code>astraea-algorithms</code></td><td>PageRank, connected/strongly-connected components, centrality, Louvain</td><td>20</td></tr>
 <tr><td><code>astraea-crypto</code></td><td>Encrypted labels/values/nodes, server-side encrypted label matching</td><td>31</td></tr>
@@ -353,16 +356,55 @@ astraea&gt; .quit</pre>
 <p>AstraeaDB uses a three-tier storage architecture optimized for graph workloads.</p>
 
 <h3>Tier 1: Cold Storage</h3>
-<p>Data at rest on disk or object storage. The <code>ColdStorage</code> trait provides a pluggable backend interface. The current implementation uses <code>JsonFileColdStorage</code> for local files. Parquet/S3 backends are planned.</p>
-<pre><span class="kw">pub trait</span> <span class="ty">ColdStorage</span>: <span class="ty">Send</span> + <span class="ty">Sync</span> {
-    <span class="kw">fn</span> <span class="fn">read_partition</span>(&amp;<span class="kw">self</span>, key: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Result</span>&lt;<span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt;&gt;;
-    <span class="kw">fn</span> <span class="fn">write_partition</span>(&amp;<span class="kw">self</span>, key: &amp;<span class="ty">str</span>, data: &amp;[<span class="ty">u8</span>]) -&gt; <span class="ty">Result</span>&lt;()&gt;;
-    <span class="kw">fn</span> <span class="fn">delete_partition</span>(&amp;<span class="kw">self</span>, key: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Result</span>&lt;()&gt;;
-    <span class="kw">fn</span> <span class="fn">list_partitions</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Result</span>&lt;<span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt;&gt;;
-}</pre>
+<p>Data at rest on disk or object storage. The <code>ColdStorage</code> trait provides a pluggable backend interface with three implementations:</p>
+
+<table>
+<tr><th>Backend</th><th>Description</th><th>Use Case</th></tr>
+<tr><td><code>JsonFileColdStorage</code></td><td>Human-readable JSON files on local disk</td><td>Development, debugging, small datasets</td></tr>
+<tr><td><code>ParquetColdStorage</code></td><td>Columnar Apache Parquet with Arrow schema</td><td>Analytics, large datasets, efficient compression</td></tr>
+<tr><td><code>ObjectStoreColdStorage</code></td><td>S3, GCS, Azure Blob, or local filesystem</td><td>Cloud-native deployments, data lake integration</td></tr>
+</table>
+
+<h4>Parquet Schema</h4>
+<p>Nodes and edges are stored with full Arrow schema mapping:</p>
+<pre><span class="cm">// Node schema</span>
+id: <span class="ty">UInt64</span>, labels: <span class="ty">List</span>&lt;<span class="ty">Utf8</span>&gt;, properties: <span class="ty">Utf8</span>, embedding: <span class="ty">List</span>&lt;<span class="ty">Float32</span>&gt;
+
+<span class="cm">// Edge schema</span>
+id: <span class="ty">UInt64</span>, source: <span class="ty">UInt64</span>, target: <span class="ty">UInt64</span>, edge_type: <span class="ty">Utf8</span>,
+properties: <span class="ty">Utf8</span>, weight: <span class="ty">Float64</span>, valid_from: <span class="ty">Int64</span>, valid_to: <span class="ty">Int64</span></pre>
+
+<h4>Object Store Usage</h4>
+<pre><span class="kw">use</span> astraea_storage::<span class="ty">ObjectStoreColdStorage</span>;
+
+<span class="cm">// Local filesystem</span>
+<span class="kw">let</span> storage = <span class="ty">ObjectStoreColdStorage</span>::<span class="fn">local</span>(<span class="str">"/data/cold"</span>)?;
+
+<span class="cm">// Amazon S3</span>
+<span class="kw">let</span> storage = <span class="ty">ObjectStoreColdStorage</span>::<span class="fn">s3</span>(<span class="str">"my-bucket"</span>, <span class="str">"astraea/"</span>)?;
+
+<span class="cm">// Google Cloud Storage</span>
+<span class="kw">let</span> storage = <span class="ty">ObjectStoreColdStorage</span>::<span class="fn">gcs</span>(<span class="str">"my-bucket"</span>, <span class="str">"astraea/"</span>)?;
+
+<span class="cm">// Azure Blob Storage</span>
+<span class="kw">let</span> storage = <span class="ty">ObjectStoreColdStorage</span>::<span class="fn">azure</span>(<span class="str">"my-container"</span>, <span class="str">"astraea/"</span>)?;</pre>
 
 <h3>Tier 2: Warm (Buffer Pool)</h3>
-<p>An LRU buffer pool caches frequently accessed 8 KiB pages in memory with pin/unpin semantics. The <code>PageIO</code> trait abstracts disk I/O, supporting pluggable backends (memmap2 by default; io_uring planned for Linux).</p>
+<p>An LRU buffer pool caches frequently accessed 8 KiB pages in memory with pin/unpin semantics. The <code>PageIO</code> trait abstracts disk I/O with two backends:</p>
+
+<table>
+<tr><th>Backend</th><th>Platform</th><th>Description</th></tr>
+<tr><td><code>FileManager</code></td><td>All platforms</td><td>Cross-platform memmap2-based I/O (default)</td></tr>
+<tr><td><code>UringPageIO</code></td><td>Linux only</td><td>High-performance io_uring async I/O (feature-gated)</td></tr>
+</table>
+
+<h4>Enabling io_uring (Linux)</h4>
+<pre><span class="cm"># Cargo.toml</span>
+[dependencies]
+astraea-storage = { version = <span class="str">"0.1"</span>, features = [<span class="str">"io-uring"</span>] }
+
+<span class="cm"># Build command</span>
+cargo build --features io-uring</pre>
 
 <h3>Tier 3: Hot (Pointer Swizzling)</h3>
 <p>Frequently-accessed pages are promoted to permanently-pinned status, preventing eviction and enabling zero-copy access. When a page's access count exceeds a configurable threshold, it is "swizzled" into the hot tier.</p>
@@ -384,19 +426,19 @@ astraea&gt; .quit</pre>
          8192 bytes total</pre>
 
 <h3>MVCC Transactions</h3>
-<p>Snapshot isolation with first-writer-wins conflict detection. The <code>TransactionalEngine</code> trait provides transactional access:</p>
+<p><strong>MVCC (Multi-Version Concurrency Control)</strong> allows multiple transactions to read and write data concurrently without blocking each other. AstraeaDB uses snapshot isolation with first-writer-wins conflict detection. The <code>TransactionalEngine</code> trait provides transactional access:</p>
 <ul>
-<li><code>begin_transaction()</code> &mdash; start a new transaction with a snapshot LSN</li>
-<li><code>put_node_tx(node, txn_id)</code> / <code>put_edge_tx(edge, txn_id)</code> &mdash; buffer writes</li>
-<li><code>commit_transaction(txn_id)</code> &mdash; atomically apply buffered writes</li>
+<li><code>begin_transaction()</code> &mdash; start a new transaction with a snapshot LSN (Log Sequence Number, a unique identifier for each log entry)</li>
+<li><code>put_node_tx(node, txn_id)</code> / <code>put_edge_tx(edge, txn_id)</code> &mdash; buffer writes until commit</li>
+<li><code>commit_transaction(txn_id)</code> &mdash; atomically apply all buffered writes</li>
 <li><code>abort_transaction(txn_id)</code> &mdash; discard all buffered writes</li>
 </ul>
 
 <h3>Write-Ahead Log (WAL)</h3>
-<p>Every mutation is logged before being applied. Records use a <code>[length][type][JSON payload][CRC32]</code> frame format. Supports <code>BeginTransaction</code>, <code>CommitTransaction</code>, and <code>AbortTransaction</code> records for crash recovery.</p>
+<p>The <strong>WAL (Write-Ahead Log)</strong> ensures durability: every mutation is logged to disk before being applied to the data files. If the database crashes, it can recover by replaying the log. Records use a <code>[length][type][JSON payload][CRC32]</code> frame format. Supports <code>BeginTransaction</code>, <code>CommitTransaction</code>, and <code>AbortTransaction</code> records for crash recovery.</p>
 
 <h3>Label Index</h3>
-<p>A <code>HashMap&lt;String, HashSet&lt;NodeId&gt;&gt;</code> for O(1) label-based lookups, automatically maintained on <code>put_node()</code> and <code>delete_node()</code>.</p>
+<p>A hash-based index (<code>HashMap&lt;String, HashSet&lt;NodeId&gt;&gt;</code>) for O(1) constant-time label-based lookups, automatically maintained when nodes are created or deleted.</p>
 
 <!-- ============================================================ -->
 <h2 id="graph-operations">Graph Operations</h2>
@@ -428,12 +470,13 @@ graph.<span class="fn">update_node</span>(alice, json!({<span class="str">"title
 graph.<span class="fn">delete_node</span>(alice)?;</pre>
 
 <h3>Traversals</h3>
+<p>Graph traversal algorithms explore nodes by following edges:</p>
 <table>
 <tr><th>Method</th><th>Algorithm</th><th>Description</th></tr>
-<tr><td><code>bfs(start, max_depth)</code></td><td>BFS</td><td>Returns <code>Vec&lt;(NodeId, depth)&gt;</code></td></tr>
-<tr><td><code>dfs(start, max_depth)</code></td><td>DFS</td><td>Returns <code>Vec&lt;NodeId&gt;</code> in DFS order</td></tr>
-<tr><td><code>shortest_path(from, to)</code></td><td>BFS</td><td>Unweighted shortest path</td></tr>
-<tr><td><code>shortest_path_weighted(from, to)</code></td><td>Dijkstra</td><td>Weighted shortest path using edge weights</td></tr>
+<tr><td><code>bfs(start, max_depth)</code></td><td>BFS (Breadth-First Search)</td><td>Explores neighbors level by level. Returns <code>Vec&lt;(NodeId, depth)&gt;</code></td></tr>
+<tr><td><code>dfs(start, max_depth)</code></td><td>DFS (Depth-First Search)</td><td>Explores as far as possible before backtracking. Returns <code>Vec&lt;NodeId&gt;</code></td></tr>
+<tr><td><code>shortest_path(from, to)</code></td><td>BFS</td><td>Unweighted shortest path (fewest hops)</td></tr>
+<tr><td><code>shortest_path_weighted(from, to)</code></td><td>Dijkstra's algorithm</td><td>Weighted shortest path using edge weights</td></tr>
 </table>
 
 <h3>Neighbor Queries</h3>
@@ -486,22 +529,25 @@ graph.<span class="fn">create_edge</span>(
 <!-- ============================================================ -->
 <h2 id="vector-search">Vector Search (HNSW)</h2>
 
-<p>AstraeaDB includes a full implementation of the Hierarchical Navigable Small World (HNSW) algorithm for approximate nearest-neighbor search.</p>
+<p>AstraeaDB includes a full implementation of the <strong>HNSW (Hierarchical Navigable Small World)</strong> algorithm for <strong>ANN (Approximate Nearest-Neighbor)</strong> search. HNSW builds a multi-layer graph where each layer is a "small world" network &mdash; most nodes are not directly connected, but any two nodes can be reached through a small number of hops. This enables finding similar vectors in logarithmic time rather than scanning all vectors.</p>
+
+<div class="info"><strong>What are embeddings?</strong> Embeddings are numeric vectors (arrays of floating-point numbers) that represent the semantic meaning of data. Similar concepts have similar embeddings &mdash; two sentences about "dogs" will have embeddings that are mathematically close together, even if they use different words.</div>
 
 <h3>Configuration</h3>
 <table>
 <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
-<tr><td><code>M</code></td><td>16</td><td>Maximum connections per node per layer</td></tr>
-<tr><td><code>ef_construction</code></td><td>200</td><td>Beam width during index construction</td></tr>
-<tr><td><code>ef_search</code></td><td>50</td><td>Beam width during search (accuracy vs speed)</td></tr>
+<tr><td><code>M</code></td><td>16</td><td>Maximum connections per node per layer (higher = more accurate but slower)</td></tr>
+<tr><td><code>ef_construction</code></td><td>200</td><td>Beam width during index building (higher = better quality index)</td></tr>
+<tr><td><code>ef_search</code></td><td>50</td><td>Beam width during search (trade-off: higher = more accurate, lower = faster)</td></tr>
 </table>
 
 <h3>Distance Metrics</h3>
+<p>Distance metrics measure how "far apart" two vectors are. Lower distance means more similar:</p>
 <table>
-<tr><th>Metric</th><th>Description</th></tr>
-<tr><td><code>Cosine</code></td><td>Cosine similarity (1 - cos&theta;). Best for normalized embeddings.</td></tr>
-<tr><td><code>Euclidean</code></td><td>L2 distance. Best for spatial data.</td></tr>
-<tr><td><code>DotProduct</code></td><td>Negative dot product. Best for maximum inner product search.</td></tr>
+<tr><th>Metric</th><th>Description</th><th>Best For</th></tr>
+<tr><td><code>Cosine</code></td><td>Measures the angle between vectors (1 - cos&theta;). Ignores magnitude.</td><td>Text embeddings, normalized vectors</td></tr>
+<tr><td><code>Euclidean</code></td><td>Straight-line distance (L2 norm). Considers magnitude.</td><td>Spatial data, image features</td></tr>
+<tr><td><code>DotProduct</code></td><td>Negative dot product. Higher dot product = more similar.</td><td>Recommendation systems, MIPS</td></tr>
 </table>
 
 <h3>Usage</h3>
@@ -613,6 +659,10 @@ CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span
 
 <p>Retrieval-Augmented Generation backed by graph context. The pipeline performs: <strong>vector search &rarr; subgraph extraction &rarr; linearization &rarr; LLM completion</strong>.</p>
 
+<div class="tip">
+<strong>Tutorial:</strong> See the <a href="graphrag-claude-tutorial.html">GraphRAG with Claude Tutorial</a> for a complete walkthrough of using AstraeaDB's GraphRAG engine with Anthropic's Claude.
+</div>
+
 <h3>Subgraph Extraction</h3>
 <pre><span class="kw">use</span> astraea_rag::{<span class="fn">extract_subgraph</span>, <span class="fn">linearize_subgraph</span>, <span class="ty">TextFormat</span>};
 
@@ -662,13 +712,15 @@ CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span
 <!-- ============================================================ -->
 <h2 id="gnn">GNN Training</h2>
 
-<p>Graph Neural Network training in pure Rust with no external ML framework.</p>
+<p><strong>GNN (Graph Neural Network)</strong> is a type of neural network designed for graph-structured data. Unlike traditional neural networks that work on fixed-size inputs (like images), GNNs can learn from the structure of a graph &mdash; incorporating information from a node's neighbors to make predictions. AstraeaDB implements GNN training in pure Rust with no external ML framework.</p>
+
+<div class="info"><strong>How GNNs work:</strong> Each node starts with features (its embedding). In each layer, nodes "send messages" to their neighbors and "aggregate" messages from neighbors. After several layers, a node's representation captures information from nodes many hops away.</div>
 
 <h3>Components</h3>
 <ul>
-<li><strong>Tensor</strong> &mdash; Element-wise ops (add, mul, scale), activations (ReLU, sigmoid), gradient tracking.</li>
-<li><strong>Message Passing</strong> &mdash; Aggregates neighbor features weighted by edge weights. Configurable aggregation (Sum, Mean, Max) and activation.</li>
-<li><strong>Training Loop</strong> &mdash; Forward pass (N message passing layers) &rarr; loss computation &rarr; numerical gradient estimation &rarr; weight update.</li>
+<li><strong>Tensor</strong> &mdash; Basic multi-dimensional array with element-wise operations (add, mul, scale), activations (ReLU, sigmoid), and gradient tracking for backpropagation.</li>
+<li><strong>Message Passing</strong> &mdash; The core GNN operation: aggregate neighbor features weighted by edge weights. Supports Sum, Mean, or Max aggregation.</li>
+<li><strong>Training Loop</strong> &mdash; Forward pass (run N message passing layers) &rarr; compute loss against known labels &rarr; estimate gradients numerically &rarr; update edge weights via gradient descent.</li>
 </ul>
 
 <h3>Example</h3>
@@ -692,16 +744,16 @@ CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span
 <!-- ============================================================ -->
 <h2 id="algorithms">Graph Algorithms</h2>
 
-<p>The <code>astraea-algorithms</code> crate provides classical graph algorithms operating on the <code>GraphOps</code> trait.</p>
+<p>The <code>astraea-algorithms</code> crate provides classical graph algorithms for analyzing graph structure.</p>
 
 <table>
 <tr><th>Algorithm</th><th>Function</th><th>Description</th></tr>
-<tr><td>PageRank</td><td><code>pagerank(graph, nodes, config)</code></td><td>Power iteration with dangling node handling. Returns <code>HashMap&lt;NodeId, f64&gt;</code>.</td></tr>
-<tr><td>Connected Components</td><td><code>connected_components(graph, nodes)</code></td><td>Weakly-connected components via BFS with <code>Direction::Both</code>.</td></tr>
-<tr><td>Strongly Connected</td><td><code>strongly_connected_components(graph, nodes)</code></td><td>Iterative Tarjan's algorithm (no stack overflow on large graphs).</td></tr>
-<tr><td>Degree Centrality</td><td><code>degree_centrality(graph, nodes, direction)</code></td><td>Neighbor count normalized by <code>(N-1)</code>.</td></tr>
-<tr><td>Betweenness Centrality</td><td><code>betweenness_centrality(graph, nodes)</code></td><td>Brandes' algorithm with BFS + back-propagation.</td></tr>
-<tr><td>Community Detection</td><td><code>louvain(graph, nodes)</code></td><td>Louvain modularity optimization. Returns <code>HashMap&lt;NodeId, usize&gt;</code> (community IDs).</td></tr>
+<tr><td>PageRank</td><td><code>pagerank(graph, nodes, config)</code></td><td>Ranks nodes by importance based on incoming links (like Google's original algorithm). Returns importance scores for each node.</td></tr>
+<tr><td>Connected Components</td><td><code>connected_components(graph, nodes)</code></td><td>Groups nodes into clusters where every node can reach every other node (ignoring edge direction).</td></tr>
+<tr><td>Strongly Connected</td><td><code>strongly_connected_components(graph, nodes)</code></td><td>Like connected components, but respects edge direction (for directed graphs).</td></tr>
+<tr><td>Degree Centrality</td><td><code>degree_centrality(graph, nodes, direction)</code></td><td>Measures importance by counting connections. More connections = more central.</td></tr>
+<tr><td>Betweenness Centrality</td><td><code>betweenness_centrality(graph, nodes)</code></td><td>Measures how often a node lies on shortest paths between other nodes. High betweenness = important bridge.</td></tr>
+<tr><td>Community Detection</td><td><code>louvain(graph, nodes)</code></td><td>Finds densely-connected groups (communities) using the Louvain algorithm. Returns which community each node belongs to.</td></tr>
 </table>
 
 <h3>PageRank Configuration</h3>
@@ -765,7 +817,7 @@ CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span
 <!-- ============================================================ -->
 <h2 id="auth">Authentication &amp; RBAC</h2>
 
-<p>AstraeaDB supports API key authentication with role-based access control.</p>
+<p>AstraeaDB supports API key authentication and mTLS (mutual TLS) with role-based access control.</p>
 
 <h3>Roles</h3>
 <table>
@@ -775,12 +827,54 @@ CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span
 <tr><td><code>Reader</code></td><td>Read-only (get, query, search, traverse, ping)</td></tr>
 </table>
 
-<h3>Authentication Flow</h3>
+<h3>API Key Authentication</h3>
 <p>Include an <code>auth_token</code> field in JSON requests:</p>
 <pre>{<span class="str">"type"</span>:<span class="str">"CreateNode"</span>,<span class="str">"labels"</span>:[<span class="str">"Person"</span>],<span class="str">"properties"</span>:{},<span class="str">"auth_token"</span>:<span class="str">"my-api-key"</span>}</pre>
 
 <p>If auth is enabled and the token is missing or invalid:</p>
 <pre>{<span class="str">"status"</span>:<span class="str">"error"</span>,<span class="str">"message"</span>:<span class="str">"authentication required: provide auth_token"</span>}</pre>
+
+<h3>mTLS (Mutual TLS)</h3>
+<p>For production deployments, AstraeaDB supports TLS encryption with optional client certificate verification. The server uses <code>rustls</code> for modern, safe TLS.</p>
+
+<h4>TLS Configuration</h4>
+<pre><span class="kw">use</span> astraea_server::tls::{<span class="ty">TlsConfig</span>};
+
+<span class="cm">// Server-only TLS (encrypt traffic)</span>
+<span class="kw">let</span> tls = <span class="ty">TlsConfig</span>::<span class="fn">new</span>(
+    <span class="str">"server.crt"</span>,  <span class="cm">// Server certificate</span>
+    <span class="str">"server.key"</span>,  <span class="cm">// Server private key</span>
+);
+
+<span class="cm">// mTLS (verify client certificates)</span>
+<span class="kw">let</span> tls = <span class="ty">TlsConfig</span>::<span class="fn">with_mtls</span>(
+    <span class="str">"server.crt"</span>,
+    <span class="str">"server.key"</span>,
+    <span class="str">"ca.crt"</span>,      <span class="cm">// CA cert for client verification</span>
+);</pre>
+
+<h4>Client Certificate Role Mapping</h4>
+<p>When mTLS is enabled, the client certificate's Common Name (CN) is automatically mapped to an RBAC role:</p>
+<table>
+<tr><th>Certificate CN</th><th>Role</th></tr>
+<tr><td>Contains "admin"</td><td><code>Admin</code></td></tr>
+<tr><td>Contains "writer" or "write"</td><td><code>Writer</code></td></tr>
+<tr><td>All others</td><td><code>Reader</code></td></tr>
+</table>
+
+<h4>TLS Helper Functions</h4>
+<pre><span class="kw">use</span> astraea_server::tls::*;
+
+<span class="cm">// Load certificates and keys</span>
+<span class="kw">let</span> certs = <span class="fn">load_certs</span>(<span class="str">"server.crt"</span>)?;
+<span class="kw">let</span> key = <span class="fn">load_private_key</span>(<span class="str">"server.key"</span>)?;
+
+<span class="cm">// Extract info from client certificates</span>
+<span class="kw">let</span> cn = <span class="fn">extract_client_cn</span>(&amp;client_certs);  <span class="cm">// e.g., "admin-service"</span>
+<span class="kw">let</span> sans = <span class="fn">extract_sans</span>(&amp;cert);             <span class="cm">// Subject Alternative Names</span>
+
+<span class="cm">// Map CN to role</span>
+<span class="kw">let</span> role = <span class="fn">cn_to_role</span>(&amp;cn);                 <span class="cm">// "admin-service" -&gt; Admin</span></pre>
 
 <h3>Read-Only Operations (accessible by Reader role)</h3>
 <p><code>GetNode</code>, <code>GetEdge</code>, <code>Neighbors</code>, <code>NeighborsAt</code>, <code>Bfs</code>, <code>BfsAt</code>, <code>ShortestPath</code>, <code>ShortestPathAt</code>, <code>VectorSearch</code>, <code>HybridSearch</code>, <code>SemanticNeighbors</code>, <code>SemanticWalk</code>, <code>Query</code>, <code>ExtractSubgraph</code>, <code>GraphRag</code>, <code>Ping</code></p>
@@ -852,7 +946,9 @@ auth.<span class="fn">revoke_key</span>(<span class="str">"compromised-key"</spa
 <!-- ============================================================ -->
 <h2 id="encryption">Encryption</h2>
 
-<p>The <code>astraea-crypto</code> crate provides a foundation for homomorphic encryption, allowing clients to query the graph without the server seeing unencrypted data.</p>
+<p>The <code>astraea-crypto</code> crate provides a foundation for encrypted queries, allowing clients to query the graph without the server seeing unencrypted data. This is essential for privacy-sensitive applications in banking, healthcare, and other regulated industries.</p>
+
+<div class="info"><strong>How it works:</strong> Labels are encrypted with deterministic tags (same label always produces the same tag), so the server can check equality without decrypting. Property values use randomized encryption for stronger security.</div>
 
 <h3>Key Management</h3>
 <pre><span class="kw">use</span> astraea_crypto::{<span class="ty">KeyPair</span>, <span class="ty">EncryptedNode</span>, <span class="ty">EncryptedQueryEngine</span>};
@@ -885,27 +981,27 @@ auth.<span class="fn">revoke_key</span>(<span class="str">"compromised-key"</spa
 <!-- ============================================================ -->
 <h2 id="gpu">GPU Acceleration</h2>
 
-<p>The <code>astraea-gpu</code> crate provides a framework for GPU-accelerated graph analytics with a CPU fallback.</p>
+<p>The <code>astraea-gpu</code> crate provides a framework for GPU-accelerated graph analytics. Graph algorithms like PageRank are fundamentally matrix operations, which GPUs can execute much faster than CPUs due to their parallel architecture.</p>
 
 <h3>CSR Matrix</h3>
-<p>Graphs are converted to Compressed Sparse Row format for efficient matrix operations:</p>
+<p>Graphs are converted to <strong>CSR (Compressed Sparse Row)</strong> format for efficient matrix operations. CSR is a compact way to represent sparse matrices (matrices with mostly zeros, like adjacency matrices) that enables fast row access:</p>
 <pre><span class="kw">use</span> astraea_gpu::{<span class="ty">CsrMatrix</span>, <span class="ty">CpuBackend</span>, <span class="ty">GpuBackend</span>};
 
 <span class="kw">let</span> nodes = <span class="kw">vec!</span>[n1, n2, n3, n4];
 <span class="kw">let</span> csr = <span class="ty">CsrMatrix</span>::<span class="fn">from_graph</span>(&amp;graph, &amp;nodes)?;
-<span class="cm">// csr.spmv(&amp;x) -- sparse matrix-vector multiply</span>
-<span class="cm">// csr.transpose() -- efficient CSR transpose</span></pre>
+<span class="cm">// csr.spmv(&amp;x) -- sparse matrix-vector multiply (the core of PageRank)</span>
+<span class="cm">// csr.transpose() -- efficient transpose operation</span></pre>
 
 <h3>GpuBackend Trait</h3>
 <table>
 <tr><th>Method</th><th>Returns</th><th>Description</th></tr>
-<tr><td><code>pagerank(csr, config)</code></td><td><code>HashMap&lt;NodeId, f64&gt;</code></td><td>PageRank scores</td></tr>
-<tr><td><code>bfs(csr, source)</code></td><td><code>HashMap&lt;NodeId, i32&gt;</code></td><td>BFS levels (-1 = unreachable)</td></tr>
-<tr><td><code>sssp(csr, source)</code></td><td><code>HashMap&lt;NodeId, f64&gt;</code></td><td>Shortest distances (Bellman-Ford)</td></tr>
+<tr><td><code>pagerank(csr, config)</code></td><td><code>HashMap&lt;NodeId, f64&gt;</code></td><td>PageRank importance scores</td></tr>
+<tr><td><code>bfs(csr, source)</code></td><td><code>HashMap&lt;NodeId, i32&gt;</code></td><td>BFS levels (distance from source, -1 = unreachable)</td></tr>
+<tr><td><code>sssp(csr, source)</code></td><td><code>HashMap&lt;NodeId, f64&gt;</code></td><td><strong>SSSP (Single-Source Shortest Path)</strong>: shortest distances from one node to all others</td></tr>
 </table>
 
 <h3>CPU Fallback</h3>
-<p>The <code>CpuBackend</code> implements all algorithms in pure Rust. It is always available and serves as the fallback when no GPU is present.</p>
+<p>The <code>CpuBackend</code> implements all algorithms in pure Rust. It is always available and serves as the fallback when no GPU is present. The SSSP implementation uses the Bellman-Ford algorithm, which handles negative edge weights (unlike Dijkstra).</p>
 
 <!-- ============================================================ -->
 <h2 id="clustering">Clustering &amp; Sharding</h2>
@@ -1224,9 +1320,122 @@ python3 examples/cybersecurity_demo.py</pre>
 <pre>{<span class="str">"type"</span>:<span class="str">"Ping"</span>}
 {<span class="str">"status"</span>:<span class="str">"ok"</span>,<span class="str">"data"</span>:{<span class="str">"pong"</span>:<span class="kw">true</span>,<span class="str">"version"</span>:<span class="str">"0.1.0"</span>}}</pre>
 
+<!-- ============================================================ -->
+<h2 id="glossary">Glossary</h2>
+
+<p>Quick reference for technical terms used throughout this documentation.</p>
+
+<table>
+<tr><th>Term</th><th>Definition</th></tr>
+<tr>
+  <td><strong>ANN</strong></td>
+  <td><strong>Approximate Nearest Neighbor</strong> &mdash; A search algorithm that finds vectors close to a query vector, trading perfect accuracy for speed. Returns results that are "good enough" rather than guaranteed optimal.</td>
+</tr>
+<tr>
+  <td><strong>Arrow Flight</strong></td>
+  <td>A high-performance protocol for streaming columnar data using Apache Arrow's in-memory format. Enables zero-copy data transfer between database and client.</td>
+</tr>
+<tr>
+  <td><strong>BFS</strong></td>
+  <td><strong>Breadth-First Search</strong> &mdash; A graph traversal algorithm that explores all neighbors at the current depth before moving deeper. Visits nodes level-by-level.</td>
+</tr>
+<tr>
+  <td><strong>CSR</strong></td>
+  <td><strong>Compressed Sparse Row</strong> &mdash; A memory-efficient matrix format that stores only non-zero values. Used to represent sparse graphs as adjacency matrices for fast GPU operations.</td>
+</tr>
+<tr>
+  <td><strong>DFS</strong></td>
+  <td><strong>Depth-First Search</strong> &mdash; A graph traversal algorithm that explores as far as possible along each branch before backtracking. Follows one path to its end before trying alternatives.</td>
+</tr>
+<tr>
+  <td><strong>Embedding</strong></td>
+  <td>A fixed-size numeric vector (array of floats) that captures the semantic meaning of data. Similar concepts have similar embeddings, enabling similarity search.</td>
+</tr>
+<tr>
+  <td><strong>FHE</strong></td>
+  <td><strong>Fully Homomorphic Encryption</strong> &mdash; Encryption that allows computation on encrypted data without decrypting it first. The server never sees plaintext.</td>
+</tr>
+<tr>
+  <td><strong>GNN</strong></td>
+  <td><strong>Graph Neural Network</strong> &mdash; A neural network designed for graph-structured data. Learns by passing messages between connected nodes to capture both features and structure.</td>
+</tr>
+<tr>
+  <td><strong>GQL</strong></td>
+  <td><strong>Graph Query Language</strong> &mdash; The ISO standard (2024) for querying graph databases. Combines the best features of Cypher and SQL with pattern-matching syntax.</td>
+</tr>
+<tr>
+  <td><strong>GraphRAG</strong></td>
+  <td><strong>Graph-enhanced Retrieval-Augmented Generation</strong> &mdash; A technique that extracts relevant subgraphs, converts them to text, and feeds them to an LLM to answer questions with graph context.</td>
+</tr>
+<tr>
+  <td><strong>gRPC</strong></td>
+  <td><strong>Google Remote Procedure Call</strong> &mdash; A high-performance RPC framework using Protocol Buffers for serialization. More efficient than JSON for structured data.</td>
+</tr>
+<tr>
+  <td><strong>HNSW</strong></td>
+  <td><strong>Hierarchical Navigable Small World</strong> &mdash; A graph-based algorithm for approximate nearest neighbor search. Builds a multi-layer navigation structure for fast similarity queries with O(log n) complexity.</td>
+</tr>
+<tr>
+  <td><strong>io_uring</strong></td>
+  <td>A Linux kernel interface for high-performance asynchronous I/O. Uses shared ring buffers between user space and kernel to minimize syscall overhead.</td>
+</tr>
+<tr>
+  <td><strong>LLM</strong></td>
+  <td><strong>Large Language Model</strong> &mdash; An AI model trained on vast text data that can understand and generate human language (e.g., GPT-4, Claude).</td>
+</tr>
+<tr>
+  <td><strong>LSN</strong></td>
+  <td><strong>Log Sequence Number</strong> &mdash; A monotonically increasing identifier for each entry in the write-ahead log. Used for recovery and replication.</td>
+</tr>
+<tr>
+  <td><strong>mTLS</strong></td>
+  <td><strong>Mutual TLS</strong> &mdash; Two-way TLS authentication where both client and server present certificates. Provides strong identity verification for both parties.</td>
+</tr>
+<tr>
+  <td><strong>MVCC</strong></td>
+  <td><strong>Multi-Version Concurrency Control</strong> &mdash; A database technique that maintains multiple versions of data to allow concurrent reads and writes without blocking. Each transaction sees a consistent snapshot.</td>
+</tr>
+<tr>
+  <td><strong>NVMe</strong></td>
+  <td><strong>Non-Volatile Memory Express</strong> &mdash; A high-speed storage interface protocol designed for SSDs. Provides much lower latency than SATA or SAS.</td>
+</tr>
+<tr>
+  <td><strong>Parquet</strong></td>
+  <td>A columnar file format optimized for analytics. Stores data by column rather than row, enabling efficient compression and fast analytical queries.</td>
+</tr>
+<tr>
+  <td><strong>Pointer Swizzling</strong></td>
+  <td>A technique that converts disk-based identifiers (64-bit IDs) into direct memory pointers when data is loaded into RAM, enabling nanosecond-level access.</td>
+</tr>
+<tr>
+  <td><strong>RBAC</strong></td>
+  <td><strong>Role-Based Access Control</strong> &mdash; A security model where permissions are assigned to roles (Admin, Writer, Reader) rather than individual users. Users are granted roles.</td>
+</tr>
+<tr>
+  <td><strong>SCC</strong></td>
+  <td><strong>Strongly Connected Components</strong> &mdash; Maximal subgraphs where every node can reach every other node following directed edges. Used to find tightly-knit groups.</td>
+</tr>
+<tr>
+  <td><strong>SEAL</strong></td>
+  <td><strong>Microsoft Simple Encrypted Arithmetic Library</strong> &mdash; An open-source library for homomorphic encryption that enables computation on encrypted data.</td>
+</tr>
+<tr>
+  <td><strong>SSSP</strong></td>
+  <td><strong>Single-Source Shortest Path</strong> &mdash; An algorithm that computes the shortest distance from one source node to all other nodes in the graph (e.g., Dijkstra's algorithm).</td>
+</tr>
+<tr>
+  <td><strong>TLS</strong></td>
+  <td><strong>Transport Layer Security</strong> &mdash; A cryptographic protocol that provides secure communication over networks. Successor to SSL.</td>
+</tr>
+<tr>
+  <td><strong>WAL</strong></td>
+  <td><strong>Write-Ahead Log</strong> &mdash; A durability mechanism that logs all mutations to disk before applying them. Enables crash recovery by replaying the log.</td>
+</tr>
+</table>
+
 <div style="margin-top:60px; padding-top:20px; border-top:1px solid var(--border); color:#888; font-size:0.85em;">
 <p>AstraeaDB &mdash; Cloud-Native, AI-First Graph Database &mdash; MIT License</p>
-<p>408 Rust tests &bull; 23 Python tests &bull; 14 crates &bull; Edition 2024</p>
+<p>441 Rust tests &bull; 23 Python tests &bull; 14 crates &bull; Edition 2024</p>
 </div>
 
 </main>

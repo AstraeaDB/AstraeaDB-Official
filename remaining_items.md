@@ -389,7 +389,7 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 
 ### 1.6 Tiered Storage — Cold Tier (S3/GCS + Parquet)
 
-**Status:** COMPLETED (foundation layer; Parquet/S3 backends deferred to Phase 2)
+**Status:** COMPLETED
 
 **Priority:** Medium — this is part of the "Hydrated" cloud-native architecture but not needed for single-node operation.
 
@@ -440,17 +440,24 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 
 **What was implemented:**
 - Created `crates/astraea-storage/src/cold_storage.rs` with `ColdStorage` trait: `read_partition()`, `write_partition()`, `delete_partition()`, `list_partitions()`.
-- `JsonFileColdStorage` implementation using serde_json to local files (foundation for future Parquet/S3 backends).
+- `JsonFileColdStorage` implementation using serde_json to local files.
 - `ColdNode` and `ColdEdge` serializable types with `From` conversions to/from core types.
-- Updated buffer pool to integrate with cold storage tier.
-- 7 tests covering write/read/delete/list partitions.
-- Note: Full Parquet serialization and S3/GCS `object_store` integration deferred to Phase 2.
+- **`ParquetColdStorage`** (`parquet_cold.rs`): Full Parquet serialization with Arrow schema mapping:
+  - Node schema: `id: UInt64`, `labels: List<Utf8>`, `properties: Utf8`, `embedding: List<Float32>` (nullable)
+  - Edge schema: `id: UInt64`, `source: UInt64`, `target: UInt64`, `edge_type: Utf8`, `properties: Utf8`, `weight: Float64`, `valid_from: Int64` (nullable), `valid_to: Int64` (nullable)
+  - Separate files per partition: `{key}_nodes.parquet`, `{key}_edges.parquet`
+- **`ObjectStoreColdStorage`** (`object_store_cold.rs`): Cloud storage backend supporting:
+  - S3, GCS, Azure Blob Storage, and local filesystem
+  - Constructors: `new()`, `local()`, `s3()`, `gcs()`, `azure()`
+  - Path format: `{prefix}{partition_key}.json`
+- Added `parquet = "57"` and `object_store = { version = "0.11", features = ["aws", "gcp", "azure"] }` dependencies.
+- 24 total cold storage tests (7 JSON + 8 Parquet + 9 Object Store).
 
 ---
 
 ### 1.7 io_uring Async I/O
 
-**Status:** COMPLETED (PageIO trait abstraction; io_uring backend deferred to Linux-specific feature gate)
+**Status:** COMPLETED
 
 **Priority:** Medium — performance optimization for Linux deployments.
 
@@ -495,8 +502,14 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - Implemented `PageIO` for `FileManager` (delegation to inherent methods).
 - Updated `BufferPool` to accept `Arc<dyn PageIO>` instead of `Arc<FileManager>`, enabling pluggable I/O backends.
 - `DiskStorageEngine` now casts `Arc<FileManager>` to `Arc<dyn PageIO>` for the buffer pool.
-- 2 tests verifying trait-object interface.
-- Note: Actual `io_uring` backend (`UringFileManager`) deferred to a Linux-specific feature-gated implementation. The `PageIO` trait is the prerequisite abstraction.
+- **`UringPageIO`** (`uring_page_io.rs`): Full io_uring implementation for Linux:
+  - Feature-gated: `#[cfg(all(target_os = "linux", feature = "io-uring"))]`
+  - Uses `io-uring` crate (v0.7) with `parking_lot::Mutex` for thread-safe ring access
+  - Submits read/write SQEs, waits for CQEs, handles errors
+  - Write operations include fsync for durability
+  - Atomic file length tracking with `AtomicU64`
+- Added `io-uring` feature flag and conditional dependency to `astraea-storage/Cargo.toml`.
+- 6 tests (2 PageIO trait tests + 4 io_uring tests on Linux).
 
 ---
 
@@ -1454,7 +1467,15 @@ This document details every item remaining from the original plan in `CLAUDE.md`
 - **`AuditEntry`** with timestamp, truncated API key prefix, role, operation, allowed status. Circular buffer with bounded max entries.
 - Server integration: `extract_auth_token()` parses JSON requests for `auth_token` field. `handle_connection()` enforces auth checks before request processing.
 - Added `AuthenticationRequired`, `InvalidCredentials`, `AccessDenied` error variants to `astraea-core`.
-- 11 tests: disabled auth, valid/invalid/inactive keys, role permissions, audit logging, key revocation, key addition, role ordering.
+- **mTLS Support** (`tls.rs`): Full TLS/mTLS implementation:
+  - **`TlsConfig`** struct with `cert_path`, `key_path`, `ca_cert_path`, `require_client_cert`
+  - Helper functions: `load_certs()`, `load_private_key()`, `extract_client_cn()`, `extract_sans()`
+  - `cn_to_role()` maps client certificate CN to RBAC role (admin/writer/reader)
+  - `TlsError` enum for TLS-specific errors
+  - Server integration: `tls: Option<TlsConfig>` in `ServerConfig`, `TlsAcceptor` wraps connections
+  - Generic `handle_connection<T: AsyncRead + AsyncWrite>()` for both plain TCP and TLS
+- Added `tokio-rustls = "0.26"`, `rustls = "0.23"`, `rustls-pemfile = "2"`, `x509-parser = "0.16"` dependencies.
+- 27 tests: 11 auth tests + 16 TLS tests (cert loading, key loading, CN extraction, SAN extraction, server config building).
 
 ---
 

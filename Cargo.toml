@@ -79,10 +79,11 @@ tonic = "0.12"
 prost = "0.13"
 tonic-build = "0.12"
 
-# Arrow / Flight
+# Arrow / Flight / Parquet
 arrow = { version = "57", features = ["prettyprint"] }
 arrow-flight = { version = "57", features = ["flight-sql-experimental"] }
 arrow-schema = "57"
+parquet = "57"
 futures = "0.3"
 
 # Collections
@@ -92,7 +93,17 @@ ordered-float = "4"
 # Random
 rand = "0.8"
 
+# Object storage
+object_store = { version = "0.11", features = ["aws", "gcp", "azure"] }
+
+# TLS
+tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+rustls-pemfile = "2"
+x509-parser = "0.16"
+
 # Dev dependencies
 criterion = "0.5"
 proptest = "1"
 tempfile = "3"
+rcgen = "0.13"

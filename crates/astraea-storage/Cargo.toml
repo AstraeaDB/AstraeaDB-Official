@@ -3,6 +3,10 @@ name = "astraea-storage"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+io-uring = ["io-uring-crate"]
+
 [dependencies]
 astraea-core = { workspace = true }
 memmap2 = { workspace = true }
@@ -14,6 +18,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+arrow = { workspace = true }
+parquet = { workspace = true }
+object_store = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring-crate = { package = "io-uring", version = "0.7", optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
