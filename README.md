@@ -680,8 +680,7 @@ arrow.bulk_insert_nodes(nodes_table)
 
 ### R Client
 
-An R example client is provided at `examples/r_client.R`. It uses the `jsonlite`
-package and base R socket connections to communicate with the server.
+A full-featured R client is provided at `examples/r_client.R` with feature parity to the Python client. It uses the `jsonlite` package and base R socket connections.
 
 **Prerequisites:**
 
@@ -697,54 +696,6 @@ cargo run -p astraea-cli -- serve
 
 # In another terminal
 Rscript examples/r_client.R
-
-# Or with a custom address
-Rscript examples/r_client.R --host 127.0.0.1 --port 7687
-```
-
-**Example output:**
-
-```
-============================================================
-AstraeaDB R Client Demo: Social Network
-============================================================
-
-1. Creating nodes (people)...
-   Created: Alice(id=1), Bob(id=2), Charlie(id=3), Diana(id=4), Eve(id=5)
-
-2. Creating edges (relationships)...
-   Created 6 edges (5 KNOWS + 1 FOLLOWS)
-
-3. Reading nodes...
-   Alice: labels=["Person"], properties={"name":"Alice","age":30,"city":"NYC"}
-
-4. Updating Alice's properties...
-   Alice now: {"name":"Alice","age":30,"city":"San Francisco","title":"Engineer"}
-
-5. Querying neighbors...
-   Alice's outgoing neighbors: 3 connections
-   Alice KNOWS: 2 people
-   Who knows Diana: 2 people
-
-6. BFS traversal from Alice (depth=2)...
-   Depth 0: Alice
-   Depth 1: Bob
-   Depth 1: Charlie
-   Depth 1: Eve
-   Depth 2: Diana
-
-7. Shortest path from Alice to Eve...
-   Unweighted (fewest hops): Alice -> Eve (1 hops)
-   Weighted (lowest cost):   Alice -> Eve (cost=0.30)
-
-8. Deleting Eve...
-   No path from Alice to Eve (Eve was deleted)
-
-9. Server health check...
-   Server version: 0.1.0, pong: TRUE
-============================================================
-Demo complete.
-============================================================
 ```
 
 **Programmatic usage in R:**
@@ -753,45 +704,68 @@ Demo complete.
 library(jsonlite)
 source("examples/r_client.R")
 
-client <- AstraeaClient$new(host = "127.0.0.1", port = 7687L)
+# Connect with optional auth token
+client <- AstraeaClient$new(host = "127.0.0.1", port = 7687L, auth_token = "my-key")
 client$connect()
 
-# Create nodes
-id <- client$create_node(list("Person"), list(name = "Alice", age = 30))
+# Create nodes with embeddings
+alice <- client$create_node(
+  list("Person"),
+  list(name = "Alice", age = 30),
+  embedding = c(0.9, 0.1, 0.3)
+)
 
-# Create edges
-eid <- client$create_edge(id1, id2, "KNOWS", list(since = 2024), weight = 0.9)
+# Create temporal edges (valid_from/valid_to in milliseconds)
+eid <- client$create_edge(
+  alice, bob, "KNOWS",
+  properties = list(since = 2024),
+  weight = 0.9,
+  valid_from = 1704067200000  # Jan 1, 2024
+)
 
-# Traverse
-neighbors <- client$neighbors(id, direction = "outgoing", edge_type = "KNOWS")
+# Vector search
+results <- client$vector_search(c(1.0, 0.0, 0.0), k = 5L)
 
-# Shortest path
-result <- client$shortest_path(from_node = id1, to_node = id2, weighted = TRUE)
+# Hybrid search (graph + vector)
+results <- client$hybrid_search(alice, c(0.5, 0.5, 0.0), max_hops = 2L, k = 10L, alpha = 0.5)
 
-# Health check
-status <- client$ping()
+# Temporal queries (time-travel)
+neighbors_2020 <- client$neighbors_at(alice, "outgoing", timestamp = 1577836800000)
+
+# GQL queries
+result <- client$query("MATCH (p:Person) RETURN p.name")
+
+# GraphRAG
+subgraph <- client$extract_subgraph(alice, hops = 2L, format = "structured")
+answer <- client$graph_rag("Who does Alice know?", anchor = alice)
 
 client$close()
 ```
 
 **Client API reference:**
 
-| Method | Description |
-|---|---|
-| `$new(host, port)` | Create a new client instance |
-| `$connect()` | Open the TCP connection |
-| `$close()` | Close the connection |
-| `$ping()` | Health check, returns server version |
-| `$create_node(labels, properties, embedding?)` | Create a node, returns node ID |
-| `$get_node(id)` | Get node by ID |
-| `$update_node(id, properties)` | Merge properties into a node |
-| `$delete_node(id)` | Delete node and all connected edges |
-| `$create_edge(source, target, type, properties?, weight?)` | Create an edge, returns edge ID |
-| `$get_edge(id)` | Get edge by ID |
-| `$delete_edge(id)` | Delete an edge |
-| `$neighbors(id, direction?, edge_type?)` | Get neighbors with optional filtering |
-| `$bfs(start, max_depth?)` | Breadth-first traversal |
-| `$shortest_path(from, to, weighted?)` | Shortest path (BFS or Dijkstra) |
+| Category | Method | Description |
+|---|---|---|
+| Connection | `$new(host, port, auth_token?)` | Create client instance |
+| | `$connect()` / `$close()` | Open/close TCP connection |
+| | `$ping()` | Health check |
+| Node CRUD | `$create_node(labels, properties, embedding?)` | Create node, returns ID |
+| | `$get_node(id)` / `$update_node(id, props)` / `$delete_node(id)` | Read/update/delete |
+| Edge CRUD | `$create_edge(src, tgt, type, props?, weight?, valid_from?, valid_to?)` | Create temporal edge |
+| | `$get_edge(id)` / `$update_edge(id, props)` / `$delete_edge(id)` | Read/update/delete |
+| Traversal | `$neighbors(id, direction?, edge_type?)` | Get neighbors |
+| | `$bfs(start, max_depth?)` | Breadth-first search |
+| | `$shortest_path(from, to, weighted?)` | Shortest path |
+| Temporal | `$neighbors_at(id, direction, timestamp, edge_type?)` | Neighbors at time T |
+| | `$bfs_at(start, max_depth, timestamp)` | BFS at time T |
+| | `$shortest_path_at(from, to, timestamp, weighted?)` | Path at time T |
+| Vector | `$vector_search(query_vector, k?)` | k-NN search |
+| | `$hybrid_search(anchor, vector, max_hops?, k?, alpha?)` | Graph + vector |
+| | `$semantic_neighbors(id, concept, direction?, k?)` | Neighbors by similarity |
+| | `$semantic_walk(start, concept, max_hops?)` | Greedy semantic walk |
+| GQL | `$query(gql)` | Execute GQL query |
+| GraphRAG | `$extract_subgraph(center, hops?, max_nodes?, format?)` | Extract + linearize |
+| | `$graph_rag(question, anchor?, embedding?, hops?, max_nodes?, format?)` | Full RAG pipeline |
 
 ## Example: Cybersecurity Threat Investigation
 

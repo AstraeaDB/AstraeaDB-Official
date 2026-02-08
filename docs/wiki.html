@@ -1155,26 +1155,95 @@ arrow.bulk_insert_nodes(nodes_table)</pre>
 <!-- ============================================================ -->
 <h2 id="r-client">R Client</h2>
 
+<p>The R client provides full feature parity with the Python client, supporting all AstraeaDB operations via the JSON/TCP protocol.</p>
+
 <h3>Prerequisites</h3>
 <pre>install.packages(<span class="str">"jsonlite"</span>)</pre>
 
-<h3>Usage</h3>
+<h3>Basic Usage</h3>
 <pre><span class="kw">source</span>(<span class="str">"examples/r_client.R"</span>)
 
-client &lt;- AstraeaClient$new(host = <span class="str">"127.0.0.1"</span>, port = <span class="num">7687</span>L)
+<span class="cm"># Connect (with optional auth token)</span>
+client &lt;- AstraeaClient$new(host = <span class="str">"127.0.0.1"</span>, port = <span class="num">7687</span>L, auth_token = <span class="str">"my-key"</span>)
 client$connect()
 
-<span class="cm"># Create nodes</span>
-id &lt;- client$create_node(list(<span class="str">"Person"</span>), list(name = <span class="str">"Alice"</span>, age = <span class="num">30</span>))
+<span class="cm"># Create nodes with embeddings</span>
+id &lt;- client$create_node(
+  list(<span class="str">"Person"</span>),
+  list(name = <span class="str">"Alice"</span>, age = <span class="num">30</span>),
+  embedding = c(<span class="num">0.9</span>, <span class="num">0.1</span>, <span class="num">0.3</span>)
+)
 
-<span class="cm"># Create edges</span>
-eid &lt;- client$create_edge(id1, id2, <span class="str">"KNOWS"</span>, list(since = <span class="num">2024</span>), weight = <span class="num">0.9</span>)
-
-<span class="cm"># Traverse</span>
-neighbors &lt;- client$neighbors(id, direction = <span class="str">"outgoing"</span>)
-path &lt;- client$shortest_path(from_node = id1, to_node = id2, weighted = TRUE)
+<span class="cm"># Create temporal edges</span>
+eid &lt;- client$create_edge(
+  id1, id2, <span class="str">"KNOWS"</span>,
+  properties = list(since = <span class="num">2024</span>),
+  weight = <span class="num">0.9</span>,
+  valid_from = <span class="num">1704067200000</span>,  <span class="cm"># Jan 1, 2024 (ms)</span>
+  valid_to = <span class="kw">NULL</span>               <span class="cm"># Still active</span>
+)
 
 client$close()</pre>
+
+<h3>Full API Reference</h3>
+<table>
+<tr><th>Category</th><th>Method</th><th>Description</th></tr>
+<tr><td rowspan="4">Node CRUD</td><td><code>create_node(labels, properties, embedding=NULL)</code></td><td>Create node, returns ID</td></tr>
+<tr><td><code>get_node(node_id)</code></td><td>Get node by ID</td></tr>
+<tr><td><code>update_node(node_id, properties)</code></td><td>Update properties (merge)</td></tr>
+<tr><td><code>delete_node(node_id)</code></td><td>Delete node + edges</td></tr>
+<tr><td rowspan="4">Edge CRUD</td><td><code>create_edge(src, tgt, type, props, weight, valid_from, valid_to)</code></td><td>Create temporal edge</td></tr>
+<tr><td><code>get_edge(edge_id)</code></td><td>Get edge by ID</td></tr>
+<tr><td><code>update_edge(edge_id, properties)</code></td><td>Update properties (merge)</td></tr>
+<tr><td><code>delete_edge(edge_id)</code></td><td>Delete edge</td></tr>
+<tr><td rowspan="3">Traversal</td><td><code>neighbors(node_id, direction, edge_type)</code></td><td>Get neighbors</td></tr>
+<tr><td><code>bfs(start, max_depth)</code></td><td>Breadth-first search</td></tr>
+<tr><td><code>shortest_path(from, to, weighted)</code></td><td>Find shortest path</td></tr>
+<tr><td rowspan="3">Temporal</td><td><code>neighbors_at(node_id, direction, timestamp, edge_type)</code></td><td>Neighbors at point in time</td></tr>
+<tr><td><code>bfs_at(start, max_depth, timestamp)</code></td><td>BFS at point in time</td></tr>
+<tr><td><code>shortest_path_at(from, to, timestamp, weighted)</code></td><td>Path at point in time</td></tr>
+<tr><td>GQL</td><td><code>query(gql)</code></td><td>Execute GQL query</td></tr>
+<tr><td rowspan="4">Vector/Semantic</td><td><code>vector_search(query_vector, k)</code></td><td>k-NN vector search</td></tr>
+<tr><td><code>hybrid_search(anchor, query_vector, max_hops, k, alpha)</code></td><td>Graph + vector combined</td></tr>
+<tr><td><code>semantic_neighbors(node_id, concept, direction, k)</code></td><td>Neighbors by similarity</td></tr>
+<tr><td><code>semantic_walk(start, concept, max_hops)</code></td><td>Greedy semantic traversal</td></tr>
+<tr><td rowspan="2">GraphRAG</td><td><code>extract_subgraph(center, hops, max_nodes, format)</code></td><td>Extract + linearize</td></tr>
+<tr><td><code>graph_rag(question, anchor, embedding, hops, max_nodes, format)</code></td><td>Full RAG pipeline</td></tr>
+<tr><td>Utility</td><td><code>results_to_dataframe(results)</code></td><td>Convert to data.frame</td></tr>
+</table>
+
+<h3>Vector Search Example</h3>
+<pre><span class="cm"># Find nodes similar to a "tech interest" vector</span>
+tech_vector &lt;- c(<span class="num">1.0</span>, <span class="num">0.0</span>, <span class="num">0.0</span>)
+results &lt;- client$vector_search(tech_vector, k = <span class="num">5</span>L)
+<span class="kw">for</span> (r <span class="kw">in</span> results) {
+  node &lt;- client$get_node(r$node_id)
+  cat(sprintf(<span class="str">"  %s (similarity=%.3f)\n"</span>, node$properties$name, r$similarity))
+}</pre>
+
+<h3>Temporal Query Example</h3>
+<pre><span class="cm"># See who Alice knew in 2020 vs 2024</span>
+t_2020 &lt;- <span class="num">1577836800000</span>  <span class="cm"># Jan 1, 2020</span>
+t_2024 &lt;- <span class="num">1704067200000</span>  <span class="cm"># Jan 1, 2024</span>
+
+neighbors_2020 &lt;- client$neighbors_at(alice, <span class="str">"outgoing"</span>, t_2020)
+neighbors_2024 &lt;- client$neighbors_at(alice, <span class="str">"outgoing"</span>, t_2024)
+
+cat(sprintf(<span class="str">"2020: %d connections\n"</span>, length(neighbors_2020)))
+cat(sprintf(<span class="str">"2024: %d connections\n"</span>, length(neighbors_2024)))</pre>
+
+<h3>GraphRAG Example</h3>
+<pre><span class="cm"># Extract subgraph and get LLM answer</span>
+subgraph &lt;- client$extract_subgraph(alice_id, hops = <span class="num">2</span>L, format = <span class="str">"structured"</span>)
+cat(subgraph$text)  <span class="cm"># Linearized graph context</span>
+
+<span class="cm"># Full RAG pipeline (requires server LLM config)</span>
+result &lt;- client$graph_rag(
+  question = <span class="str">"Who does Alice work with?"</span>,
+  anchor = alice_id,
+  hops = <span class="num">2</span>L
+)
+cat(result$answer)</pre>
 
 <h3>Running the Demo</h3>
 <pre><span class="cm"># Terminal 1</span>
