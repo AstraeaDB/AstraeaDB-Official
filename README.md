@@ -680,12 +680,17 @@ arrow.bulk_insert_nodes(nodes_table)
 
 ### R Client
 
-A full-featured R client is provided at `examples/r_client.R` with feature parity to the Python client. It uses the `jsonlite` package and base R socket connections.
+A full-featured R client is provided at `examples/r_client.R` with feature parity to the Python client. Includes three client classes:
+
+- **AstraeaClient** - JSON/TCP client (always available)
+- **ArrowClient** - Arrow Flight client for high-performance queries
+- **UnifiedClient** - Auto-selects best available transport
 
 **Prerequisites:**
 
 ```r
-install.packages("jsonlite")
+install.packages("jsonlite")  # Required
+install.packages("arrow")     # Optional, for Arrow Flight support
 ```
 
 **Run the demo:**
@@ -766,6 +771,12 @@ client$close()
 | GQL | `$query(gql)` | Execute GQL query |
 | GraphRAG | `$extract_subgraph(center, hops?, max_nodes?, format?)` | Extract + linearize |
 | | `$graph_rag(question, anchor?, embedding?, hops?, max_nodes?, format?)` | Full RAG pipeline |
+| Batch | `$create_nodes(nodes_list)` / `$create_edges(edges_list)` | Bulk create |
+| | `$delete_nodes(ids)` / `$delete_edges(ids)` | Bulk delete |
+| Data Frame | `$import_nodes_df(df, ...)` / `$import_edges_df(df, ...)` | Import from data.frame |
+| | `$export_nodes_df(ids)` / `$export_bfs_df(start, depth)` | Export to data.frame |
+| Arrow | `ArrowClient$query(gql)` / `$query_df(gql)` | High-performance queries |
+| | `UnifiedClient` (auto-selects transport) | Best of both worlds |
 
 ## Example: Cybersecurity Threat Investigation
 

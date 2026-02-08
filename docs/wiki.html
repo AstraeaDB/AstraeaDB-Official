@@ -1155,10 +1155,19 @@ arrow.bulk_insert_nodes(nodes_table)</pre>
 <!-- ============================================================ -->
 <h2 id="r-client">R Client</h2>
 
-<p>The R client provides full feature parity with the Python client, supporting all AstraeaDB operations via the JSON/TCP protocol.</p>
+<p>The R client provides full feature parity with the Python client, supporting all AstraeaDB operations via JSON/TCP, with optional Apache Arrow Flight support for high-performance queries.</p>
 
 <h3>Prerequisites</h3>
-<pre>install.packages(<span class="str">"jsonlite"</span>)</pre>
+<pre>install.packages(<span class="str">"jsonlite"</span>)  <span class="cm"># Required</span>
+install.packages(<span class="str">"arrow"</span>)     <span class="cm"># Optional, for Arrow Flight</span></pre>
+
+<h3>Client Classes</h3>
+<table>
+<tr><th>Class</th><th>Transport</th><th>Description</th></tr>
+<tr><td><code>AstraeaClient</code></td><td>JSON/TCP</td><td>Standard client, always available</td></tr>
+<tr><td><code>ArrowClient</code></td><td>Arrow Flight</td><td>High-performance queries (requires <code>arrow</code> package)</td></tr>
+<tr><td><code>UnifiedClient</code></td><td>Auto-select</td><td>Uses Arrow when available, falls back to JSON</td></tr>
+</table>
 
 <h3>Basic Usage</h3>
 <pre><span class="kw">source</span>(<span class="str">"examples/r_client.R"</span>)
@@ -1209,7 +1218,16 @@ client$close()</pre>
 <tr><td><code>semantic_walk(start, concept, max_hops)</code></td><td>Greedy semantic traversal</td></tr>
 <tr><td rowspan="2">GraphRAG</td><td><code>extract_subgraph(center, hops, max_nodes, format)</code></td><td>Extract + linearize</td></tr>
 <tr><td><code>graph_rag(question, anchor, embedding, hops, max_nodes, format)</code></td><td>Full RAG pipeline</td></tr>
-<tr><td>Utility</td><td><code>results_to_dataframe(results)</code></td><td>Convert to data.frame</td></tr>
+<tr><td rowspan="4">Batch Ops</td><td><code>create_nodes(nodes_list)</code></td><td>Create multiple nodes</td></tr>
+<tr><td><code>create_edges(edges_list)</code></td><td>Create multiple edges</td></tr>
+<tr><td><code>delete_nodes(node_ids)</code></td><td>Delete multiple nodes</td></tr>
+<tr><td><code>delete_edges(edge_ids)</code></td><td>Delete multiple edges</td></tr>
+<tr><td rowspan="4">Data Frame I/O</td><td><code>import_nodes_df(df, label_col, embedding_cols)</code></td><td>Import nodes from data.frame</td></tr>
+<tr><td><code>import_edges_df(df, source_col, target_col, ...)</code></td><td>Import edges from data.frame</td></tr>
+<tr><td><code>export_nodes_df(node_ids)</code></td><td>Export nodes to data.frame</td></tr>
+<tr><td><code>export_bfs_df(start, max_depth)</code></td><td>BFS results as data.frame</td></tr>
+<tr><td rowspan="2">Utility</td><td><code>results_to_dataframe(results)</code></td><td>Convert results to data.frame</td></tr>
+<tr><td><code>nodes_to_dataframe(node_ids)</code></td><td>Fetch nodes as data.frame</td></tr>
 </table>
 
 <h3>Vector Search Example</h3>
@@ -1244,6 +1262,54 @@ result &lt;- client$graph_rag(
   hops = <span class="num">2</span>L
 )
 cat(result$answer)</pre>
+
+<h3>Batch Operations Example</h3>
+<pre><span class="cm"># Create multiple nodes at once</span>
+nodes &lt;- list(
+  list(labels = list(<span class="str">"Person"</span>), properties = list(name = <span class="str">"Alice"</span>), embedding = c(<span class="num">0.9</span>, <span class="num">0.1</span>)),
+  list(labels = list(<span class="str">"Person"</span>), properties = list(name = <span class="str">"Bob"</span>), embedding = c(<span class="num">0.1</span>, <span class="num">0.9</span>)),
+  list(labels = list(<span class="str">"Person"</span>), properties = list(name = <span class="str">"Charlie"</span>))
+)
+node_ids &lt;- client$create_nodes(nodes)
+
+<span class="cm"># Create multiple edges at once</span>
+edges &lt;- list(
+  list(source = node_ids[<span class="num">1</span>], target = node_ids[<span class="num">2</span>], edge_type = <span class="str">"KNOWS"</span>),
+  list(source = node_ids[<span class="num">2</span>], target = node_ids[<span class="num">3</span>], edge_type = <span class="str">"KNOWS"</span>, weight = <span class="num">0.5</span>)
+)
+edge_ids &lt;- client$create_edges(edges)</pre>
+
+<h3>Data Frame Import/Export</h3>
+<pre><span class="cm"># Import nodes from a data.frame</span>
+people_df &lt;- data.frame(
+  label = <span class="str">"Person"</span>,
+  name = c(<span class="str">"Alice"</span>, <span class="str">"Bob"</span>, <span class="str">"Charlie"</span>),
+  age = c(<span class="num">30</span>, <span class="num">25</span>, <span class="num">35</span>)
+)
+node_ids &lt;- client$import_nodes_df(people_df, label_col = <span class="str">"label"</span>)
+
+<span class="cm"># Export BFS results as a data.frame</span>
+bfs_df &lt;- client$export_bfs_df(node_ids[<span class="num">1</span>], max_depth = <span class="num">2</span>L)
+print(bfs_df)
+<span class="cm">#   node_id depth  labels   name age</span>
+<span class="cm"># 1       1     0  Person  Alice  30</span>
+<span class="cm"># 2       2     1  Person    Bob  25</span>
+<span class="cm"># 3       3     2  Person Charlie  35</span></pre>
+
+<h3>Arrow Flight (High-Performance)</h3>
+<pre><span class="cm"># Option 1: Use ArrowClient directly</span>
+arrow_client &lt;- ArrowClient$new(<span class="str">"grpc://localhost:7689"</span>)
+arrow_client$connect()
+result &lt;- arrow_client$query(<span class="str">"MATCH (p:Person) RETURN p.name, p.age"</span>)  <span class="cm"># Returns Arrow Table</span>
+df &lt;- arrow_client$query_df(<span class="str">"MATCH (p:Person) RETURN p.name"</span>)          <span class="cm"># Returns data.frame</span>
+arrow_client$close()
+
+<span class="cm"># Option 2: Use UnifiedClient (auto-selects best transport)</span>
+client &lt;- UnifiedClient$new(host = <span class="str">"127.0.0.1"</span>, port = <span class="num">7687</span>L)
+client$connect()
+cat(<span class="str">"Arrow enabled:"</span>, client$is_arrow_enabled(), <span class="str">"\n"</span>)
+result &lt;- client$query_df(<span class="str">"MATCH (n) RETURN n"</span>)  <span class="cm"># Uses Arrow if available</span>
+client$close()</pre>
 
 <h3>Running the Demo</h3>
 <pre><span class="cm"># Terminal 1</span>
