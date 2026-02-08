@@ -1090,32 +1090,70 @@ pip install ./python[arrow]</pre>
 <h3>Usage</h3>
 <pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
 
-<span class="kw">with</span> AstraeaClient(host=<span class="str">"127.0.0.1"</span>, port=<span class="num">7687</span>) <span class="kw">as</span> client:
+<span class="cm"># Connect with optional authentication</span>
+<span class="kw">with</span> AstraeaClient(host=<span class="str">"127.0.0.1"</span>, port=<span class="num">7687</span>, auth_token=<span class="str">"my-api-key"</span>) <span class="kw">as</span> client:
     <span class="cm"># Create nodes (embeddings auto-indexed)</span>
     alice = client.create_node([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"age"</span>: <span class="num">30</span>},
                                 embedding=[<span class="num">0.1</span>] * <span class="num">128</span>)
     bob = client.create_node([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Bob"</span>})
 
-    <span class="cm"># Create an edge</span>
-    client.create_edge(alice, bob, <span class="str">"KNOWS"</span>, {<span class="str">"since"</span>: <span class="num">2020</span>}, weight=<span class="num">0.9</span>)
+    <span class="cm"># Create a temporal edge</span>
+    client.create_edge(alice, bob, <span class="str">"KNOWS"</span>, {<span class="str">"since"</span>: <span class="num">2020</span>}, weight=<span class="num">0.9</span>,
+                       valid_from=<span class="num">1609459200000</span>)  <span class="cm"># Jan 1, 2021 (ms)</span>
 
     <span class="cm"># Traversals</span>
     neighbors = client.neighbors(alice, direction=<span class="str">"outgoing"</span>)
     path = client.shortest_path(alice, bob, weighted=<span class="kw">True</span>)
     reachable = client.bfs(alice, max_depth=<span class="num">2</span>)
 
+    <span class="cm"># Temporal queries (time-travel)</span>
+    old_neighbors = client.neighbors_at(alice, <span class="str">"outgoing"</span>, <span class="num">1577836800000</span>)  <span class="cm"># Jan 1, 2020</span>
+    historical_path = client.shortest_path_at(alice, bob, <span class="num">1577836800000</span>)
+
     <span class="cm"># Vector search</span>
     results = client.vector_search([<span class="num">0.15</span>] * <span class="num">128</span>, k=<span class="num">5</span>)
 
     <span class="cm"># Hybrid search</span>
-    results = client.hybrid_search(anchor=alice, query_embedding=[<span class="num">0.15</span>] * <span class="num">128</span>,
+    results = client.hybrid_search(anchor=alice, query_vector=[<span class="num">0.15</span>] * <span class="num">128</span>,
                                     max_hops=<span class="num">3</span>, k=<span class="num">10</span>, alpha=<span class="num">0.5</span>)
+
+    <span class="cm"># GraphRAG - extract subgraph context</span>
+    context = client.extract_subgraph(alice, hops=<span class="num">2</span>, max_nodes=<span class="num">50</span>, format=<span class="str">"prose"</span>)
+
+    <span class="cm"># GraphRAG - full pipeline with LLM</span>
+    answer = client.graph_rag(<span class="str">"Who does Alice know?"</span>, anchor=alice)
 
     <span class="cm"># GQL query</span>
     result = client.query(<span class="str">"MATCH (a:Person) WHERE a.age &gt; 25 RETURN a.name"</span>)
 
+    <span class="cm"># Batch operations</span>
+    node_ids = client.create_nodes([
+        {<span class="str">"labels"</span>: [<span class="str">"Person"</span>], <span class="str">"properties"</span>: {<span class="str">"name"</span>: <span class="str">"Charlie"</span>}},
+        {<span class="str">"labels"</span>: [<span class="str">"Person"</span>], <span class="str">"properties"</span>: {<span class="str">"name"</span>: <span class="str">"Diana"</span>}}
+    ])
+
     <span class="cm"># Health check</span>
     status = client.ping()</pre>
+
+<h3>DataFrame Support (Optional)</h3>
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+<span class="kw">from</span> astraeadb.dataframe <span class="kw">import</span> import_nodes_df, export_nodes_df, export_bfs_df
+<span class="kw">import</span> pandas <span class="kw">as</span> pd
+
+<span class="cm"># Import nodes from a DataFrame</span>
+df = pd.DataFrame([
+    {<span class="str">"label"</span>: <span class="str">"Person"</span>, <span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"age"</span>: <span class="num">30</span>},
+    {<span class="str">"label"</span>: <span class="str">"Person"</span>, <span class="str">"name"</span>: <span class="str">"Bob"</span>, <span class="str">"age"</span>: <span class="num">25</span>}
+])
+
+<span class="kw">with</span> AstraeaClient() <span class="kw">as</span> client:
+    node_ids = import_nodes_df(client, df, label_col=<span class="str">"label"</span>)
+
+    <span class="cm"># Export nodes back to DataFrame</span>
+    result_df = export_nodes_df(client, node_ids)
+
+    <span class="cm"># Export BFS results with node details</span>
+    bfs_df = export_bfs_df(client, start=node_ids[<span class="num">0</span>], max_depth=<span class="num">2</span>)</pre>
 
 <h3>Arrow Flight Client (Bulk Operations)</h3>
 <pre><span class="kw">from</span> astraeadb <span class="kw">import</span> ArrowClient
@@ -1134,22 +1172,45 @@ arrow.bulk_insert_nodes(nodes_table)</pre>
 
 <h3>Python API Reference</h3>
 <table>
-<tr><th>Method</th><th>Description</th></tr>
-<tr><td><code>ping()</code></td><td>Health check, returns server version</td></tr>
-<tr><td><code>create_node(labels, properties, embedding?)</code></td><td>Create a node, returns node ID</td></tr>
+<tr><th>Category</th><th>Method</th><th>Description</th></tr>
+<tr><td>Health</td><td><code>ping()</code></td><td>Health check, returns server version</td></tr>
+<tr><td rowspan="4">Node CRUD</td><td><code>create_node(labels, properties?, embedding?)</code></td><td>Create a node, returns node ID</td></tr>
 <tr><td><code>get_node(id)</code></td><td>Get node by ID</td></tr>
 <tr><td><code>update_node(id, properties)</code></td><td>Merge properties into a node</td></tr>
 <tr><td><code>delete_node(id)</code></td><td>Delete node and all connected edges</td></tr>
-<tr><td><code>create_edge(source, target, type, props?, weight?, valid_from?, valid_to?)</code></td><td>Create an edge</td></tr>
-<tr><td><code>get_edge(id)</code> / <code>delete_edge(id)</code></td><td>Get or delete an edge</td></tr>
-<tr><td><code>neighbors(id, direction?, edge_type?)</code></td><td>Get neighbors</td></tr>
+<tr><td rowspan="4">Edge CRUD</td><td><code>create_edge(source, target, type, props?, weight?, valid_from?, valid_to?)</code></td><td>Create edge with optional temporal validity</td></tr>
+<tr><td><code>get_edge(id)</code></td><td>Get edge by ID</td></tr>
+<tr><td><code>update_edge(id, properties)</code></td><td>Update edge properties (merge)</td></tr>
+<tr><td><code>delete_edge(id)</code></td><td>Delete an edge</td></tr>
+<tr><td rowspan="3">Traversal</td><td><code>neighbors(id, direction?, edge_type?)</code></td><td>Get neighbors</td></tr>
 <tr><td><code>bfs(start, max_depth?)</code></td><td>Breadth-first traversal</td></tr>
 <tr><td><code>shortest_path(from, to, weighted?)</code></td><td>Shortest path (BFS or Dijkstra)</td></tr>
-<tr><td><code>vector_search(embedding, k?)</code></td><td>k-nearest-neighbor search</td></tr>
-<tr><td><code>hybrid_search(anchor, embedding, max_hops?, k?, alpha?)</code></td><td>Blended graph + vector search</td></tr>
+<tr><td rowspan="3">Temporal</td><td><code>neighbors_at(id, direction, timestamp, edge_type?)</code></td><td>Neighbors at point in time</td></tr>
+<tr><td><code>bfs_at(start, max_depth, timestamp)</code></td><td>BFS at point in time</td></tr>
+<tr><td><code>shortest_path_at(from, to, timestamp, weighted?)</code></td><td>Path at point in time</td></tr>
+<tr><td rowspan="4">Vector/Semantic</td><td><code>vector_search(embedding, k?)</code></td><td>k-nearest-neighbor search</td></tr>
+<tr><td><code>hybrid_search(anchor, query_vector, max_hops?, k?, alpha?)</code></td><td>Blended graph + vector search</td></tr>
 <tr><td><code>semantic_neighbors(node, embedding, direction?, k?)</code></td><td>Rank neighbors by concept</td></tr>
 <tr><td><code>semantic_walk(start, embedding, max_hops?)</code></td><td>Greedy semantic walk</td></tr>
-<tr><td><code>query(gql_string)</code></td><td>Execute a GQL query</td></tr>
+<tr><td rowspan="2">GraphRAG</td><td><code>extract_subgraph(center, hops?, max_nodes?, format?)</code></td><td>Extract + linearize subgraph</td></tr>
+<tr><td><code>graph_rag(question, anchor?, question_embedding?, hops?, max_nodes?, format?)</code></td><td>Full RAG pipeline with LLM</td></tr>
+<tr><td>GQL</td><td><code>query(gql_string)</code></td><td>Execute a GQL query</td></tr>
+<tr><td rowspan="4">Batch Ops</td><td><code>create_nodes(nodes_list)</code></td><td>Create multiple nodes</td></tr>
+<tr><td><code>create_edges(edges_list)</code></td><td>Create multiple edges</td></tr>
+<tr><td><code>delete_nodes(node_ids)</code></td><td>Delete multiple nodes</td></tr>
+<tr><td><code>delete_edges(edge_ids)</code></td><td>Delete multiple edges</td></tr>
+</table>
+
+<h4>DataFrame Module (<code>astraeadb.dataframe</code>)</h4>
+<p>Requires pandas: <code>pip install pandas</code></p>
+<table>
+<tr><th>Function</th><th>Description</th></tr>
+<tr><td><code>import_nodes_df(client, df, label_col, embedding_cols?)</code></td><td>Import nodes from DataFrame</td></tr>
+<tr><td><code>import_edges_df(client, df, source_col, target_col, type_col, ...)</code></td><td>Import edges from DataFrame</td></tr>
+<tr><td><code>export_nodes_df(client, node_ids)</code></td><td>Export nodes to DataFrame</td></tr>
+<tr><td><code>export_edges_df(client, edge_ids)</code></td><td>Export edges to DataFrame</td></tr>
+<tr><td><code>export_bfs_df(client, start, max_depth?)</code></td><td>Export BFS results with node details</td></tr>
+<tr><td><code>export_bfs_at_df(client, start, max_depth, timestamp)</code></td><td>Export temporal BFS to DataFrame</td></tr>
 </table>
 
 <!-- ============================================================ -->

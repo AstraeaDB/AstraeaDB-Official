@@ -15,11 +15,16 @@ class JsonClient:
     Usage:
         with JsonClient("127.0.0.1", 7687) as client:
             node_id = client.create_node(["Person"], {"name": "Alice"})
+
+        # With authentication:
+        with JsonClient("127.0.0.1", 7687, auth_token="secret") as client:
+            node_id = client.create_node(["Person"], {"name": "Alice"})
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 7687):
+    def __init__(self, host: str = "127.0.0.1", port: int = 7687, auth_token: str | None = None):
         self.host = host
         self.port = port
+        self.auth_token = auth_token
         self._sock: Optional[socket.socket] = None
 
     def connect(self) -> None:
@@ -44,6 +49,9 @@ class JsonClient:
         """Send a request and return the response."""
         if not self._sock:
             raise ConnectionError("not connected; call connect() or use context manager")
+        # Add auth token if configured
+        if self.auth_token:
+            request["auth_token"] = self.auth_token
         data = json.dumps(request) + "\n"
         self._sock.sendall(data.encode("utf-8"))
         # Read response (single line)
@@ -234,3 +242,215 @@ class JsonClient:
             "max_hops": max_hops,
         })
         return data.get("path", [])
+
+    # --- Temporal Queries ---
+
+    def neighbors_at(
+        self,
+        node_id: int,
+        direction: str,
+        timestamp: int,
+        edge_type: str | None = None,
+    ) -> list[dict]:
+        """Get neighbors of a node at a specific point in time.
+
+        Args:
+            node_id: The node to query
+            direction: "outgoing", "incoming", or "both"
+            timestamp: Unix timestamp in milliseconds
+            edge_type: Optional edge type filter
+
+        Returns:
+            List of neighbor info dicts with node_id and edge_id
+        """
+        req: dict[str, Any] = {
+            "type": "NeighborsAt",
+            "id": node_id,
+            "direction": direction,
+            "timestamp": timestamp,
+        }
+        if edge_type is not None:
+            req["edge_type"] = edge_type
+        data = self._send_ok(req)
+        return data.get("neighbors", [])
+
+    def bfs_at(
+        self,
+        start: int,
+        max_depth: int,
+        timestamp: int,
+    ) -> list[dict]:
+        """BFS traversal at a specific point in time.
+
+        Args:
+            start: Starting node ID
+            max_depth: Maximum traversal depth
+            timestamp: Unix timestamp in milliseconds
+
+        Returns:
+            List of dicts with node_id and depth
+        """
+        data = self._send_ok({
+            "type": "BfsAt",
+            "start": start,
+            "max_depth": max_depth,
+            "timestamp": timestamp,
+        })
+        return data.get("nodes", [])
+
+    def shortest_path_at(
+        self,
+        from_node: int,
+        to_node: int,
+        timestamp: int,
+        weighted: bool = False,
+    ) -> dict:
+        """Find shortest path at a specific point in time.
+
+        Args:
+            from_node: Source node ID
+            to_node: Target node ID
+            timestamp: Unix timestamp in milliseconds
+            weighted: Use edge weights (Dijkstra) vs hop count (BFS)
+
+        Returns:
+            Dict with path (list of node IDs), length/cost
+        """
+        return self._send_ok({
+            "type": "ShortestPathAt",
+            "from": from_node,
+            "to": to_node,
+            "timestamp": timestamp,
+            "weighted": weighted,
+        })
+
+    # --- GraphRAG ---
+
+    def extract_subgraph(
+        self,
+        center: int,
+        hops: int = 2,
+        max_nodes: int = 50,
+        format: str = "structured",
+    ) -> dict:
+        """Extract a subgraph and linearize to text.
+
+        Args:
+            center: Center node ID for extraction
+            hops: BFS depth (default: 2)
+            max_nodes: Maximum nodes to include (default: 50)
+            format: "structured", "prose", "triples", or "json"
+
+        Returns:
+            Dict with center, node_count, edge_count, text
+        """
+        return self._send_ok({
+            "type": "ExtractSubgraph",
+            "center": center,
+            "hops": hops,
+            "max_nodes": max_nodes,
+            "format": format,
+        })
+
+    def graph_rag(
+        self,
+        question: str,
+        anchor: int | None = None,
+        question_embedding: list[float] | None = None,
+        hops: int = 2,
+        max_nodes: int = 50,
+        format: str = "structured",
+    ) -> dict:
+        """Execute a GraphRAG query.
+
+        Extracts relevant subgraph context and sends to configured LLM.
+        Provide either anchor (node ID) or question_embedding (for vector search).
+
+        Args:
+            question: The question to answer
+            anchor: Optional anchor node ID
+            question_embedding: Optional embedding vector for semantic anchor search
+            hops: BFS depth for context extraction
+            max_nodes: Maximum context nodes
+            format: Linearization format
+
+        Returns:
+            Dict with answer, anchor_node_id, context_text, nodes_in_context, estimated_tokens
+        """
+        req: dict[str, Any] = {
+            "type": "GraphRag",
+            "question": question,
+            "hops": hops,
+            "max_nodes": max_nodes,
+            "format": format,
+        }
+        if anchor is not None:
+            req["anchor"] = anchor
+        if question_embedding is not None:
+            req["question_embedding"] = question_embedding
+        return self._send_ok(req)
+
+    # --- Batch Operations ---
+
+    def create_nodes(self, nodes: list[dict]) -> list[int]:
+        """Create multiple nodes.
+
+        Args:
+            nodes: List of dicts with keys: labels, properties (optional), embedding (optional)
+
+        Returns:
+            List of created node IDs
+        """
+        return [
+            self.create_node(
+                n["labels"],
+                n.get("properties"),
+                n.get("embedding"),
+            )
+            for n in nodes
+        ]
+
+    def create_edges(self, edges: list[dict]) -> list[int]:
+        """Create multiple edges.
+
+        Args:
+            edges: List of dicts with keys: source, target, edge_type,
+                   properties (opt), weight (opt), valid_from (opt), valid_to (opt)
+
+        Returns:
+            List of created edge IDs
+        """
+        return [
+            self.create_edge(
+                e["source"],
+                e["target"],
+                e["edge_type"],
+                e.get("properties"),
+                e.get("weight", 1.0),
+                e.get("valid_from"),
+                e.get("valid_to"),
+            )
+            for e in edges
+        ]
+
+    def delete_nodes(self, node_ids: list[int]) -> int:
+        """Delete multiple nodes. Returns count of successfully deleted."""
+        count = 0
+        for nid in node_ids:
+            try:
+                self.delete_node(nid)
+                count += 1
+            except Exception:
+                pass
+        return count
+
+    def delete_edges(self, edge_ids: list[int]) -> int:
+        """Delete multiple edges. Returns count of successfully deleted."""
+        count = 0
+        for eid in edge_ids:
+            try:
+                self.delete_edge(eid)
+                count += 1
+            except Exception:
+                pass
+        return count

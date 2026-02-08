@@ -597,18 +597,23 @@ pip install ./python[arrow]
 ```python
 from astraeadb import AstraeaClient
 
-with AstraeaClient(host="127.0.0.1", port=7687) as client:
+# Connect with optional authentication
+with AstraeaClient(host="127.0.0.1", port=7687, auth_token="my-api-key") as client:
     # Create nodes (embeddings are auto-indexed server-side)
     alice = client.create_node(["Person"], {"name": "Alice", "age": 30},
                                embedding=[0.1] * 128)
     bob = client.create_node(["Person"], {"name": "Bob", "age": 25},
                              embedding=[0.2] * 128)
 
-    # Create an edge
-    client.create_edge(alice, bob, "KNOWS", {"since": 2020}, weight=0.9)
+    # Create a temporal edge (valid_from in milliseconds)
+    client.create_edge(alice, bob, "KNOWS", {"since": 2020}, weight=0.9,
+                       valid_from=1609459200000)  # Jan 1, 2021
 
     # Query neighbors
     neighbors = client.neighbors(alice, direction="outgoing")
+
+    # Temporal query - neighbors at a point in time
+    old_neighbors = client.neighbors_at(alice, "outgoing", 1577836800000)  # Jan 1, 2020
 
     # BFS traversal (2 hops)
     reachable = client.bfs(alice, max_depth=2)
@@ -620,21 +625,44 @@ with AstraeaClient(host="127.0.0.1", port=7687) as client:
     results = client.vector_search([0.15] * 128, k=5)
 
     # Hybrid search (graph proximity + vector similarity)
-    results = client.hybrid_search(anchor=alice, query_embedding=[0.15] * 128,
+    results = client.hybrid_search(anchor=alice, query_vector=[0.15] * 128,
                                    max_hops=3, k=10, alpha=0.5)
 
-    # Semantic neighbors (rank by embedding similarity)
-    results = client.semantic_neighbors(alice, concept_embedding=[0.1] * 128,
-                                        direction="outgoing", k=5)
+    # GraphRAG - extract subgraph context
+    context = client.extract_subgraph(alice, hops=2, max_nodes=50, format="prose")
 
-    # Semantic walk (greedy multi-hop toward a concept)
-    path = client.semantic_walk(alice, concept_embedding=[0.1] * 128, max_hops=4)
+    # GraphRAG - full pipeline with LLM
+    answer = client.graph_rag("Who does Alice know?", anchor=alice)
+
+    # Batch operations
+    node_ids = client.create_nodes([
+        {"labels": ["Person"], "properties": {"name": "Charlie"}},
+        {"labels": ["Person"], "properties": {"name": "Diana"}}
+    ])
 
     # Execute GQL queries
     result = client.query("MATCH (a:Person) WHERE a.age > 25 RETURN a.name")
 
     # Health check
     status = client.ping()
+```
+
+**DataFrame support (requires pandas):**
+
+```python
+from astraeadb import AstraeaClient
+from astraeadb.dataframe import import_nodes_df, export_nodes_df, export_bfs_df
+import pandas as pd
+
+df = pd.DataFrame([
+    {"label": "Person", "name": "Alice", "age": 30},
+    {"label": "Person", "name": "Bob", "age": 25}
+])
+
+with AstraeaClient() as client:
+    node_ids = import_nodes_df(client, df, label_col="label")
+    result_df = export_nodes_df(client, node_ids)
+    bfs_df = export_bfs_df(client, start=node_ids[0], max_depth=2)
 ```
 
 **Arrow Flight client for bulk operations:**
@@ -660,23 +688,30 @@ arrow.bulk_insert_nodes(nodes_table)
 
 **Client API reference:**
 
-| Method | Description |
-|---|---|
-| `ping()` | Health check, returns server version |
-| `create_node(labels, properties, embedding?)` | Create a node, returns node ID |
-| `get_node(id)` | Get node by ID |
-| `update_node(id, properties)` | Merge properties into a node |
-| `delete_node(id)` | Delete node and all connected edges |
-| `create_edge(source, target, type, properties?, weight?, valid_from?, valid_to?)` | Create an edge, returns edge ID |
-| `get_edge(id)` / `delete_edge(id)` | Get or delete an edge |
-| `neighbors(id, direction?, edge_type?)` | Get neighbors with optional filtering |
-| `bfs(start, max_depth?)` | Breadth-first traversal |
-| `shortest_path(from, to, weighted?)` | Shortest path (BFS or Dijkstra) |
-| `vector_search(embedding, k?)` | k-nearest-neighbor search |
-| `hybrid_search(anchor, embedding, max_hops?, k?, alpha?)` | Blended graph + vector search |
-| `semantic_neighbors(node, embedding, direction?, k?)` | Rank neighbors by concept similarity |
-| `semantic_walk(start, embedding, max_hops?)` | Greedy semantic walk |
-| `query(gql_string)` | Execute a GQL query |
+| Category | Method | Description |
+|---|---|---|
+| Health | `ping()` | Health check, returns server version |
+| Node CRUD | `create_node(labels, properties?, embedding?)` | Create a node, returns node ID |
+| | `get_node(id)` / `update_node(id, props)` / `delete_node(id)` | Get, update, or delete a node |
+| Edge CRUD | `create_edge(src, tgt, type, props?, weight?, valid_from?, valid_to?)` | Create edge with optional temporal validity |
+| | `get_edge(id)` / `update_edge(id, props)` / `delete_edge(id)` | Get, update, or delete an edge |
+| Traversal | `neighbors(id, direction?, edge_type?)` | Get neighbors with optional filtering |
+| | `bfs(start, max_depth?)` | Breadth-first traversal |
+| | `shortest_path(from, to, weighted?)` | Shortest path (BFS or Dijkstra) |
+| Temporal | `neighbors_at(id, direction, timestamp, edge_type?)` | Neighbors at point in time |
+| | `bfs_at(start, max_depth, timestamp)` | BFS at point in time |
+| | `shortest_path_at(from, to, timestamp, weighted?)` | Path at point in time |
+| Vector | `vector_search(embedding, k?)` | k-nearest-neighbor search |
+| | `hybrid_search(anchor, embedding, max_hops?, k?, alpha?)` | Blended graph + vector search |
+| | `semantic_neighbors(node, embedding, direction?, k?)` | Rank neighbors by concept similarity |
+| | `semantic_walk(start, embedding, max_hops?)` | Greedy semantic walk |
+| GraphRAG | `extract_subgraph(center, hops?, max_nodes?, format?)` | Extract + linearize subgraph |
+| | `graph_rag(question, anchor?, embedding?, hops?, max_nodes?, format?)` | Full RAG pipeline with LLM |
+| GQL | `query(gql_string)` | Execute a GQL query |
+| Batch | `create_nodes(nodes_list)` / `create_edges(edges_list)` | Batch create |
+| | `delete_nodes(node_ids)` / `delete_edges(edge_ids)` | Batch delete |
+
+**DataFrame module** (`from astraeadb.dataframe import ...`): `import_nodes_df`, `import_edges_df`, `export_nodes_df`, `export_edges_df`, `export_bfs_df`, `export_bfs_at_df`
 
 ### R Client
 

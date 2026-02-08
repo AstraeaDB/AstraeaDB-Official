@@ -8,6 +8,9 @@ Usage:
     with AstraeaClient() as client:
         node_id = client.create_node(["Person"], {"name": "Alice"})
         results = client.query("MATCH (n:Person) RETURN n.name")
+
+DataFrame support (requires pandas):
+    from astraeadb.dataframe import import_nodes_df, export_nodes_df
 """
 
 from astraeadb.client import AstraeaClient
@@ -21,3 +24,6 @@ try:
     __all__.append("ArrowClient")
 except ImportError:
     pass  # pyarrow not installed
+
+# DataFrame support is in a separate module to avoid pandas dependency
+# Use: from astraeadb.dataframe import import_nodes_df, export_nodes_df

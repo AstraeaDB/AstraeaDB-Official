@@ -22,6 +22,7 @@ class AstraeaClient:
         host: str = "127.0.0.1",
         port: int = 7687,
         flight_uri: Optional[str] = None,
+        auth_token: Optional[str] = None,
     ):
         """Create a new AstraeaDB client.
 
@@ -31,8 +32,9 @@ class AstraeaClient:
             flight_uri: Arrow Flight URI (e.g., "grpc://localhost:50051").
                         If None and pyarrow is available, defaults to
                         grpc://{host}:50051
+            auth_token: Optional authentication token for RBAC
         """
-        self._json = JsonClient(host, port)
+        self._json = JsonClient(host, port, auth_token)
         self._arrow = None
         self._flight_uri = flight_uri or f"grpc://{host}:50051"
 
@@ -137,6 +139,48 @@ class AstraeaClient:
 
     def semantic_walk(self, start, concept, max_hops=3):
         return self._json.semantic_walk(start, concept, max_hops)
+
+    # --- Temporal Queries ---
+
+    def neighbors_at(self, node_id, direction, timestamp, edge_type=None):
+        """Get neighbors at a specific timestamp."""
+        return self._json.neighbors_at(node_id, direction, timestamp, edge_type)
+
+    def bfs_at(self, start, max_depth, timestamp):
+        """BFS traversal at a specific timestamp."""
+        return self._json.bfs_at(start, max_depth, timestamp)
+
+    def shortest_path_at(self, from_node, to_node, timestamp, weighted=False):
+        """Shortest path at a specific timestamp."""
+        return self._json.shortest_path_at(from_node, to_node, timestamp, weighted)
+
+    # --- GraphRAG ---
+
+    def extract_subgraph(self, center, hops=2, max_nodes=50, format="structured"):
+        """Extract subgraph and linearize to text."""
+        return self._json.extract_subgraph(center, hops, max_nodes, format)
+
+    def graph_rag(self, question, anchor=None, question_embedding=None, hops=2, max_nodes=50, format="structured"):
+        """Execute a GraphRAG query."""
+        return self._json.graph_rag(question, anchor, question_embedding, hops, max_nodes, format)
+
+    # --- Batch Operations ---
+
+    def create_nodes(self, nodes):
+        """Create multiple nodes."""
+        return self._json.create_nodes(nodes)
+
+    def create_edges(self, edges):
+        """Create multiple edges."""
+        return self._json.create_edges(edges)
+
+    def delete_nodes(self, node_ids):
+        """Delete multiple nodes."""
+        return self._json.delete_nodes(node_ids)
+
+    def delete_edges(self, edge_ids):
+        """Delete multiple edges."""
+        return self._json.delete_edges(edge_ids)
 
     # --- Bulk operations (Arrow only) ---
 

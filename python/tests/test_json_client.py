@@ -208,5 +208,222 @@ class TestJsonClient(unittest.TestCase):
             mock_sock.close.assert_called_once()
 
 
+class TestTemporalQueries(unittest.TestCase):
+    """Tests for temporal query methods."""
+
+    def setUp(self):
+        self.client = JsonClient("127.0.0.1", 7687)
+        self.mock_sock = MagicMock()
+        self.client._sock = self.mock_sock
+
+    def _mock_response(self, data: dict):
+        response = json.dumps({"status": "ok", "data": data}) + "\n"
+        self.mock_sock.recv.return_value = response.encode("utf-8")
+
+    def _get_sent_request(self) -> dict:
+        call_args = self.mock_sock.sendall.call_args
+        data = call_args[0][0].decode("utf-8").strip()
+        return json.loads(data)
+
+    def test_neighbors_at(self):
+        self._mock_response({"neighbors": [{"node_id": 2, "edge_id": 10}]})
+        result = self.client.neighbors_at(1, "outgoing", 1700000000000)
+        req = self._get_sent_request()
+        self.assertEqual(req["type"], "NeighborsAt")
+        self.assertEqual(req["id"], 1)
+        self.assertEqual(req["direction"], "outgoing")
+        self.assertEqual(req["timestamp"], 1700000000000)
+        self.assertEqual(len(result), 1)
+
+    def test_neighbors_at_with_edge_type(self):
+        self._mock_response({"neighbors": []})
+        self.client.neighbors_at(1, "both", 1700000000000, edge_type="KNOWS")
+        req = self._get_sent_request()
+        self.assertEqual(req["edge_type"], "KNOWS")
+
+    def test_bfs_at(self):
+        self._mock_response({"nodes": [{"node_id": 1, "depth": 0}, {"node_id": 2, "depth": 1}]})
+        result = self.client.bfs_at(1, 2, 1700000000000)
+        req = self._get_sent_request()
+        self.assertEqual(req["type"], "BfsAt")
+        self.assertEqual(req["start"], 1)
+        self.assertEqual(req["max_depth"], 2)
+        self.assertEqual(req["timestamp"], 1700000000000)
+        self.assertEqual(len(result), 2)
+
+    def test_shortest_path_at(self):
+        self._mock_response({"path": [1, 3, 5], "length": 2})
+        result = self.client.shortest_path_at(1, 5, 1700000000000)
+        req = self._get_sent_request()
+        self.assertEqual(req["type"], "ShortestPathAt")
+        self.assertEqual(req["from"], 1)
+        self.assertEqual(req["to"], 5)
+        self.assertEqual(req["timestamp"], 1700000000000)
+        self.assertEqual(result["length"], 2)
+
+    def test_shortest_path_at_weighted(self):
+        self._mock_response({"path": [1, 3, 5], "cost": 2.5})
+        result = self.client.shortest_path_at(1, 5, 1700000000000, weighted=True)
+        req = self._get_sent_request()
+        self.assertEqual(req["weighted"], True)
+
+
+class TestGraphRAG(unittest.TestCase):
+    """Tests for GraphRAG methods."""
+
+    def setUp(self):
+        self.client = JsonClient("127.0.0.1", 7687)
+        self.mock_sock = MagicMock()
+        self.client._sock = self.mock_sock
+
+    def _mock_response(self, data: dict):
+        response = json.dumps({"status": "ok", "data": data}) + "\n"
+        self.mock_sock.recv.return_value = response.encode("utf-8")
+
+    def _get_sent_request(self) -> dict:
+        call_args = self.mock_sock.sendall.call_args
+        data = call_args[0][0].decode("utf-8").strip()
+        return json.loads(data)
+
+    def test_extract_subgraph_structured(self):
+        self._mock_response({
+            "center": 1,
+            "node_count": 5,
+            "edge_count": 4,
+            "text": "Node 1 (Person): Alice..."
+        })
+        result = self.client.extract_subgraph(1, hops=2, max_nodes=50, format="structured")
+        req = self._get_sent_request()
+        self.assertEqual(req["type"], "ExtractSubgraph")
+        self.assertEqual(req["center"], 1)
+        self.assertEqual(req["hops"], 2)
+        self.assertEqual(req["max_nodes"], 50)
+        self.assertEqual(req["format"], "structured")
+        self.assertEqual(result["node_count"], 5)
+
+    def test_extract_subgraph_prose(self):
+        self._mock_response({"text": "Alice is a person who knows Bob..."})
+        self.client.extract_subgraph(1, format="prose")
+        req = self._get_sent_request()
+        self.assertEqual(req["format"], "prose")
+
+    def test_graph_rag_with_anchor(self):
+        self._mock_response({
+            "answer": "Alice works at TechCorp.",
+            "anchor_node_id": 1,
+            "context_text": "Node 1 (Person): Alice...",
+            "nodes_in_context": 5,
+            "estimated_tokens": 120
+        })
+        result = self.client.graph_rag("Where does Alice work?", anchor=1)
+        req = self._get_sent_request()
+        self.assertEqual(req["type"], "GraphRag")
+        self.assertEqual(req["question"], "Where does Alice work?")
+        self.assertEqual(req["anchor"], 1)
+        self.assertIn("answer", result)
+
+    def test_graph_rag_with_embedding(self):
+        self._mock_response({
+            "answer": "Alice is 30 years old.",
+            "anchor_node_id": 1,
+            "nodes_in_context": 3,
+            "estimated_tokens": 80
+        })
+        result = self.client.graph_rag(
+            "How old is Alice?",
+            question_embedding=[0.1, 0.2, 0.3],
+            hops=3,
+            max_nodes=25
+        )
+        req = self._get_sent_request()
+        self.assertEqual(req["question_embedding"], [0.1, 0.2, 0.3])
+        self.assertEqual(req["hops"], 3)
+        self.assertEqual(req["max_nodes"], 25)
+
+
+class TestBatchOperations(unittest.TestCase):
+    """Tests for batch operation methods."""
+
+    def setUp(self):
+        self.client = JsonClient("127.0.0.1", 7687)
+        self.mock_sock = MagicMock()
+        self.client._sock = self.mock_sock
+        self.call_count = 0
+
+    def _mock_responses(self, responses: list[dict]):
+        """Configure mock to return multiple sequential responses."""
+        encoded = [json.dumps({"status": "ok", "data": r}) + "\n" for r in responses]
+        self.mock_sock.recv.side_effect = [r.encode("utf-8") for r in encoded]
+
+    def test_create_nodes_batch(self):
+        self._mock_responses([
+            {"node_id": 1},
+            {"node_id": 2},
+            {"node_id": 3}
+        ])
+        nodes = [
+            {"labels": ["Person"], "properties": {"name": "Alice"}},
+            {"labels": ["Person"], "properties": {"name": "Bob"}},
+            {"labels": ["Company"], "properties": {"name": "TechCorp"}, "embedding": [0.1, 0.2]}
+        ]
+        result = self.client.create_nodes(nodes)
+        self.assertEqual(result, [1, 2, 3])
+        self.assertEqual(self.mock_sock.sendall.call_count, 3)
+
+    def test_create_edges_batch(self):
+        self._mock_responses([
+            {"edge_id": 10},
+            {"edge_id": 11}
+        ])
+        edges = [
+            {"source": 1, "target": 2, "edge_type": "KNOWS"},
+            {"source": 2, "target": 3, "edge_type": "WORKS_AT", "weight": 0.9}
+        ]
+        result = self.client.create_edges(edges)
+        self.assertEqual(result, [10, 11])
+
+    def test_delete_nodes_batch(self):
+        self._mock_responses([{}, {}])
+        count = self.client.delete_nodes([1, 2])
+        self.assertEqual(count, 2)
+
+    def test_delete_edges_batch(self):
+        self._mock_responses([{}, {}])
+        count = self.client.delete_edges([10, 11])
+        self.assertEqual(count, 2)
+
+
+class TestAuthentication(unittest.TestCase):
+    """Tests for authentication support."""
+
+    def setUp(self):
+        self.mock_sock = MagicMock()
+
+    def _mock_response(self, data: dict):
+        response = json.dumps({"status": "ok", "data": data}) + "\n"
+        self.mock_sock.recv.return_value = response.encode("utf-8")
+
+    def _get_sent_request(self) -> dict:
+        call_args = self.mock_sock.sendall.call_args
+        data = call_args[0][0].decode("utf-8").strip()
+        return json.loads(data)
+
+    def test_auth_token_sent(self):
+        client = JsonClient("127.0.0.1", 7687, auth_token="secret-token-123")
+        client._sock = self.mock_sock
+        self._mock_response({"pong": True})
+        client.ping()
+        req = self._get_sent_request()
+        self.assertEqual(req["auth_token"], "secret-token-123")
+
+    def test_no_auth_token_when_not_set(self):
+        client = JsonClient("127.0.0.1", 7687)
+        client._sock = self.mock_sock
+        self._mock_response({"pong": True})
+        client.ping()
+        req = self._get_sent_request()
+        self.assertNotIn("auth_token", req)
+
+
 if __name__ == "__main__":
     unittest.main()
