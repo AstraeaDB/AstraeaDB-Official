@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Graph Neural Networks - AstraeaDB Tutorial</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a2e;
+  --sidebar-bg: #16213e;
+  --sidebar-fg: #e0e0e0;
+  --sidebar-hover: #0f3460;
+  --sidebar-active: #e94560;
+  --code-bg: #1e1e2e;
+  --code-fg: #cdd6f4;
+  --border: #e0e0e0;
+  --accent: #0f3460;
+  --accent-light: #e8eef6;
+  --table-stripe: #f8f9fa;
+  --kw: #cba6f7;
+  --str: #a6e3a1;
+  --num: #fab387;
+  --comment: #6c7086;
+  --fn: #89b4fa;
+  --type: #f9e2af;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; color: var(--fg); background: var(--bg); line-height: 1.7; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: 0; left: 0; width: 280px; height: 100vh;
+  background: var(--sidebar-bg); color: var(--sidebar-fg);
+  overflow-y: auto; z-index: 100; padding: 20px 0;
+  transition: transform 0.3s;
+}
+.sidebar h1 { font-size: 1.3em; padding: 0 20px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 10px; }
+.sidebar h1 span { color: var(--sidebar-active); }
+.sidebar nav a {
+  display: block; padding: 6px 20px; color: var(--sidebar-fg);
+  font-size: 0.88em; text-decoration: none; border-left: 3px solid transparent;
+}
+.sidebar nav a:hover { background: var(--sidebar-hover); border-left-color: var(--sidebar-active); text-decoration: none; }
+.sidebar nav a.sub { padding-left: 36px; font-size: 0.82em; opacity: 0.8; }
+.sidebar nav .sep { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 20px; }
+.sidebar nav .back { opacity: 0.6; font-size: 0.8em; margin-bottom: 10px; }
+
+/* Main content */
+.main { margin-left: 280px; padding: 40px 50px 80px; max-width: 960px; }
+.main h2 { font-size: 1.8em; margin: 50px 0 15px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); color: var(--accent); }
+.main h2:first-child { margin-top: 0; }
+.main h3 { font-size: 1.3em; margin: 30px 0 10px; color: #333; }
+.main h4 { font-size: 1.05em; margin: 20px 0 8px; }
+.main p { margin: 10px 0; }
+.main ul, .main ol { margin: 10px 0 10px 25px; }
+.main li { margin: 4px 0; }
+
+/* Code blocks */
+pre {
+  background: var(--code-bg); color: var(--code-fg); padding: 16px 20px;
+  border-radius: 6px; overflow-x: auto; font-size: 0.88em;
+  margin: 12px 0; line-height: 1.5; font-family: "SF Mono", "Fira Code", Consolas, monospace;
+}
+code {
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.9em;
+}
+p code, li code, td code {
+  background: var(--accent-light); padding: 1px 5px; border-radius: 3px;
+  color: var(--accent); font-size: 0.88em;
+}
+.kw { color: var(--kw); }
+.str { color: var(--str); }
+.num { color: var(--num); }
+.cm { color: var(--comment); font-style: italic; }
+.fn { color: var(--fn); }
+.ty { color: var(--type); }
+
+/* Tables */
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+th, td { padding: 10px 14px; text-align: left; border: 1px solid var(--border); }
+th { background: var(--accent); color: white; font-weight: 600; }
+tr:nth-child(even) { background: var(--table-stripe); }
+td code { font-size: 0.85em; }
+
+/* Info boxes */
+.info { background: #e8f4fd; border-left: 4px solid #2196F3; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+.warn { background: #fff8e1; border-left: 4px solid #ff9800; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+.tip { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+.note { background: #f3e5f5; border-left: 4px solid #9c27b0; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+
+/* Math formulas */
+.formula {
+  background: var(--table-stripe); padding: 15px 20px; border-radius: 6px;
+  font-family: "SF Mono", Consolas, monospace; margin: 12px 0;
+  border-left: 4px solid var(--accent);
+}
+
+/* Diagram */
+.diagram { background: var(--code-bg); color: var(--code-fg); padding: 20px; border-radius: 6px; overflow-x: auto; font-family: "SF Mono", Consolas, monospace; font-size: 0.82em; white-space: pre; margin: 12px 0; line-height: 1.4; }
+
+/* Mobile menu */
+.menu-toggle { display: none; position: fixed; top: 12px; left: 12px; z-index: 200; background: var(--sidebar-bg); color: white; border: none; padding: 8px 12px; border-radius: 4px; font-size: 1.2em; cursor: pointer; }
+
+@media (max-width: 800px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; padding: 60px 20px 60px; }
+  .menu-toggle { display: block; }
+}
+</style>
+</head>
+<body>
+
+<button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">&#9776;</button>
+
+<aside class="sidebar">
+<div style="text-align:center; padding: 15px 20px 10px;">
+  <img src="assets/logo.png" alt="AstraeaDB" style="width: 80px; border-radius: 50%;">
+</div>
+<h1><span>GNN</span> Tutorial</h1>
+<nav>
+<a href="wiki.html" class="back">&larr; Back to Wiki</a>
+<div class="sep"></div>
+<a href="#intro">Introduction</a>
+<a href="#concepts">Key Concepts</a>
+<a href="#why-gnn">Why GNNs?</a>
+<div class="sep"></div>
+<a href="#tensor">Tensor Operations</a>
+<a href="#message-passing">Message Passing</a>
+<a href="#aggregation">Aggregation Strategies</a>
+<a href="#activation">Activation Functions</a>
+<div class="sep"></div>
+<a href="#training">Training Loop</a>
+<a href="#loss">Loss Functions</a>
+<a href="#optimization">Optimization</a>
+<div class="sep"></div>
+<a href="#node-classification">Node Classification</a>
+<a href="#architectures">GNN Architectures</a>
+<a href="#multi-layer">Multi-Layer GNNs</a>
+<div class="sep"></div>
+<a href="#example-social">Example: Social Network</a>
+<a href="#example-fraud">Example: Fraud Detection</a>
+<a href="#best-practices">Best Practices</a>
+</nav>
+</aside>
+
+<main class="main">
+
+<!-- ============================================================ -->
+<h2 id="intro">Introduction</h2>
+
+<p><strong>Graph Neural Networks (GNNs)</strong> are a class of deep learning models designed specifically for graph-structured data. Unlike traditional neural networks that operate on fixed-size inputs (images, sequences), GNNs can learn from the topology of a graph&mdash;how nodes connect to each other&mdash;and use that structure to make predictions.</p>
+
+<p>AstraeaDB's <code>astraea-gnn</code> crate provides a lightweight, educational GNN framework that integrates directly with your graph database. Train models on your graph data without extracting it to external ML frameworks.</p>
+
+<div class="diagram">
+                     Graph Neural Network Architecture
+
+    Input Graph                    Message Passing                Output
+    ───────────                    ───────────────                ──────
+
+       (A)                         Layer 1        Layer 2
+        │\                            │              │
+        │ \                           ▼              ▼
+        │  \                     ┌─────────┐   ┌─────────┐
+       (B)──(C)      ──────►     │Aggregate│──►│Aggregate│──►  Predictions
+        │  /                     │Neighbors│   │Neighbors│     per Node
+        │ /                      └─────────┘   └─────────┘
+       (D)                            │              │
+                                      ▼              ▼
+                                   h_i^(1)        h_i^(2)      argmax → class
+
+    Each node learns from its neighbors through iterative message passing.
+    After K layers, each node's representation encodes K-hop neighborhood info.
+</div>
+
+<h3>What Can GNNs Do?</h3>
+<ul>
+<li><strong>Node Classification</strong> &mdash; Predict labels for nodes (e.g., user categories, fraud detection)</li>
+<li><strong>Link Prediction</strong> &mdash; Predict missing edges (e.g., friend recommendations)</li>
+<li><strong>Graph Classification</strong> &mdash; Classify entire graphs (e.g., molecule properties)</li>
+<li><strong>Node Embeddings</strong> &mdash; Learn dense representations that capture graph structure</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="concepts">Key Concepts</h2>
+
+<h3>Node Features</h3>
+<p>Each node has a <strong>feature vector</strong> (also called an embedding). In AstraeaDB, these come from the <code>embedding</code> field on nodes:</p>
+<pre><span class="kw">let</span> node = graph.create_node(
+    labels,
+    properties,
+    <span class="kw">Some</span>(vec![<span class="num">0.5</span>, <span class="num">-0.3</span>, <span class="num">0.8</span>, <span class="num">0.1</span>])  <span class="cm">// Feature vector</span>
+)?;</pre>
+
+<h3>Edge Weights</h3>
+<p>Edges can have <strong>weights</strong> that control how much influence neighbors have. These weights are the trainable parameters in AstraeaDB's GNN:</p>
+<pre><span class="kw">let</span> edge = graph.create_edge(
+    source, target, edge_type, properties,
+    <span class="num">1.5</span>,   <span class="cm">// Weight (trainable)</span>
+    <span class="kw">None</span>, <span class="kw">None</span>
+)?;</pre>
+
+<h3>Message Passing</h3>
+<p>The core GNN operation. Each node updates its features by aggregating information from its neighbors:</p>
+
+<div class="formula">
+<strong>Message:</strong> m<sub>j→i</sub> = w<sub>ij</sub> × h<sub>j</sub><br><br>
+<strong>Aggregate:</strong> M<sub>i</sub> = AGG({ m<sub>j→i</sub> : j ∈ N(i) })<br><br>
+<strong>Update:</strong> h<sub>i</sub><sup>(new)</sup> = σ(M<sub>i</sub>)
+</div>
+
+<p>Where:</p>
+<ul>
+<li><code>h<sub>j</sub></code> = feature vector of neighbor j</li>
+<li><code>w<sub>ij</sub></code> = edge weight from j to i</li>
+<li><code>N(i)</code> = neighbors of node i</li>
+<li><code>AGG</code> = aggregation function (sum, mean, or max)</li>
+<li><code>σ</code> = activation function (ReLU, sigmoid)</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="why-gnn">Why GNNs for Graph Data?</h2>
+
+<table>
+<tr><th>Traditional ML</th><th>Graph Neural Networks</th></tr>
+<tr>
+  <td>Treats each node independently</td>
+  <td>Learns from node + neighborhood</td>
+</tr>
+<tr>
+  <td>Requires manual feature engineering</td>
+  <td>Learns structural features automatically</td>
+</tr>
+<tr>
+  <td>Fixed input size</td>
+  <td>Handles variable-size neighborhoods</td>
+</tr>
+<tr>
+  <td>No relationship awareness</td>
+  <td>Explicitly models connections</td>
+</tr>
+<tr>
+  <td>Loses graph topology</td>
+  <td>Preserves and exploits structure</td>
+</tr>
+</table>
+
+<div class="info">
+<strong>Example:</strong> In fraud detection, a legitimate user connected to many fraudsters is suspicious. Traditional ML sees only the user's features; GNNs see the user <em>and</em> their suspicious neighborhood.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="tensor">Tensor Operations</h2>
+
+<p>The <code>Tensor</code> struct is a 1D differentiable vector for node features with gradient tracking.</p>
+
+<h3>Creating Tensors</h3>
+<pre><span class="kw">use</span> astraea_gnn::<span class="ty">Tensor</span>;
+
+<span class="cm">// From data (with gradient tracking)</span>
+<span class="kw">let</span> features = <span class="ty">Tensor</span>::new(vec![<span class="num">1.0</span>, <span class="num">2.0</span>, <span class="num">3.0</span>], <span class="kw">true</span>);
+
+<span class="cm">// Zero-filled</span>
+<span class="kw">let</span> zeros = <span class="ty">Tensor</span>::zeros(<span class="num">4</span>, <span class="kw">false</span>);
+
+<span class="cm">// Single value</span>
+<span class="kw">let</span> scalar = <span class="ty">Tensor</span>::from_scalar(<span class="num">5.0</span>);</pre>
+
+<h3>Arithmetic Operations</h3>
+<pre><span class="kw">let</span> a = <span class="ty">Tensor</span>::new(vec![<span class="num">1.0</span>, <span class="num">2.0</span>, <span class="num">3.0</span>], <span class="kw">false</span>);
+<span class="kw">let</span> b = <span class="ty">Tensor</span>::new(vec![<span class="num">4.0</span>, <span class="num">5.0</span>, <span class="num">6.0</span>], <span class="kw">false</span>);
+
+<span class="cm">// Element-wise operations</span>
+<span class="kw">let</span> sum = a.add(&amp;b);        <span class="cm">// [5.0, 7.0, 9.0]</span>
+<span class="kw">let</span> product = a.mul(&amp;b);    <span class="cm">// [4.0, 10.0, 18.0]</span>
+<span class="kw">let</span> scaled = a.scale(<span class="num">2.5</span>);  <span class="cm">// [2.5, 5.0, 7.5]</span></pre>
+
+<h3>Reduction Operations</h3>
+<pre><span class="kw">let</span> v = <span class="ty">Tensor</span>::new(vec![<span class="num">1.0</span>, <span class="num">2.0</span>, <span class="num">3.0</span>], <span class="kw">false</span>);
+
+<span class="kw">let</span> dot_product = a.dot(&amp;b);  <span class="cm">// 1*4 + 2*5 + 3*6 = 32.0</span>
+<span class="kw">let</span> total = v.sum();          <span class="cm">// 6.0</span>
+<span class="kw">let</span> average = v.mean();       <span class="cm">// 2.0</span>
+<span class="kw">let</span> l2_norm = v.norm();       <span class="cm">// sqrt(14) ≈ 3.74</span></pre>
+
+<h3>Activation Functions</h3>
+<pre><span class="kw">let</span> v = <span class="ty">Tensor</span>::new(vec![<span class="num">-1.0</span>, <span class="num">0.0</span>, <span class="num">2.0</span>], <span class="kw">false</span>);
+
+<span class="kw">let</span> relu = v.relu();      <span class="cm">// [0.0, 0.0, 2.0] - max(0, x)</span>
+<span class="kw">let</span> sig = v.sigmoid();    <span class="cm">// [0.27, 0.5, 0.88] - 1/(1+e^-x)</span></pre>
+
+<h3>Gradient Management</h3>
+<pre><span class="kw">let</span> t = <span class="ty">Tensor</span>::new(vec![<span class="num">1.0</span>, <span class="num">2.0</span>], <span class="kw">true</span>);
+
+<span class="cm">// Store computed gradient</span>
+t.set_grad(vec![<span class="num">0.1</span>, <span class="num">0.2</span>]);
+
+<span class="cm">// Retrieve gradient</span>
+<span class="kw">let</span> grad = t.grad();  <span class="cm">// Some([0.1, 0.2])</span>
+
+<span class="cm">// Clear gradient for next iteration</span>
+t.zero_grad();</pre>
+
+<h3>Complete Tensor API</h3>
+<table>
+<tr><th>Method</th><th>Description</th><th>Returns</th></tr>
+<tr><td><code>new(data, requires_grad)</code></td><td>Create from vector</td><td><code>Tensor</code></td></tr>
+<tr><td><code>zeros(len, requires_grad)</code></td><td>Zero-filled tensor</td><td><code>Tensor</code></td></tr>
+<tr><td><code>from_scalar(value)</code></td><td>Single-value tensor</td><td><code>Tensor</code></td></tr>
+<tr><td><code>add(&other)</code></td><td>Element-wise addition</td><td><code>Tensor</code></td></tr>
+<tr><td><code>mul(&other)</code></td><td>Element-wise multiplication</td><td><code>Tensor</code></td></tr>
+<tr><td><code>scale(s)</code></td><td>Scalar multiplication</td><td><code>Tensor</code></td></tr>
+<tr><td><code>dot(&other)</code></td><td>Dot product</td><td><code>f32</code></td></tr>
+<tr><td><code>sum()</code></td><td>Sum all elements</td><td><code>f32</code></td></tr>
+<tr><td><code>mean()</code></td><td>Mean of elements</td><td><code>f32</code></td></tr>
+<tr><td><code>norm()</code></td><td>L2 (Euclidean) norm</td><td><code>f32</code></td></tr>
+<tr><td><code>relu()</code></td><td>ReLU activation</td><td><code>Tensor</code></td></tr>
+<tr><td><code>sigmoid()</code></td><td>Sigmoid activation</td><td><code>Tensor</code></td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="message-passing">Message Passing</h2>
+
+<p>The <code>message_passing</code> function is the core GNN operation. It updates all node features based on their neighborhoods.</p>
+
+<h3>Basic Usage</h3>
+<pre><span class="kw">use</span> astraea_gnn::{<span class="fn">message_passing</span>, <span class="ty">MessagePassingConfig</span>, <span class="ty">Tensor</span>};
+<span class="kw">use</span> std::collections::HashMap;
+
+<span class="cm">// Initialize node features</span>
+<span class="kw">let</span> <span class="kw">mut</span> features = HashMap::new();
+features.insert(node_a, <span class="ty">Tensor</span>::new(vec![<span class="num">1.0</span>, <span class="num">0.0</span>], <span class="kw">false</span>));
+features.insert(node_b, <span class="ty">Tensor</span>::new(vec![<span class="num">0.0</span>, <span class="num">1.0</span>], <span class="kw">false</span>));
+features.insert(node_c, <span class="ty">Tensor</span>::new(vec![<span class="num">1.0</span>, <span class="num">1.0</span>], <span class="kw">false</span>));
+
+<span class="cm">// Set edge weights</span>
+<span class="kw">let</span> <span class="kw">mut</span> weights = HashMap::new();
+weights.insert(edge_ab, <span class="num">1.0</span>);
+weights.insert(edge_bc, <span class="num">1.0</span>);
+
+<span class="cm">// Configure message passing</span>
+<span class="kw">let</span> config = <span class="ty">MessagePassingConfig</span>::default();
+
+<span class="cm">// Run one layer</span>
+<span class="kw">let</span> updated = <span class="fn">message_passing</span>(&amp;graph, &amp;features, &amp;weights, &amp;config)?;</pre>
+
+<h3>How It Works</h3>
+<div class="diagram">
+For each node i in the graph:
+
+  1. Collect neighbors (both directions)
+     neighbors = graph.neighbors(i, Direction::Both)
+
+  2. Compute messages from each neighbor j
+     message_j = edge_weight[i,j] * features[j]
+
+  3. Aggregate all messages
+     if Sum:   aggregated = Σ message_j
+     if Mean:  aggregated = (Σ message_j) / count
+     if Max:   aggregated = max(message_j)  [element-wise]
+
+  4. Apply activation
+     if ReLU:    output = max(0, aggregated)
+     if Sigmoid: output = 1 / (1 + exp(-aggregated))
+     if None:    output = aggregated
+
+  5. Optional: L2 normalize
+     if normalize: output = output / ||output||
+
+  6. Store as new feature for node i
+</div>
+
+<!-- ============================================================ -->
+<h2 id="aggregation">Aggregation Strategies</h2>
+
+<p>Choose how to combine messages from multiple neighbors:</p>
+
+<table>
+<tr><th>Strategy</th><th>Formula</th><th>Best For</th></tr>
+<tr>
+  <td><code>Aggregation::Sum</code></td>
+  <td>Σ messages</td>
+  <td>Counting patterns, variable-importance weighting</td>
+</tr>
+<tr>
+  <td><code>Aggregation::Mean</code></td>
+  <td>(Σ messages) / n</td>
+  <td>Scale-invariant learning, GCN-style</td>
+</tr>
+<tr>
+  <td><code>Aggregation::Max</code></td>
+  <td>element-wise max</td>
+  <td>Detecting presence of features, GraphSAGE-style</td>
+</tr>
+</table>
+
+<h3>Example Configurations</h3>
+<pre><span class="kw">use</span> astraea_gnn::{<span class="ty">MessagePassingConfig</span>, <span class="ty">Aggregation</span>, <span class="ty">Activation</span>};
+
+<span class="cm">// GCN-style: Mean aggregation with normalization</span>
+<span class="kw">let</span> gcn_config = <span class="ty">MessagePassingConfig</span> {
+    aggregation: <span class="ty">Aggregation</span>::Mean,
+    activation: <span class="ty">Activation</span>::ReLU,
+    normalize: <span class="kw">true</span>,
+};
+
+<span class="cm">// GraphSAGE-style: Mean without normalization</span>
+<span class="kw">let</span> sage_config = <span class="ty">MessagePassingConfig</span> {
+    aggregation: <span class="ty">Aggregation</span>::Mean,
+    activation: <span class="ty">Activation</span>::ReLU,
+    normalize: <span class="kw">false</span>,
+};
+
+<span class="cm">// Max-pooling style</span>
+<span class="kw">let</span> max_config = <span class="ty">MessagePassingConfig</span> {
+    aggregation: <span class="ty">Aggregation</span>::Max,
+    activation: <span class="ty">Activation</span>::ReLU,
+    normalize: <span class="kw">false</span>,
+};</pre>
+
+<!-- ============================================================ -->
+<h2 id="activation">Activation Functions</h2>
+
+<p>Non-linear functions applied after aggregation to add expressiveness:</p>
+
+<table>
+<tr><th>Activation</th><th>Formula</th><th>Output Range</th><th>Use Case</th></tr>
+<tr>
+  <td><code>Activation::ReLU</code></td>
+  <td>max(0, x)</td>
+  <td>[0, ∞)</td>
+  <td>Default choice, introduces sparsity</td>
+</tr>
+<tr>
+  <td><code>Activation::Sigmoid</code></td>
+  <td>1 / (1 + e<sup>-x</sup>)</td>
+  <td>(0, 1)</td>
+  <td>Bounded outputs, probability-like</td>
+</tr>
+<tr>
+  <td><code>Activation::None</code></td>
+  <td>x (identity)</td>
+  <td>(-∞, ∞)</td>
+  <td>Linear layers, final layer before softmax</td>
+</tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="training">Training Loop</h2>
+
+<p>The <code>train_node_classification</code> function provides an end-to-end training pipeline.</p>
+
+<h3>Training Configuration</h3>
+<pre><span class="kw">use</span> astraea_gnn::{<span class="ty">TrainingConfig</span>, <span class="ty">MessagePassingConfig</span>};
+
+<span class="kw">let</span> config = <span class="ty">TrainingConfig</span> {
+    layers: <span class="num">2</span>,              <span class="cm">// Number of message passing layers</span>
+    learning_rate: <span class="num">0.1</span>,     <span class="cm">// Gradient descent step size</span>
+    epochs: <span class="num">100</span>,            <span class="cm">// Training iterations</span>
+    message_passing: <span class="ty">MessagePassingConfig</span>::default(),
+};</pre>
+
+<h3>Training Data</h3>
+<pre><span class="kw">use</span> astraea_gnn::<span class="ty">TrainingData</span>;
+<span class="kw">use</span> std::collections::HashMap;
+
+<span class="kw">let</span> <span class="kw">mut</span> labels = HashMap::new();
+labels.insert(node_a, <span class="num">0</span>);  <span class="cm">// Class 0</span>
+labels.insert(node_b, <span class="num">0</span>);  <span class="cm">// Class 0</span>
+labels.insert(node_c, <span class="num">1</span>);  <span class="cm">// Class 1</span>
+labels.insert(node_d, <span class="num">1</span>);  <span class="cm">// Class 1</span>
+<span class="cm">// node_e is unlabeled (will be predicted)</span>
+
+<span class="kw">let</span> training_data = <span class="ty">TrainingData</span> {
+    labels,
+    num_classes: <span class="num">2</span>,
+};</pre>
+
+<h3>Running Training</h3>
+<pre><span class="kw">use</span> astraea_gnn::<span class="fn">train_node_classification</span>;
+
+<span class="kw">let</span> result = <span class="fn">train_node_classification</span>(&amp;graph, &amp;training_data, &amp;config)?;
+
+<span class="cm">// Inspect results</span>
+println!(<span class="str">"Accuracy: {:.2}%"</span>, result.accuracy * <span class="num">100.0</span>);
+println!(<span class="str">"Loss history: {:?}"</span>, result.epoch_losses);
+println!(<span class="str">"Predictions: {:?}"</span>, result.final_predictions);</pre>
+
+<h3>Training Pipeline</h3>
+<div class="diagram">
+Training Pipeline (per epoch):
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  1. INITIALIZATION                                          │
+  │     - Load node embeddings as initial features              │
+  │     - Load edge weights (trainable parameters)              │
+  │     - Pad/truncate features to match num_classes            │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  2. FORWARD PASS                                            │
+  │     for layer in 1..=num_layers:                            │
+  │         features = message_passing(graph, features, weights)│
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  3. LOSS COMPUTATION                                        │
+  │     - Treat features as logits                              │
+  │     - Softmax: probabilities = exp(logits) / Σexp(logits)   │
+  │     - Cross-entropy: loss = -log(prob[true_class])          │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  4. BACKWARD PASS (Numerical Gradients)                     │
+  │     for each edge weight w:                                 │
+  │         loss_original = forward(w)                          │
+  │         loss_perturbed = forward(w + ε)                     │
+  │         gradient = (loss_perturbed - loss_original) / ε     │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  5. WEIGHT UPDATE                                           │
+  │     w = w - learning_rate × gradient                        │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    Repeat for next epoch
+</div>
+
+<!-- ============================================================ -->
+<h2 id="loss">Loss Functions</h2>
+
+<p>AstraeaDB uses <strong>Cross-Entropy Loss</strong> for node classification:</p>
+
+<div class="formula">
+<strong>Softmax:</strong> P(class = k) = exp(logit<sub>k</sub>) / Σ<sub>j</sub> exp(logit<sub>j</sub>)<br><br>
+<strong>Cross-Entropy:</strong> Loss = -log(P(true_class))<br><br>
+<strong>Total Loss:</strong> mean over all labeled nodes
+</div>
+
+<p>The softmax converts raw feature values (logits) into probabilities, and cross-entropy penalizes low probability assigned to the correct class.</p>
+
+<div class="tip">
+<strong>Interpretation:</strong> A loss of 0.0 means perfect confidence in correct predictions. Higher loss means the model is uncertain or wrong.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="optimization">Optimization</h2>
+
+<p>AstraeaDB uses <strong>numerical gradient descent</strong> with finite differences:</p>
+
+<pre><span class="cm">// For each edge weight:</span>
+<span class="kw">const</span> EPSILON: <span class="ty">f32</span> = <span class="num">1e-3</span>;
+
+loss_original = compute_loss(weights);
+weights[edge] += EPSILON;
+loss_perturbed = compute_loss(weights);
+weights[edge] -= EPSILON;  <span class="cm">// Restore</span>
+
+gradient = (loss_perturbed - loss_original) / EPSILON;
+weights[edge] -= learning_rate * gradient;</pre>
+
+<h3>Advantages &amp; Limitations</h3>
+<table>
+<tr><th>Advantages</th><th>Limitations</th></tr>
+<tr>
+  <td>Simple to implement</td>
+  <td>O(E) forward passes per epoch</td>
+</tr>
+<tr>
+  <td>Works with any loss function</td>
+  <td>Approximate gradients only</td>
+</tr>
+<tr>
+  <td>No symbolic differentiation needed</td>
+  <td>Slower than backpropagation</td>
+</tr>
+<tr>
+  <td>Numerically stable</td>
+  <td>Best for small-to-medium graphs</td>
+</tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="node-classification">Node Classification</h2>
+
+<p>The primary task supported by AstraeaDB's GNN framework. Given a partially labeled graph, predict labels for unlabeled nodes.</p>
+
+<h3>Complete Example</h3>
+<pre><span class="kw">use</span> astraea_gnn::{
+    <span class="fn">train_node_classification</span>,
+    <span class="ty">TrainingConfig</span>, <span class="ty">TrainingData</span>,
+    <span class="ty">MessagePassingConfig</span>, <span class="ty">Aggregation</span>, <span class="ty">Activation</span>,
+};
+<span class="kw">use</span> astraea_graph::<span class="ty">Graph</span>;
+<span class="kw">use</span> std::collections::HashMap;
+
+<span class="kw">fn</span> <span class="fn">main</span>() -> Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    <span class="cm">// 1. Create graph with nodes and embeddings</span>
+    <span class="kw">let</span> graph = <span class="ty">Graph</span>::new(<span class="ty">Box</span>::new(<span class="ty">InMemoryStorage</span>::new()));
+
+    <span class="kw">let</span> n0 = graph.create_node(
+        vec![<span class="str">"User"</span>.into()],
+        serde_json::json!({<span class="str">"name"</span>: <span class="str">"Alice"</span>}),
+        <span class="kw">Some</span>(vec![<span class="num">0.9</span>, <span class="num">0.1</span>]),  <span class="cm">// Leans toward class 0</span>
+    )?;
+
+    <span class="kw">let</span> n1 = graph.create_node(
+        vec![<span class="str">"User"</span>.into()],
+        serde_json::json!({<span class="str">"name"</span>: <span class="str">"Bob"</span>}),
+        <span class="kw">Some</span>(vec![<span class="num">0.8</span>, <span class="num">0.2</span>]),
+    )?;
+
+    <span class="kw">let</span> n2 = graph.create_node(
+        vec![<span class="str">"User"</span>.into()],
+        serde_json::json!({<span class="str">"name"</span>: <span class="str">"Charlie"</span>}),
+        <span class="kw">Some</span>(vec![<span class="num">0.2</span>, <span class="num">0.8</span>]),  <span class="cm">// Leans toward class 1</span>
+    )?;
+
+    <span class="kw">let</span> n3 = graph.create_node(
+        vec![<span class="str">"User"</span>.into()],
+        serde_json::json!({<span class="str">"name"</span>: <span class="str">"Diana"</span>}),
+        <span class="kw">Some</span>(vec![<span class="num">0.5</span>, <span class="num">0.5</span>]),  <span class="cm">// Ambiguous - will learn from neighbors</span>
+    )?;
+
+    <span class="cm">// 2. Add edges (social connections)</span>
+    graph.create_edge(n0, n1, <span class="str">"FRIENDS"</span>.into(), serde_json::json!({}), <span class="num">1.0</span>, <span class="kw">None</span>, <span class="kw">None</span>)?;
+    graph.create_edge(n1, n3, <span class="str">"FRIENDS"</span>.into(), serde_json::json!({}), <span class="num">1.0</span>, <span class="kw">None</span>, <span class="kw">None</span>)?;
+    graph.create_edge(n2, n3, <span class="str">"FRIENDS"</span>.into(), serde_json::json!({}), <span class="num">1.0</span>, <span class="kw">None</span>, <span class="kw">None</span>)?;
+
+    <span class="cm">// 3. Prepare training data (partial labels)</span>
+    <span class="kw">let</span> <span class="kw">mut</span> labels = HashMap::new();
+    labels.insert(n0, <span class="num">0</span>);  <span class="cm">// Alice is class 0</span>
+    labels.insert(n2, <span class="num">1</span>);  <span class="cm">// Charlie is class 1</span>
+    <span class="cm">// n1 and n3 are unlabeled</span>
+
+    <span class="kw">let</span> training_data = <span class="ty">TrainingData</span> {
+        labels,
+        num_classes: <span class="num">2</span>,
+    };
+
+    <span class="cm">// 4. Configure training</span>
+    <span class="kw">let</span> config = <span class="ty">TrainingConfig</span> {
+        layers: <span class="num">2</span>,
+        learning_rate: <span class="num">0.1</span>,
+        epochs: <span class="num">50</span>,
+        message_passing: <span class="ty">MessagePassingConfig</span> {
+            aggregation: <span class="ty">Aggregation</span>::Mean,
+            activation: <span class="ty">Activation</span>::ReLU,
+            normalize: <span class="kw">false</span>,
+        },
+    };
+
+    <span class="cm">// 5. Train</span>
+    <span class="kw">let</span> result = <span class="fn">train_node_classification</span>(&amp;graph, &amp;training_data, &amp;config)?;
+
+    <span class="cm">// 6. Results</span>
+    println!(<span class="str">"Training Accuracy: {:.1}%"</span>, result.accuracy * <span class="num">100.0</span>);
+
+    <span class="kw">for</span> (node_id, predicted_class) <span class="kw">in</span> &amp;result.final_predictions {
+        println!(<span class="str">"Node {:?} predicted as class {}"</span>, node_id, predicted_class);
+    }
+
+    <span class="cm">// Diana (n3) should be influenced by both Bob (class 0 neighbor)</span>
+    <span class="cm">// and Charlie (class 1 neighbor)</span>
+
+    <span class="kw">Ok</span>(())
+}</pre>
+
+<!-- ============================================================ -->
+<h2 id="architectures">GNN Architectures</h2>
+
+<p>Configure different GNN variants by changing the message passing settings:</p>
+
+<h3>GCN (Graph Convolutional Network)</h3>
+<pre><span class="cm">// Kipf &amp; Welling 2017 style</span>
+<span class="kw">let</span> gcn = <span class="ty">TrainingConfig</span> {
+    layers: <span class="num">2</span>,
+    learning_rate: <span class="num">0.01</span>,
+    epochs: <span class="num">200</span>,
+    message_passing: <span class="ty">MessagePassingConfig</span> {
+        aggregation: <span class="ty">Aggregation</span>::Mean,
+        activation: <span class="ty">Activation</span>::ReLU,
+        normalize: <span class="kw">true</span>,  <span class="cm">// Key: L2 normalization</span>
+    },
+};</pre>
+
+<h3>GraphSAGE</h3>
+<pre><span class="cm">// Hamilton et al. 2017 style</span>
+<span class="kw">let</span> sage = <span class="ty">TrainingConfig</span> {
+    layers: <span class="num">2</span>,
+    learning_rate: <span class="num">0.1</span>,
+    epochs: <span class="num">100</span>,
+    message_passing: <span class="ty">MessagePassingConfig</span> {
+        aggregation: <span class="ty">Aggregation</span>::Mean,  <span class="cm">// or Max</span>
+        activation: <span class="ty">Activation</span>::ReLU,
+        normalize: <span class="kw">false</span>,
+    },
+};</pre>
+
+<h3>Attention-like (Weighted Sum)</h3>
+<pre><span class="cm">// Edge weights act like attention scores</span>
+<span class="kw">let</span> attention = <span class="ty">TrainingConfig</span> {
+    layers: <span class="num">3</span>,
+    learning_rate: <span class="num">0.05</span>,
+    epochs: <span class="num">150</span>,
+    message_passing: <span class="ty">MessagePassingConfig</span> {
+        aggregation: <span class="ty">Aggregation</span>::Sum,  <span class="cm">// Weights determine importance</span>
+        activation: <span class="ty">Activation</span>::Sigmoid,
+        normalize: <span class="kw">false</span>,
+    },
+};</pre>
+
+<!-- ============================================================ -->
+<h2 id="multi-layer">Multi-Layer GNNs</h2>
+
+<p>The <code>layers</code> parameter controls how many hops of information each node can see:</p>
+
+<div class="formula">
+<strong>1 layer:</strong> Each node sees immediate neighbors<br><br>
+<strong>2 layers:</strong> Each node sees 2-hop neighborhood<br><br>
+<strong>K layers:</strong> Each node sees K-hop neighborhood
+</div>
+
+<div class="warn">
+<strong>Over-smoothing Warning:</strong> Too many layers can cause all node representations to become similar ("over-smoothing"). 2-3 layers is usually optimal.
+</div>
+
+<h3>Comparison</h3>
+<pre><span class="cm">// Compare different depths</span>
+<span class="kw">for</span> num_layers <span class="kw">in</span> [<span class="num">1</span>, <span class="num">2</span>, <span class="num">3</span>, <span class="num">4</span>] {
+    <span class="kw">let</span> config = <span class="ty">TrainingConfig</span> {
+        layers: num_layers,
+        learning_rate: <span class="num">0.1</span>,
+        epochs: <span class="num">50</span>,
+        message_passing: <span class="ty">MessagePassingConfig</span>::default(),
+    };
+
+    <span class="kw">let</span> result = <span class="fn">train_node_classification</span>(&amp;graph, &amp;data, &amp;config)?;
+    println!(<span class="str">"{} layers: {:.1}% accuracy"</span>, num_layers, result.accuracy * <span class="num">100.0</span>);
+}</pre>
+
+<!-- ============================================================ -->
+<h2 id="example-social">Example: Social Network Analysis</h2>
+
+<p>Predict user interests based on their social connections.</p>
+
+<h3>Scenario</h3>
+<p>Users are connected in a social graph. Some users have labeled interests (Tech, Sports). Predict interests for unlabeled users.</p>
+
+<pre><span class="kw">use</span> astraea_gnn::*;
+<span class="kw">use</span> std::collections::HashMap;
+
+<span class="cm">// Create users with profile embeddings</span>
+<span class="kw">let</span> alice = graph.create_node(
+    vec![<span class="str">"User"</span>.into()],
+    serde_json::json!({<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"bio"</span>: <span class="str">"Software engineer"</span>}),
+    <span class="kw">Some</span>(vec![<span class="num">0.9</span>, <span class="num">0.1</span>]),  <span class="cm">// Tech-oriented embedding</span>
+)?;
+
+<span class="kw">let</span> bob = graph.create_node(
+    vec![<span class="str">"User"</span>.into()],
+    serde_json::json!({<span class="str">"name"</span>: <span class="str">"Bob"</span>, <span class="str">"bio"</span>: <span class="str">"Basketball fan"</span>}),
+    <span class="kw">Some</span>(vec![<span class="num">0.1</span>, <span class="num">0.9</span>]),  <span class="cm">// Sports-oriented embedding</span>
+)?;
+
+<span class="kw">let</span> charlie = graph.create_node(
+    vec![<span class="str">"User"</span>.into()],
+    serde_json::json!({<span class="str">"name"</span>: <span class="str">"Charlie"</span>}),
+    <span class="kw">Some</span>(vec![<span class="num">0.5</span>, <span class="num">0.5</span>]),  <span class="cm">// Unknown interest</span>
+)?;
+
+<span class="cm">// Social connections</span>
+graph.create_edge(alice, charlie, <span class="str">"FOLLOWS"</span>.into(), serde_json::json!({}), <span class="num">1.0</span>, <span class="kw">None</span>, <span class="kw">None</span>)?;
+graph.create_edge(bob, charlie, <span class="str">"FOLLOWS"</span>.into(), serde_json::json!({}), <span class="num">0.5</span>, <span class="kw">None</span>, <span class="kw">None</span>)?;
+
+<span class="cm">// Labels: 0 = Tech, 1 = Sports</span>
+<span class="kw">let</span> <span class="kw">mut</span> labels = HashMap::new();
+labels.insert(alice, <span class="num">0</span>);  <span class="cm">// Tech</span>
+labels.insert(bob, <span class="num">1</span>);    <span class="cm">// Sports</span>
+
+<span class="kw">let</span> data = <span class="ty">TrainingData</span> { labels, num_classes: <span class="num">2</span> };
+
+<span class="cm">// Train</span>
+<span class="kw">let</span> result = <span class="fn">train_node_classification</span>(&amp;graph, &amp;data, &amp;<span class="ty">TrainingConfig</span> {
+    layers: <span class="num">2</span>,
+    learning_rate: <span class="num">0.1</span>,
+    epochs: <span class="num">100</span>,
+    message_passing: <span class="ty">MessagePassingConfig</span>::default(),
+})?;
+
+<span class="cm">// Charlie's prediction influenced by both Alice (Tech) and Bob (Sports)</span>
+<span class="cm">// Edge weights matter: Alice's edge (1.0) vs Bob's edge (0.5)</span>
+<span class="kw">let</span> charlie_interest = result.final_predictions[&amp;charlie];
+println!(<span class="str">"Charlie predicted interest: {}"</span>,
+    <span class="kw">if</span> charlie_interest == <span class="num">0</span> { <span class="str">"Tech"</span> } <span class="kw">else</span> { <span class="str">"Sports"</span> });</pre>
+
+<!-- ============================================================ -->
+<h2 id="example-fraud">Example: Fraud Detection</h2>
+
+<p>Detect fraudulent accounts by learning from their connections to known fraudsters.</p>
+
+<pre><span class="kw">use</span> astraea_gnn::*;
+
+<span class="cm">// Create accounts</span>
+<span class="kw">let</span> legit1 = graph.create_node(
+    vec![<span class="str">"Account"</span>.into()],
+    serde_json::json!({<span class="str">"age_days"</span>: <span class="num">365</span>, <span class="str">"verified"</span>: <span class="kw">true</span>}),
+    <span class="kw">Some</span>(vec![<span class="num">0.9</span>, <span class="num">0.1</span>]),  <span class="cm">// Legit signal</span>
+)?;
+
+<span class="kw">let</span> fraud1 = graph.create_node(
+    vec![<span class="str">"Account"</span>.into()],
+    serde_json::json!({<span class="str">"age_days"</span>: <span class="num">7</span>, <span class="str">"verified"</span>: <span class="kw">false</span>}),
+    <span class="kw">Some</span>(vec![<span class="num">0.1</span>, <span class="num">0.9</span>]),  <span class="cm">// Fraud signal</span>
+)?;
+
+<span class="kw">let</span> suspicious = graph.create_node(
+    vec![<span class="str">"Account"</span>.into()],
+    serde_json::json!({<span class="str">"age_days"</span>: <span class="num">30</span>, <span class="str">"verified"</span>: <span class="kw">false</span>}),
+    <span class="kw">Some</span>(vec![<span class="num">0.5</span>, <span class="num">0.5</span>]),  <span class="cm">// Ambiguous</span>
+)?;
+
+<span class="cm">// Suspicious account transacts with known fraudster</span>
+graph.create_edge(suspicious, fraud1, <span class="str">"TRANSACTED"</span>.into(), serde_json::json!({}), <span class="num">1.0</span>, <span class="kw">None</span>, <span class="kw">None</span>)?;
+graph.create_edge(suspicious, legit1, <span class="str">"TRANSACTED"</span>.into(), serde_json::json!({}), <span class="num">0.1</span>, <span class="kw">None</span>, <span class="kw">None</span>)?;
+
+<span class="cm">// Labels: 0 = Legitimate, 1 = Fraud</span>
+<span class="kw">let</span> <span class="kw">mut</span> labels = HashMap::new();
+labels.insert(legit1, <span class="num">0</span>);
+labels.insert(fraud1, <span class="num">1</span>);
+
+<span class="kw">let</span> data = <span class="ty">TrainingData</span> { labels, num_classes: <span class="num">2</span> };
+
+<span class="kw">let</span> result = <span class="fn">train_node_classification</span>(&amp;graph, &amp;data, &amp;<span class="ty">TrainingConfig</span> {
+    layers: <span class="num">2</span>,
+    learning_rate: <span class="num">0.1</span>,
+    epochs: <span class="num">100</span>,
+    message_passing: <span class="ty">MessagePassingConfig</span> {
+        aggregation: <span class="ty">Aggregation</span>::Sum,  <span class="cm">// Sum to count fraud connections</span>
+        activation: <span class="ty">Activation</span>::ReLU,
+        normalize: <span class="kw">false</span>,
+    },
+})?;
+
+<span class="cm">// Suspicious account is heavily connected to fraud (weight 1.0)</span>
+<span class="cm">// vs weakly connected to legit (weight 0.1)</span>
+<span class="kw">let</span> is_fraud = result.final_predictions[&amp;suspicious] == <span class="num">1</span>;
+println!(<span class="str">"Suspicious account flagged as fraud: {}"</span>, is_fraud);</pre>
+
+<div class="info">
+<strong>Key Insight:</strong> The GNN learns that accounts connected to fraudsters (especially with high-weight edges) are likely fraudulent themselves. This captures the "guilt by association" pattern that traditional ML misses.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="best-practices">Best Practices</h2>
+
+<h3>1. Feature Engineering</h3>
+<ul>
+<li>Use meaningful embeddings for initial node features</li>
+<li>Consider pre-trained embeddings (e.g., from text, images)</li>
+<li>Ensure feature dimensions match <code>num_classes</code> or pad appropriately</li>
+</ul>
+
+<h3>2. Graph Structure</h3>
+<ul>
+<li>Ensure edges exist in both directions if relationships are symmetric</li>
+<li>Use edge weights to encode relationship strength</li>
+<li>Handle isolated nodes (no neighbors) gracefully</li>
+</ul>
+
+<h3>3. Training</h3>
+<table>
+<tr><th>Parameter</th><th>Recommendation</th></tr>
+<tr><td><code>layers</code></td><td>Start with 2; increase only if needed</td></tr>
+<tr><td><code>learning_rate</code></td><td>0.01 - 0.1; lower for stability</td></tr>
+<tr><td><code>epochs</code></td><td>50-200; monitor loss curve</td></tr>
+<tr><td><code>aggregation</code></td><td>Mean for scale-invariance; Sum for counting</td></tr>
+</table>
+
+<h3>4. Debugging</h3>
+<pre><span class="cm">// Monitor training progress</span>
+<span class="kw">let</span> result = <span class="fn">train_node_classification</span>(&amp;graph, &amp;data, &amp;config)?;
+
+<span class="cm">// Check if loss is decreasing</span>
+<span class="kw">for</span> (epoch, loss) <span class="kw">in</span> result.epoch_losses.iter().enumerate() {
+    println!(<span class="str">"Epoch {}: loss = {:.4}"</span>, epoch, loss);
+}
+
+<span class="cm">// If loss not decreasing:</span>
+<span class="cm">// - Try lower learning rate</span>
+<span class="cm">// - Check feature initialization</span>
+<span class="cm">// - Verify graph connectivity</span></pre>
+
+<h3>5. When to Use GNNs</h3>
+<table>
+<tr><th>Good Fit</th><th>Poor Fit</th></tr>
+<tr>
+  <td>Node labels correlate with neighbors</td>
+  <td>Labels are independent of structure</td>
+</tr>
+<tr>
+  <td>Rich graph topology</td>
+  <td>Sparse or disconnected graphs</td>
+</tr>
+<tr>
+  <td>Semi-supervised (few labels)</td>
+  <td>All nodes labeled (use simpler methods)</td>
+</tr>
+<tr>
+  <td>Homophily (similar nodes connect)</td>
+  <td>Random connections</td>
+</tr>
+</table>
+
+<!-- ============================================================ -->
+<div style="margin-top:60px; padding-top:20px; border-top:1px solid var(--border); color:#888; font-size:0.85em;">
+<p>AstraeaDB GNN Tutorial &mdash; <a href="wiki.html">Back to Wiki</a></p>
+<p>See also: <a href="graphrag-claude-tutorial.html">GraphRAG with Claude Tutorial</a></p>
+</div>
+
+</main>
+</body>
+</html>

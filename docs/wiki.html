@@ -717,6 +717,10 @@ CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span
 
 <p><strong>GNN (Graph Neural Network)</strong> is a type of neural network designed for graph-structured data. Unlike traditional neural networks that work on fixed-size inputs (like images), GNNs can learn from the structure of a graph &mdash; incorporating information from a node's neighbors to make predictions. AstraeaDB implements GNN training in pure Rust with no external ML framework.</p>
 
+<div class="tip">
+<strong>Tutorial:</strong> See the <a href="gnn-tutorial.html">Graph Neural Networks Tutorial</a> for a complete guide to tensors, message passing, training loops, and node classification examples.
+</div>
+
 <div class="info"><strong>How GNNs work:</strong> Each node starts with features (its embedding). In each layer, nodes "send messages" to their neighbors and "aggregate" messages from neighbors. After several layers, a node's representation captures information from nodes many hops away.</div>
 
 <h3>Components</h3>
