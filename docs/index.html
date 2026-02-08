@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AstraeaDB - Cloud-Native, AI-First Graph Database</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a2e;
+  --hero-bg: #16213e;
+  --hero-fg: #e0e0e0;
+  --accent: #0f3460;
+  --accent-light: #e8eef6;
+  --highlight: #e94560;
+  --code-bg: #1e1e2e;
+  --code-fg: #cdd6f4;
+  --border: #e0e0e0;
+  --card-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  --section-alt: #f7f9fc;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; color: var(--fg); background: var(--bg); line-height: 1.7; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Navigation */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--hero-bg); padding: 0 40px; height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.nav-logo { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: 700; font-size: 1.15em; text-decoration: none; }
+.nav-logo:hover { text-decoration: none; }
+.nav-logo img { height: 32px; }
+.nav-logo span { color: var(--highlight); }
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a { color: var(--hero-fg); font-size: 0.9em; text-decoration: none; opacity: 0.85; transition: opacity 0.2s; }
+.nav-links a:hover { opacity: 1; text-decoration: none; }
+.nav-links .btn-nav {
+  background: var(--highlight); color: #fff; padding: 7px 18px;
+  border-radius: 5px; font-weight: 600; opacity: 1; font-size: 0.88em;
+}
+.nav-links .btn-nav:hover { background: #d63a54; }
+
+/* Mobile hamburger */
+.menu-toggle { display: none; background: none; border: none; color: #fff; font-size: 1.5em; cursor: pointer; }
+
+/* Hero */
+.hero {
+  background: linear-gradient(135deg, #16213e 0%, #0f3460 50%, #1a1a3e 100%);
+  color: var(--hero-fg); text-align: center;
+  padding: 140px 20px 100px; position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(ellipse at 30% 20%, rgba(233,69,96,0.12) 0%, transparent 60%),
+              radial-gradient(ellipse at 70% 80%, rgba(15,52,96,0.3) 0%, transparent 60%);
+  pointer-events: none;
+}
+.hero-content { position: relative; z-index: 1; max-width: 800px; margin: 0 auto; }
+.hero img { height: 100px; margin-bottom: 24px; }
+.hero h1 { font-size: 3em; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.5px; color: #fff; }
+.hero h1 span { color: var(--highlight); }
+.hero .tagline { font-size: 1.25em; opacity: 0.85; margin-bottom: 32px; max-width: 600px; margin-left: auto; margin-right: auto; }
+.hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-block; padding: 13px 30px; border-radius: 6px;
+  font-weight: 600; font-size: 1em; text-decoration: none; transition: all 0.2s;
+}
+.btn:hover { text-decoration: none; transform: translateY(-1px); }
+.btn-primary { background: var(--highlight); color: #fff; }
+.btn-primary:hover { background: #d63a54; }
+.btn-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.25); }
+.btn-secondary:hover { background: rgba(255,255,255,0.18); }
+
+/* Stats bar */
+.stats {
+  display: flex; justify-content: center; gap: 50px; flex-wrap: wrap;
+  padding: 30px 20px; background: var(--accent); color: #fff;
+}
+.stat { text-align: center; }
+.stat-num { font-size: 1.8em; font-weight: 800; color: var(--highlight); }
+.stat-label { font-size: 0.82em; opacity: 0.8; margin-top: 2px; }
+
+/* Section */
+section { padding: 80px 20px; }
+section.alt { background: var(--section-alt); }
+.section-inner { max-width: 1100px; margin: 0 auto; }
+.section-header { text-align: center; margin-bottom: 50px; }
+.section-header h2 { font-size: 2.2em; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
+.section-header p { font-size: 1.1em; color: #555; max-width: 650px; margin: 0 auto; }
+
+/* Feature cards */
+.features-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 28px;
+}
+.feature-card {
+  background: #fff; border-radius: 10px; padding: 32px 28px;
+  box-shadow: var(--card-shadow); border: 1px solid var(--border);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.feature-card:hover { transform: translateY(-3px); box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+.feature-icon { font-size: 2em; margin-bottom: 14px; display: block; }
+.feature-card h3 { font-size: 1.2em; margin-bottom: 8px; color: var(--accent); }
+.feature-card p { font-size: 0.93em; color: #555; line-height: 1.65; }
+
+/* Architecture diagram */
+.arch-section { text-align: center; }
+.arch-diagram {
+  background: var(--code-bg); color: var(--code-fg); border-radius: 10px;
+  padding: 30px; max-width: 800px; margin: 0 auto;
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.82em; line-height: 1.45; text-align: left;
+  overflow-x: auto; white-space: pre;
+}
+
+/* Tier cards */
+.tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-top: 40px; }
+.tier {
+  border-radius: 10px; padding: 28px 24px; text-align: left;
+}
+.tier-hot { background: linear-gradient(135deg, #e94560 0%, #c0392b 100%); color: #fff; }
+.tier-warm { background: linear-gradient(135deg, #e67e22 0%, #d35400 100%); color: #fff; }
+.tier-cold { background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: #fff; }
+.tier h4 { font-size: 1.1em; margin-bottom: 6px; }
+.tier p { font-size: 0.9em; opacity: 0.92; }
+
+/* Code example */
+.code-block {
+  background: var(--code-bg); color: var(--code-fg); border-radius: 8px;
+  padding: 24px 28px; font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.88em; line-height: 1.55; overflow-x: auto; text-align: left;
+  max-width: 720px; margin: 0 auto;
+}
+.code-block .kw { color: #cba6f7; }
+.code-block .str { color: #a6e3a1; }
+.code-block .num { color: #fab387; }
+.code-block .cm { color: #6c7086; font-style: italic; }
+.code-block .fn { color: #89b4fa; }
+.code-block .ty { color: #f9e2af; }
+
+/* Comparison table */
+.compare-table { width: 100%; border-collapse: collapse; font-size: 0.92em; }
+.compare-table th, .compare-table td { padding: 12px 16px; text-align: left; border: 1px solid var(--border); }
+.compare-table th { background: var(--accent); color: #fff; font-weight: 600; }
+.compare-table tr:nth-child(even) { background: var(--section-alt); }
+.compare-table td:first-child { font-weight: 600; }
+
+/* CTA section */
+.cta {
+  background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+  color: #fff; text-align: center; padding: 70px 20px;
+}
+.cta h2 { font-size: 2em; margin-bottom: 12px; }
+.cta p { font-size: 1.1em; opacity: 0.85; margin-bottom: 30px; max-width: 550px; margin-left: auto; margin-right: auto; }
+.cta-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+
+/* Footer */
+footer {
+  background: #0d1b2a; color: rgba(255,255,255,0.5);
+  text-align: center; padding: 28px 20px; font-size: 0.85em;
+}
+footer a { color: rgba(255,255,255,0.7); }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .menu-toggle { display: block; }
+  .nav-links { display: none; position: absolute; top: 60px; left: 0; right: 0; background: var(--hero-bg); flex-direction: column; padding: 20px; gap: 14px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .nav-links.open { display: flex; }
+  .hero { padding: 120px 20px 70px; }
+  .hero h1 { font-size: 2em; }
+  .hero .tagline { font-size: 1.05em; }
+  .stats { gap: 30px; }
+  section { padding: 50px 20px; }
+  .section-header h2 { font-size: 1.7em; }
+  .features-grid { grid-template-columns: 1fr; }
+  .tiers { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <a href="#" class="nav-logo">
+    <img src="assets/logo.png" alt="AstraeaDB">
+    Astraea<span>DB</span>
+  </a>
+  <button class="menu-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')">&#9776;</button>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#quickstart">Quick Start</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/AstraeaDB" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="hero-content">
+    <img src="assets/logo.png" alt="AstraeaDB Logo">
+    <h1>Astraea<span>DB</span></h1>
+    <p class="tagline">A cloud-native, AI-first graph database written in Rust. Unifying property graphs, vector search, and graph neural networks in a single system.</p>
+    <div class="hero-buttons">
+      <a href="https://github.com/jimeharrisjr/AstraeaDB" class="btn btn-primary">Get Started</a>
+      <a href="wiki.html" class="btn btn-secondary">Read the Docs</a>
+    </div>
+  </div>
+</header>
+
+<!-- Stats bar -->
+<div class="stats">
+  <div class="stat">
+    <div class="stat-num">14</div>
+    <div class="stat-label">Rust Crates</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">441+</div>
+    <div class="stat-label">Tests</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">3</div>
+    <div class="stat-label">Transport Protocols</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">3</div>
+    <div class="stat-label">Client Libraries</div>
+  </div>
+</div>
+
+<!-- Features -->
+<section id="features">
+  <div class="section-inner">
+    <div class="section-header">
+      <h2>Best-in-Class Features, Unified</h2>
+      <p>AstraeaDB synthesizes the strengths of leading graph databases into a single, cohesive system built from the ground up in Rust.</p>
+    </div>
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F9E0;</span>
+        <h3>Vector-Property Graph</h3>
+        <p>Nodes carry labels, JSON properties, <em>and</em> float32 embedding vectors. The HNSW vector index navigation links map to graph edges, enabling <strong>semantic traversal</strong>&mdash;find neighbors most similar to a concept, not just structurally connected.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x26A1;</span>
+        <h3>Native Graph Storage</h3>
+        <p>Index-free adjacency via <strong>pointer swizzling</strong>. Hot pages are promoted to direct memory pointers for nanosecond-level traversal&mdash;O(k) neighbor lookups instead of O(log N) index scans.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F50D;</span>
+        <h3>Hybrid &amp; Semantic Search</h3>
+        <p>Blend graph proximity with vector similarity using a configurable alpha. Semantic walks greedily traverse the graph toward a concept embedding, combining structural and semantic intelligence.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F4AC;</span>
+        <h3>GraphRAG Engine</h3>
+        <p>Built-in Retrieval-Augmented Generation: vector search finds the anchor, BFS extracts a subgraph, linearization converts it to text, and the result is fed to an LLM&mdash;all in one atomic operation.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F9EC;</span>
+        <h3>GNN Training</h3>
+        <p>Differentiable tensors and message passing layers built in. Run a training loop for node classification directly inside the database&mdash;forward pass, loss computation, and backpropagation through edge weights.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F552;</span>
+        <h3>Temporal Graphs</h3>
+        <p>Edges carry validity intervals. Query the graph as it existed at any point in time: <code>neighbors_at()</code>, <code>bfs_at()</code>, and <code>shortest_path_at()</code> with full temporal filtering.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F4DD;</span>
+        <h3>GQL Query Language</h3>
+        <p>Hand-written recursive-descent parser for ISO GQL / Cypher. Full execution pipeline: MATCH with pattern matching, WHERE filtering, CREATE, DELETE, ORDER BY, LIMIT, aggregation functions, and more.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F512;</span>
+        <h3>Security &amp; Encryption</h3>
+        <p>RBAC authentication, mutual TLS, and a homomorphic encryption engine that allows server-side label matching on encrypted data&mdash;the server never sees unencrypted node labels.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F680;</span>
+        <h3>Zero-Copy Data Exchange</h3>
+        <p>Apache Arrow Flight server for zero-copy data transfer. Stream GQL results directly into Pandas or Polars DataFrames without serialization overhead. JSON-TCP and gRPC transports also available.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="architecture" class="alt">
+  <div class="section-inner">
+    <div class="section-header">
+      <h2>Tiered Storage Architecture</h2>
+      <p>A three-tier "hydrated" architecture that solves the cloud-native memory wall problem, written entirely in Rust for memory safety and zero-GC pauses.</p>
+    </div>
+    <div class="tiers">
+      <div class="tier tier-hot">
+        <h4>Tier 3 &mdash; Hot (RAM)</h4>
+        <p>Pointer swizzling promotes active subgraphs into RAM. 64-bit disk IDs are converted to direct memory pointers for nanosecond-level traversal. HNSW index lives here.</p>
+      </div>
+      <div class="tier tier-warm">
+        <h4>Tier 2 &mdash; Warm (NVMe SSD)</h4>
+        <p>LRU buffer pool caches 8 KiB pages with pin/unpin semantics. Pluggable I/O backends: memmap2 (cross-platform) and io_uring (Linux async I/O).</p>
+      </div>
+      <div class="tier tier-cold">
+        <h4>Tier 1 &mdash; Cold (Object Storage)</h4>
+        <p>Data persists in JSON, Apache Parquet, or cloud object stores (S3, GCS, Azure). Open formats for interoperability and long-term archival.</p>
+      </div>
+    </div>
+
+    <div style="margin-top: 50px;">
+      <div class="section-header">
+        <h2>System Architecture</h2>
+      </div>
+      <div class="arch-diagram">                    +----------------------------------+
+                    |          astraea-cli             |
+                    |   serve | shell | import | export|
+                    +--------------+-------------------+
+                                   |
+          +------------------------+------------------------+
+          |                        |                        |
++---------v-----------+  +---------v-----------+  +---------v-----------+
+|   astraea-server    |  |   astraea-flight    |  |   Python / R Client |
+|   JSON-TCP (7687)   |  |   Arrow Flight      |  |   JSON + Arrow      |
+|   gRPC   (7688)     |  |   do_get / do_put   |  |                     |
+|   Auth, Metrics     |  |                     |  |                     |
++--------+------------+  +--------+------------+  +---------------------+
+         |                        |
+         +-----------+------------+
+                     |
+    +----------------+------------------+----------------+
+    |                |                  |                |
++---v--------+ +----v-----------+ +----v--------+ +----v--------------+
+| astraea-   | | astraea-       | | astraea-    | | astraea-          |
+|   rag      | |   query        | |   gnn       | |   algorithms      |
+| Subgraph   | | GQL Parser     | | Tensor,     | | PageRank, Louvain |
+| Linearize  | | + Executor     | | MsgPassing  | | Centrality,       |
+| LLM, RAG   | |               | | Training    | | Components        |
++---+--------+ +----+-----------+ +----+--------+ +----+--------------+
+    |                |                  |                |
+    +----------------+---------+--------+----------------+
+                               |
+                  +------------+------------+
+                  |                         |
+          +-------v----------+  +-----------v--------+
+          |  astraea-graph   |  |  astraea-vector    |
+          |  CRUD, BFS, DFS  |  |  HNSW Index        |
+          |  Hybrid Search   |  |  ANN Search        |
+          |  Semantic Walk   |  |  Persistence       |
+          |  Temporal Queries|  |                    |
+          +--------+---------+  +--------------------+
+                   |
+          +--------v-----------------------------+
+          |         astraea-storage              |
+          |  Pages | Buffer Pool | Pointer Swizzle|
+          |  MVCC, WAL, PageIO, Cold Storage     |
+          +--------+-----------------------------+
+                   |
+     +-------------+-----------+-----------------+
+     |             |           |                 |
++----v-------+ +---v--------+ +--v--------------+
+| astraea-   | | astraea-   | | astraea-        |
+|   crypto   | |   gpu      | |   cluster       |
+| Encrypted  | | CSR Matrix | | Partitioning    |
+| Labels,    | | CPU/GPU    | | Sharding        |
+| FHE Engine | | Backends   | | Coordination    |
++------------+ +------------+ +-----------------+</div>
+    </div>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section id="quickstart">
+  <div class="section-inner">
+    <div class="section-header">
+      <h2>Quick Start</h2>
+      <p>Get up and running in minutes. Build from source, start the server, and connect with the interactive shell or your language of choice.</p>
+    </div>
+
+    <div class="code-block" style="margin-bottom: 28px;">
+<span class="cm"># Build the entire workspace</span>
+cargo build --workspace
+
+<span class="cm"># Run all 441+ tests</span>
+cargo test --workspace
+
+<span class="cm"># Start the server (JSON-TCP :7687, gRPC :7688, Arrow Flight :7689)</span>
+cargo run -p astraea-cli -- serve
+
+<span class="cm"># Connect with the interactive shell</span>
+cargo run -p astraea-cli -- shell
+    </div>
+
+    <div class="code-block" style="margin-bottom: 28px;">
+<span class="cm"># GQL queries in the shell</span>
+astraea&gt; <span class="kw">CREATE</span> (a:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>, <span class="str">age</span>: <span class="num">30</span>})
+<span class="cm">Nodes created: 1</span>
+
+astraea&gt; <span class="kw">MATCH</span> (a:<span class="ty">Person</span>) <span class="kw">WHERE</span> a.age &gt; <span class="num">25</span> <span class="kw">RETURN</span> a.name, a.age <span class="kw">ORDER BY</span> a.age <span class="kw">DESC</span>
++-------+------+
+| a.name| a.age|
++-------+------+
+| Alice |  30  |
++-------+------+
+    </div>
+
+    <div class="code-block">
+<span class="cm"># Python client (zero dependencies for JSON, optional pyarrow for Arrow)</span>
+pip install ./python
+
+<span class="kw">from</span> astraeadb <span class="kw">import</span> <span class="ty">AstraeaClient</span>
+
+<span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    alice = client.<span class="fn">create_node</span>([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Alice"</span>},
+                               embedding=[<span class="num">0.1</span>] * <span class="num">128</span>)
+    results = client.<span class="fn">hybrid_search</span>(alice, query_vec,
+                                   max_hops=<span class="num">3</span>, k=<span class="num">10</span>, alpha=<span class="num">0.5</span>)
+    answer = client.<span class="fn">graph_rag</span>(<span class="str">"Who does Alice know?"</span>, anchor=alice)
+    </div>
+  </div>
+</section>
+
+<!-- Comparison -->
+<section class="alt">
+  <div class="section-inner">
+    <div class="section-header">
+      <h2>How AstraeaDB Compares</h2>
+      <p>Synthesizing the best features from across the graph database ecosystem into one unified system.</p>
+    </div>
+    <div style="overflow-x: auto;">
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>Current Leader</th>
+          <th>AstraeaDB</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Native Graph Storage</td>
+          <td>Neo4j</td>
+          <td>Index-free adjacency with pointer swizzling</td>
+        </tr>
+        <tr>
+          <td>Massively Parallel Processing</td>
+          <td>TigerGraph</td>
+          <td>Hash/range partitioning, shard coordination</td>
+        </tr>
+        <tr>
+          <td>Multi-Model Flexibility</td>
+          <td>ArangoDB</td>
+          <td>Vector-Property Graph (JSON + embeddings)</td>
+        </tr>
+        <tr>
+          <td>In-Memory Speed</td>
+          <td>Memgraph</td>
+          <td>Pointer swizzling + HNSW in hot tier</td>
+        </tr>
+        <tr>
+          <td>Vector / AI Integration</td>
+          <td>Weaviate / Neo4j</td>
+          <td>Built-in HNSW, GNN training, GraphRAG</td>
+        </tr>
+        <tr>
+          <td>Query Standard</td>
+          <td>ISO GQL (2024)</td>
+          <td>GQL / Cypher parser + full executor</td>
+        </tr>
+        <tr>
+          <td>Privacy / Encryption</td>
+          <td>&mdash;</td>
+          <td>Homomorphic encryption for encrypted label matching</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- Graph Algorithms -->
+<section>
+  <div class="section-inner">
+    <div class="section-header">
+      <h2>Built-in Graph Algorithms</h2>
+      <p>Production-ready implementations of essential graph analytics, with optional GPU acceleration.</p>
+    </div>
+    <div class="features-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+      <div class="feature-card" style="text-align:center;">
+        <h3>PageRank</h3>
+        <p>Power iteration with dangling node handling for node importance ranking.</p>
+      </div>
+      <div class="feature-card" style="text-align:center;">
+        <h3>Community Detection</h3>
+        <p>Louvain algorithm for discovering densely connected clusters.</p>
+      </div>
+      <div class="feature-card" style="text-align:center;">
+        <h3>Centrality</h3>
+        <p>Degree and betweenness centrality (Brandes' algorithm) for identifying key nodes.</p>
+      </div>
+      <div class="feature-card" style="text-align:center;">
+        <h3>Components</h3>
+        <p>Connected and strongly-connected components via Tarjan's algorithm.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Client Libraries -->
+<section class="alt">
+  <div class="section-inner">
+    <div class="section-header">
+      <h2>Client Libraries</h2>
+      <p>Connect from your language of choice over three transport protocols.</p>
+    </div>
+    <div class="features-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+      <div class="feature-card">
+        <h3>Python</h3>
+        <p><code>JsonClient</code> (zero deps), <code>ArrowClient</code> (pyarrow), and <code>AstraeaClient</code> (unified). DataFrame integration with Pandas and Polars. 23 tests.</p>
+      </div>
+      <div class="feature-card">
+        <h3>R</h3>
+        <p><code>AstraeaClient</code>, <code>ArrowClient</code>, and <code>UnifiedClient</code>. Full feature parity with the Python client, including data.frame import/export.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Rust (Embedded)</h3>
+        <p>Use AstraeaDB as a library with no network overhead. Direct access to <code>Graph</code>, <code>StorageEngine</code>, and <code>VectorIndex</code> traits.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <h2>Ready to Get Started?</h2>
+  <p>Explore the full documentation, browse the source code, or jump straight into building.</p>
+  <div class="cta-buttons">
+    <a href="wiki.html" class="btn btn-primary">Read the Wiki</a>
+    <a href="https://github.com/jimeharrisjr/AstraeaDB" class="btn btn-secondary">View on GitHub</a>
+    <a href="gnn-tutorial.html" class="btn btn-secondary">GNN Tutorial</a>
+    <a href="graphrag-claude-tutorial.html" class="btn btn-secondary">GraphRAG Tutorial</a>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/AstraeaDB/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+</body>
+</html>
