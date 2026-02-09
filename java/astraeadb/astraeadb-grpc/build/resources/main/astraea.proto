@@ -1,0 +1,216 @@
+syntax = "proto3";
+
+package astraea;
+
+option java_package = "com.astraeadb.grpc.proto";
+option java_outer_classname = "AstraeaProto";
+option java_multiple_files = true;
+
+import "google/protobuf/wrappers.proto";
+
+// ---------------------------------------------------------------------------
+// AstraeaDB gRPC Service
+// ---------------------------------------------------------------------------
+
+service AstraeaService {
+    // Node CRUD
+    rpc CreateNode(CreateNodeRequest) returns (MutationResponse);
+    rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
+    rpc UpdateNode(UpdateNodeRequest) returns (MutationResponse);
+    rpc DeleteNode(DeleteNodeRequest) returns (MutationResponse);
+
+    // Edge CRUD
+    rpc CreateEdge(CreateEdgeRequest) returns (MutationResponse);
+    rpc GetEdge(GetEdgeRequest) returns (GetEdgeResponse);
+    rpc UpdateEdge(UpdateEdgeRequest) returns (MutationResponse);
+    rpc DeleteEdge(DeleteEdgeRequest) returns (MutationResponse);
+
+    // Graph traversal
+    rpc Neighbors(NeighborsRequest) returns (NeighborsResponse);
+    rpc Bfs(BfsRequest) returns (BfsResponse);
+    rpc ShortestPath(ShortestPathRequest) returns (ShortestPathResponse);
+
+    // Vector search
+    rpc VectorSearch(VectorSearchRequest) returns (VectorSearchResponse);
+
+    // GQL query
+    rpc Query(QueryRequest) returns (QueryResponse);
+
+    // Health check
+    rpc Ping(PingRequest) returns (PingResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Node messages
+// ---------------------------------------------------------------------------
+
+message CreateNodeRequest {
+    repeated string labels = 1;
+    string properties_json = 2;
+    repeated float embedding = 3;
+}
+
+message GetNodeRequest {
+    uint64 id = 1;
+}
+
+message GetNodeResponse {
+    bool found = 1;
+    uint64 id = 2;
+    repeated string labels = 3;
+    string properties_json = 4;
+    bool has_embedding = 5;
+    string error = 15;
+}
+
+message UpdateNodeRequest {
+    uint64 id = 1;
+    string properties_json = 2;
+}
+
+message DeleteNodeRequest {
+    uint64 id = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Edge messages
+// ---------------------------------------------------------------------------
+
+message CreateEdgeRequest {
+    uint64 source = 1;
+    uint64 target = 2;
+    string edge_type = 3;
+    string properties_json = 4;
+    double weight = 5;
+    google.protobuf.Int64Value valid_from = 6;
+    google.protobuf.Int64Value valid_to = 7;
+}
+
+message GetEdgeRequest {
+    uint64 id = 1;
+}
+
+message GetEdgeResponse {
+    bool found = 1;
+    uint64 id = 2;
+    uint64 source = 3;
+    uint64 target = 4;
+    string edge_type = 5;
+    string properties_json = 6;
+    double weight = 7;
+    google.protobuf.Int64Value valid_from = 8;
+    google.protobuf.Int64Value valid_to = 9;
+    string error = 15;
+}
+
+message UpdateEdgeRequest {
+    uint64 id = 1;
+    string properties_json = 2;
+}
+
+message DeleteEdgeRequest {
+    uint64 id = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Generic mutation response
+// ---------------------------------------------------------------------------
+
+message MutationResponse {
+    bool success = 1;
+    string result_json = 2;
+    string error = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Traversal messages
+// ---------------------------------------------------------------------------
+
+message NeighborsRequest {
+    uint64 id = 1;
+    string direction = 2;
+    string edge_type = 3;
+}
+
+message NeighborEntry {
+    uint64 edge_id = 1;
+    uint64 node_id = 2;
+}
+
+message NeighborsResponse {
+    repeated NeighborEntry neighbors = 1;
+    string error = 15;
+}
+
+message BfsRequest {
+    uint64 start = 1;
+    uint32 max_depth = 2;
+}
+
+message BfsEntry {
+    uint64 node_id = 1;
+    uint32 depth = 2;
+}
+
+message BfsResponse {
+    repeated BfsEntry nodes = 1;
+    string error = 15;
+}
+
+message ShortestPathRequest {
+    uint64 from = 1;
+    uint64 to = 2;
+    bool weighted = 3;
+}
+
+message ShortestPathResponse {
+    bool found = 1;
+    repeated uint64 path = 2;
+    uint32 length = 3;
+    google.protobuf.DoubleValue cost = 4;
+    string error = 15;
+}
+
+// ---------------------------------------------------------------------------
+// Vector search messages
+// ---------------------------------------------------------------------------
+
+message VectorSearchRequest {
+    repeated float query = 1;
+    uint32 k = 2;
+}
+
+message VectorSearchResult {
+    uint64 node_id = 1;
+    float score = 2;
+}
+
+message VectorSearchResponse {
+    repeated VectorSearchResult results = 1;
+    string error = 15;
+}
+
+// ---------------------------------------------------------------------------
+// GQL query messages
+// ---------------------------------------------------------------------------
+
+message QueryRequest {
+    string gql = 1;
+}
+
+message QueryResponse {
+    bool success = 1;
+    string result_json = 2;
+    string error = 15;
+}
+
+// ---------------------------------------------------------------------------
+// Health check messages
+// ---------------------------------------------------------------------------
+
+message PingRequest {}
+
+message PingResponse {
+    bool pong = 1;
+    string version = 2;
+}

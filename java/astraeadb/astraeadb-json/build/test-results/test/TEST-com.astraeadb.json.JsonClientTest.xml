@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.astraeadb.json.JsonClientTest" tests="34" skipped="0" failures="0" errors="0" timestamp="2026-02-09T15:09:03" hostname="MacBook-Pro.local" time="0.097">
+  <properties/>
+  <testcase name="deleteNode_sendsId()" classname="com.astraeadb.json.JsonClientTest" time="0.015"/>
+  <testcase name="deleteEdges_returnsCount()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="updateEdge_sendsProperties()" classname="com.astraeadb.json.JsonClientTest" time="0.015"/>
+  <testcase name="vectorSearch_returnsResults()" classname="com.astraeadb.json.JsonClientTest" time="0.006"/>
+  <testcase name="semanticNeighbors_returnsResults()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="deleteEdge_sendsId()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="shortestPathAt_sendsTimestamp()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="authToken_injectedWhenSet()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="createEdges_returnsIds()" classname="com.astraeadb.json.JsonClientTest" time="0.003"/>
+  <testcase name="neighbors_withEdgeType_sendsEdgeType()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="createNode_withEmbedding_sendsEmbedding()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="neighbors_returnsEntries()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="query_returnsQueryResult()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="createNodes_returnsIds()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="createEdge_withTemporal_sendsValidFromTo()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="graphRag_returnsResult()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="notConnected_throwsException()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="shortestPath_returnsPathResult()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="createNode_returnsNodeId()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="ping_returnsPong()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="hybridSearch_returnsResults()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="authToken_absentWhenNotSet()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="autoCloseable_closesConnection()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="bfsAt_sendsTimestamp()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="semanticWalk_returnsSteps()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="createEdge_returnsEdgeId()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="getEdge_returnsEdge()" classname="com.astraeadb.json.JsonClientTest" time="0.006"/>
+  <testcase name="neighborsAt_sendsTimestamp()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="serverError_throwsClassifiedException()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="updateNode_sendsProperties()" classname="com.astraeadb.json.JsonClientTest" time="0.002"/>
+  <testcase name="deleteNodes_returnsCount()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="getNode_returnsNode()" classname="com.astraeadb.json.JsonClientTest" time="0.004"/>
+  <testcase name="extractSubgraph_returnsResult()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <testcase name="bfs_returnsEntries()" classname="com.astraeadb.json.JsonClientTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

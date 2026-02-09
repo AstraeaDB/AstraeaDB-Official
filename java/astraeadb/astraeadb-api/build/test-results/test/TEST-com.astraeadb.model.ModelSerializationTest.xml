@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.astraeadb.model.ModelSerializationTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-02-09T15:05:42" hostname="MacBook-Pro.local" time="0.019">
+  <properties/>
+  <testcase name="ragResultFields()" classname="com.astraeadb.model.ModelSerializationTest" time="0.002"/>
+  <testcase name="nodeRoundTrip()" classname="com.astraeadb.model.ModelSerializationTest" time="0.01"/>
+  <testcase name="edgeRoundTrip()" classname="com.astraeadb.model.ModelSerializationTest" time="0.001"/>
+  <testcase name="pathResultNullCost()" classname="com.astraeadb.model.ModelSerializationTest" time="0.0"/>
+  <testcase name="queryResultWithStats()" classname="com.astraeadb.model.ModelSerializationTest" time="0.0"/>
+  <testcase name="nodeInputConvenienceConstructors()" classname="com.astraeadb.model.ModelSerializationTest" time="0.002"/>
+  <testcase name="edgeInputConvenienceConstructors()" classname="com.astraeadb.model.ModelSerializationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

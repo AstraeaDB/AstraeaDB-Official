@@ -149,6 +149,7 @@ td code { font-size: 0.85em; }
 <a href="#python-client">Python Client</a>
 <a href="#r-client">R Client</a>
 <a href="#go-client">Go Client</a>
+<a href="#java-client">Java Client</a>
 <div class="sep"></div>
 <a href="#cybersecurity-demo">Cybersecurity Demo</a>
 <a href="#api-reference">API Reference</a>
@@ -172,7 +173,7 @@ td code { font-size: 0.85em; }
 <li><strong>GraphRAG</strong> &mdash; Graph-enhanced Retrieval-Augmented Generation: extract subgraphs, convert to text, and feed to an LLM (Large Language Model) in one atomic operation.</li>
 <li><strong>GQL Support</strong> &mdash; Hand-written ISO GQL (Graph Query Language) / Cypher parser and executor for declarative graph queries.</li>
 <li><strong>Three Transport Layers</strong> &mdash; JSON-over-TCP, gRPC (Google's high-performance RPC framework), and Apache Arrow Flight (columnar data streaming).</li>
-<li><strong>Four Client Libraries</strong> &mdash; Python, R, Go, and embedded Rust. Each supports all 22 server operations with idiomatic language patterns.</li>
+<li><strong>Five Client Libraries</strong> &mdash; Python, R, Go, Java, and embedded Rust. Each supports all 22 server operations with idiomatic language patterns.</li>
 <li><strong>Pure Rust</strong> &mdash; Zero garbage-collection pauses, memory safety, 441 tests across 14 crates.</li>
 <li><strong>Cloud-Native Storage</strong> &mdash; Cold storage backends for S3, GCS, Azure, and Parquet (columnar file format).</li>
 <li><strong>Production Security</strong> &mdash; API key RBAC (Role-Based Access Control) and mTLS (mutual TLS) with client certificate authentication.</li>
@@ -185,7 +186,8 @@ td code { font-size: 0.85em; }
 <tr><td>Rust Tests</td><td>441</td></tr>
 <tr><td>Python Tests</td><td>23</td></tr>
 <tr><td>Go Tests</td><td>30</td></tr>
-<tr><td>Client Libraries</td><td>Python, R, Go, Rust (embedded)</td></tr>
+<tr><td>Java Tests</td><td>113</td></tr>
+<tr><td>Client Libraries</td><td>Python, R, Go, Java, Rust (embedded)</td></tr>
 <tr><td>Rust Edition</td><td>2024</td></tr>
 <tr><td>License</td><td>MIT</td></tr>
 </table>
@@ -237,10 +239,10 @@ astraea&gt; .quit</pre>
           |                         |                         |
 +---------v----------+  +-----------v--------+  +------------v-------+
 |  astraea-server    |  |  astraea-flight    |  |  Client Libraries  |
-|  JSON-TCP (7687)   |  |  Arrow Flight      |  |  Python, R, Go     |
+|  JSON-TCP (7687)   |  |  Arrow Flight      |  |  Python, R, Go,    |
 |  gRPC (7688)       |  |  do_get / do_put   |  |  JSON + gRPC       |
 |  Auth, Metrics     |  |                    |  |  + Arrow Flight    |
-|  Connection Mgmt   |  |                    |  |                    |
+|  Connection Mgmt   |  |                    |  |  Java              |
 +---------+----------+  +-----------+--------+  +--------------------+
           |                         |
           +------------+------------+
@@ -1545,6 +1547,98 @@ go test -v -race ./...
 make test</pre>
 
 <!-- ============================================================ -->
+<h2 id="java-client">Java Client</h2>
+
+<p>A full-featured Java client is provided in the <code>java/astraeadb</code> directory as a Gradle multi-module project. It supports three transport layers with idiomatic Java patterns including records (Java 17+), the builder pattern, <code>try-with-resources</code> lifecycle, and thread-safe connections.</p>
+
+<h3>Client Types</h3>
+<ul>
+<li><strong><code>JsonClient</code></strong> &mdash; JSON/TCP transport (port 7687). Supports all 22 server operations with Jackson JSON serialization.</li>
+<li><strong><code>GrpcClient</code></strong> &mdash; gRPC transport (port 7688) with Protocol Buffers. Supports 14 RPCs for type-safe, high-performance access.</li>
+<li><strong><code>FlightAstraeaClient</code></strong> &mdash; Arrow Flight transport (port 7689). Supports queries and bulk import via zero-copy Arrow tables.</li>
+<li><strong><code>UnifiedClient</code></strong> &mdash; Auto-selects the best transport per operation: gRPC for CRUD/traversal, Arrow Flight for queries/bulk, JSON/TCP for temporal/semantic/GraphRAG.</li>
+</ul>
+
+<h3>Gradle Dependency</h3>
+<pre>dependencies {
+    implementation <span class="str">"com.astraeadb:astraeadb-unified:0.1.0"</span>  <span class="cm">// All transports</span>
+    <span class="cm">// Or individual: astraeadb-json, astraeadb-grpc, astraeadb-flight</span>
+}</pre>
+
+<h3>Usage Example</h3>
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+<span class="kw">import</span> com.astraeadb.model.*;
+<span class="kw">import</span> com.astraeadb.options.*;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = UnifiedClient.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>)
+        .<span class="fn">authToken</span>(<span class="str">"my-api-key"</span>)
+        .<span class="fn">build</span>()) {
+
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Create nodes with embeddings</span>
+    <span class="kw">long</span> alice = client.<span class="fn">createNode</span>(
+        List.<span class="fn">of</span>(<span class="str">"Person"</span>),
+        Map.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Alice"</span>, <span class="str">"age"</span>, <span class="num">30</span>),
+        <span class="kw">new</span> <span class="kw">float</span>[]{<span class="num">0.1f</span>, <span class="num">0.2f</span>, <span class="num">0.3f</span>});
+
+    <span class="cm">// Create a temporal edge</span>
+    client.<span class="fn">createEdge</span>(alice, bob, <span class="str">"KNOWS"</span>,
+        EdgeOptions.<span class="fn">builder</span>()
+            .<span class="fn">weight</span>(<span class="num">0.9</span>)
+            .<span class="fn">validFrom</span>(<span class="num">1609459200000L</span>)
+            .<span class="fn">build</span>());
+
+    <span class="cm">// Traverse, search, query</span>
+    List&lt;NeighborEntry&gt; neighbors = client.<span class="fn">neighbors</span>(alice,
+        NeighborOptions.<span class="fn">builder</span>().<span class="fn">direction</span>(<span class="str">"outgoing"</span>).<span class="fn">build</span>());
+    List&lt;SearchResult&gt; results = client.<span class="fn">vectorSearch</span>(
+        <span class="kw">new</span> <span class="kw">float</span>[]{<span class="num">0.15f</span>, <span class="num">0.25f</span>, <span class="num">0.35f</span>}, <span class="num">5</span>);
+    QueryResult result = client.<span class="fn">query</span>(
+        <span class="str">"MATCH (n:Person) RETURN n.name"</span>);
+    RagResult rag = client.<span class="fn">graphRag</span>(<span class="str">"Who does Alice know?"</span>,
+        RagOptions.<span class="fn">builder</span>().<span class="fn">anchor</span>(alice).<span class="fn">hops</span>(<span class="num">2</span>).<span class="fn">build</span>());
+}</pre>
+
+<h3>Exception Handling</h3>
+<p>The Java client uses a checked exception hierarchy rooted at <code>AstraeaException</code>:</p>
+<pre><span class="kw">try</span> {
+    Node node = client.<span class="fn">getNode</span>(<span class="num">999</span>);
+} <span class="kw">catch</span> (NodeNotFoundException e) {
+    <span class="cm">// Specific exception for not-found</span>
+} <span class="kw">catch</span> (AccessDeniedException e) {
+    <span class="cm">// Permission error</span>
+} <span class="kw">catch</span> (AstraeaException e) {
+    <span class="cm">// Base exception for all errors</span>
+}</pre>
+
+<h3>Java API Reference</h3>
+<table class="wiki-table">
+<tr><th>Category</th><th>Method</th><th>Description</th></tr>
+<tr><td>Health</td><td><code>ping()</code></td><td>Health check, returns version</td></tr>
+<tr><td>Node CRUD</td><td><code>createNode(labels, props, embedding)</code></td><td>Create node, returns ID</td></tr>
+<tr><td></td><td><code>getNode(id)</code> / <code>updateNode(id, props)</code> / <code>deleteNode(id)</code></td><td>Read/update/delete</td></tr>
+<tr><td>Edge CRUD</td><td><code>createEdge(src, tgt, type, options)</code></td><td>Create edge with EdgeOptions</td></tr>
+<tr><td></td><td><code>getEdge(id)</code> / <code>updateEdge(id, props)</code> / <code>deleteEdge(id)</code></td><td>Read/update/delete</td></tr>
+<tr><td>Traversal</td><td><code>neighbors(id, options)</code></td><td>Get neighbors with NeighborOptions</td></tr>
+<tr><td></td><td><code>bfs(start, maxDepth)</code></td><td>Breadth-first traversal</td></tr>
+<tr><td></td><td><code>shortestPath(from, to, weighted)</code></td><td>Shortest path</td></tr>
+<tr><td>Temporal</td><td><code>neighborsAt(id, dir, timestamp)</code></td><td>Neighbors at time T</td></tr>
+<tr><td></td><td><code>bfsAt(start, depth, timestamp)</code></td><td>BFS at time T</td></tr>
+<tr><td></td><td><code>shortestPathAt(from, to, ts, weighted)</code></td><td>Path at time T</td></tr>
+<tr><td>Vector</td><td><code>vectorSearch(embedding, k)</code></td><td>k-NN search</td></tr>
+<tr><td></td><td><code>hybridSearch(anchor, embedding, options)</code></td><td>Graph + vector</td></tr>
+<tr><td></td><td><code>semanticNeighbors(id, concept, options)</code></td><td>Neighbors by similarity</td></tr>
+<tr><td></td><td><code>semanticWalk(start, concept, maxHops)</code></td><td>Semantic walk</td></tr>
+<tr><td>GraphRAG</td><td><code>extractSubgraph(center, options)</code></td><td>Extract + linearize</td></tr>
+<tr><td></td><td><code>graphRag(question, options)</code></td><td>Full RAG pipeline</td></tr>
+<tr><td>GQL</td><td><code>query(gql)</code></td><td>Execute a GQL query</td></tr>
+<tr><td>Batch</td><td><code>createNodes(nodes)</code> / <code>createEdges(edges)</code></td><td>Batch create</td></tr>
+<tr><td></td><td><code>deleteNodes(ids)</code> / <code>deleteEdges(ids)</code></td><td>Batch delete</td></tr>
+</table>
+
+<!-- ============================================================ -->
 <h2 id="cybersecurity-demo">Cybersecurity Demo</h2>
 
 <p>This example demonstrates how AstraeaDB enables security analysts to investigate network alerts by tracing connections through a graph.</p>
@@ -1803,7 +1897,7 @@ python3 examples/cybersecurity_demo.py</pre>
 
 <div style="margin-top:60px; padding-top:20px; border-top:1px solid var(--border); color:#888; font-size:0.85em;">
 <p>AstraeaDB &mdash; Cloud-Native, AI-First Graph Database &mdash; MIT License</p>
-<p>441 Rust tests &bull; 23 Python tests &bull; 14 crates &bull; Edition 2024</p>
+<p>441 Rust tests &bull; 23 Python tests &bull; 113 Java tests &bull; 14 crates &bull; Edition 2024</p>
 </div>
 
 </main>

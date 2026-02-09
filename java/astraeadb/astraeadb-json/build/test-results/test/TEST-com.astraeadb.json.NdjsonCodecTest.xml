@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.astraeadb.json.NdjsonCodecTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-02-09T15:09:04" hostname="MacBook-Pro.local" time="0.004">
+  <properties/>
+  <testcase name="sendAndReceive()" classname="com.astraeadb.json.NdjsonCodecTest" time="0.001"/>
+  <testcase name="roundTrip()" classname="com.astraeadb.json.NdjsonCodecTest" time="0.001"/>
+  <testcase name="receiveEof()" classname="com.astraeadb.json.NdjsonCodecTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

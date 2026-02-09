@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.astraeadb.grpc.GrpcClientTest" tests="34" skipped="0" failures="0" errors="0" timestamp="2026-02-09T15:09:03" hostname="MacBook-Pro.local" time="0.114">
+  <properties/>
+  <testcase name="query_returnsResult()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.056"/>
+  <testcase name="unsupportedOperation_graphRag_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="createNode_withEmbedding_returnsNodeId()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.012"/>
+  <testcase name="vectorSearch_returnsResults()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.004"/>
+  <testcase name="unsupportedOperation_shortestPathAt_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="unsupportedOperation_neighborsAt_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.0"/>
+  <testcase name="deleteNode_notFound_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="unsupportedOperation_semanticWalk_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="deleteNode_succeeds()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="neighbors_returnsEntries()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.004"/>
+  <testcase name="deleteEdge_succeeds()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="unsupportedOperation_extractSubgraph_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="shortestPath_returnsResult()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.003"/>
+  <testcase name="updateNode_succeeds()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="updateEdge_succeeds()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="createNode_returnsNodeId()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.0"/>
+  <testcase name="unsupportedOperation_semanticNeighbors_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.0"/>
+  <testcase name="unsupportedOperation_deleteNodes_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="ping_returnsPong()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.002"/>
+  <testcase name="unsupportedOperation_deleteEdges_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="getEdge_notFound_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.002"/>
+  <testcase name="vectorSearch_defaultK_returnsResults()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="updateNode_notFound_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.0"/>
+  <testcase name="createEdge_returnsEdgeId()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="getEdge_returnsEdge()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.003"/>
+  <testcase name="getNode_notFound_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.002"/>
+  <testcase name="unsupportedOperation_bfsAt_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.0"/>
+  <testcase name="getNode_returnsNode()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="unsupportedOperation_createNodes_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="unsupportedOperation_createEdges_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.0"/>
+  <testcase name="neighbors_withOptions_returnsEntries()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="bfs_returnsEntries()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.002"/>
+  <testcase name="unsupportedOperation_hybridSearch_throwsException()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.001"/>
+  <testcase name="createEdge_withOptions_returnsEdgeId()" classname="com.astraeadb.grpc.GrpcClientTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -144,6 +144,7 @@ td code { font-size: 0.85em; }
 <a href="#rust-api">Rust API</a>
 <a href="#python-api">Python API</a>
 <a href="#go-api">Go API</a>
+<a href="#java-api">Java API</a>
 <a href="#json-protocol">JSON Protocol</a>
 <div class="sep"></div>
 <a href="#example-cybersec">Example: Security Analysis</a>
@@ -264,6 +265,12 @@ cargo run -p astraea-cli -- serve</pre>
 
 <h3>4. Go Client (Optional)</h3>
 <pre>go get github.com/jimeharrisjr/astraeadb-go</pre>
+
+<h3>5. Java Client (Optional)</h3>
+<pre>// Add to your build.gradle.kts
+dependencies {
+    implementation("com.astraeadb:astraeadb-unified:0.1.0")
+}</pre>
 
 <!-- ============================================================ -->
 <h2 id="build-graph">Build a Knowledge Graph</h2>
@@ -697,6 +704,78 @@ req.Header.<span class="fn">Set</span>(<span class="str">"content-type"</span>, 
 
 resp, _ := http.DefaultClient.<span class="fn">Do</span>(req)
 <span class="cm">// ... parse response ...</span></pre>
+
+<!-- ============================================================ -->
+<h2 id="java-api">Java API</h2>
+
+<p>The Java client provides native GraphRAG support via the unified client. Temporal, semantic, and GraphRAG operations are routed through the JSON/TCP transport, while CRUD and traversal use gRPC when available.</p>
+
+<h3>Subgraph Extraction</h3>
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+<span class="kw">import</span> com.astraeadb.model.*;
+<span class="kw">import</span> com.astraeadb.options.*;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = UnifiedClient.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Extract a 2-hop subgraph around a node</span>
+    SubgraphResult subgraph = client.<span class="fn">extractSubgraph</span>(aliceId,
+        SubgraphOptions.<span class="fn">builder</span>()
+            .<span class="fn">hops</span>(<span class="num">2</span>)
+            .<span class="fn">maxNodes</span>(<span class="num">50</span>)
+            .<span class="fn">format</span>(<span class="str">"structured"</span>)
+            .<span class="fn">build</span>());
+
+    System.out.<span class="fn">println</span>(<span class="str">"Context: "</span> + subgraph.<span class="fn">text</span>());
+    System.out.<span class="fn">println</span>(<span class="str">"Nodes: "</span> + subgraph.<span class="fn">nodeCount</span>());
+    System.out.<span class="fn">println</span>(<span class="str">"Tokens: "</span> + subgraph.<span class="fn">estimatedTokens</span>());
+}</pre>
+
+<h3>Full GraphRAG Pipeline</h3>
+<pre><span class="cm">// GraphRAG with anchor node</span>
+RagResult rag = client.<span class="fn">graphRag</span>(
+    <span class="str">"What is the relationship between Alice and the fraud ring?"</span>,
+    RagOptions.<span class="fn">builder</span>()
+        .<span class="fn">anchor</span>(aliceId)
+        .<span class="fn">hops</span>(<span class="num">3</span>)
+        .<span class="fn">maxNodes</span>(<span class="num">100</span>)
+        .<span class="fn">format</span>(<span class="str">"structured"</span>)
+        .<span class="fn">build</span>());
+
+System.out.<span class="fn">println</span>(<span class="str">"Context: "</span> + rag.<span class="fn">context</span>());
+System.out.<span class="fn">println</span>(<span class="str">"Nodes in context: "</span> + rag.<span class="fn">nodesInContext</span>());
+
+<span class="cm">// Without anchor (server uses vector search to find relevant node)</span>
+RagResult rag2 = client.<span class="fn">graphRag</span>(
+    <span class="str">"Who is involved in money laundering?"</span>,
+    RagOptions.<span class="fn">builder</span>()
+        .<span class="fn">hops</span>(<span class="num">2</span>)
+        .<span class="fn">build</span>());</pre>
+
+<h3>Combining GraphRAG with Claude (using Java HTTP client)</h3>
+<pre><span class="cm">// 1. Get graph context from AstraeaDB</span>
+RagResult rag = client.<span class="fn">graphRag</span>(question,
+    RagOptions.<span class="fn">builder</span>().<span class="fn">anchor</span>(nodeId).<span class="fn">hops</span>(<span class="num">2</span>).<span class="fn">build</span>());
+
+<span class="cm">// 2. Send to Claude via Anthropic API</span>
+<span class="kw">var</span> httpClient = HttpClient.<span class="fn">newHttpClient</span>();
+String body = <span class="str">"""
+    {"model": "claude-sonnet-4-5-20250929",
+     "max_tokens": 1024,
+     "messages": [{"role": "user",
+       "content": "Context:\\n%s\\n\\nQuestion: %s"}]}
+    """</span>.<span class="fn">formatted</span>(rag.<span class="fn">context</span>(), question);
+
+<span class="kw">var</span> request = HttpRequest.<span class="fn">newBuilder</span>()
+    .<span class="fn">uri</span>(URI.<span class="fn">create</span>(<span class="str">"https://api.anthropic.com/v1/messages"</span>))
+    .<span class="fn">header</span>(<span class="str">"x-api-key"</span>, apiKey)
+    .<span class="fn">header</span>(<span class="str">"anthropic-version"</span>, <span class="str">"2023-06-01"</span>)
+    .<span class="fn">POST</span>(HttpRequest.BodyPublishers.<span class="fn">ofString</span>(body))
+    .<span class="fn">build</span>();
+
+<span class="kw">var</span> response = httpClient.<span class="fn">send</span>(request,
+    HttpResponse.BodyHandlers.<span class="fn">ofString</span>());</pre>
 
 <!-- ============================================================ -->
 <h2 id="json-protocol">JSON Protocol</h2>

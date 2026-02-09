@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.astraeadb.json.BackoffTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-02-09T15:09:03" hostname="MacBook-Pro.local" time="0.026">
+  <properties/>
+  <testcase name="maxCap()" classname="com.astraeadb.json.BackoffTest" time="0.023"/>
+  <testcase name="reset()" classname="com.astraeadb.json.BackoffTest" time="0.001"/>
+  <testcase name="defaultValues()" classname="com.astraeadb.json.BackoffTest" time="0.0"/>
+  <testcase name="exponentialIncrease()" classname="com.astraeadb.json.BackoffTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -18,9 +18,9 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
           │                        │                        │
 ┌─────────▼──────────┐  ┌─────────▼──────────┐  ┌─────────▼──────────┐
 │  astraea-server    │  │  astraea-flight    │  │  Client Libraries  │
-│  JSON-TCP (7687)   │  │  Arrow Flight      │  │  Python, R, Go     │
-│  gRPC (7688)       │  │  do_get / do_put   │  │  JSON + gRPC       │
-│  Auth, Metrics     │  │                    │  │  + Arrow Flight    │
+│  JSON-TCP (7687)   │  │  Arrow Flight      │  │  Python, R, Go,    │
+│  gRPC (7688)       │  │  do_get / do_put   │  │  Java — JSON +     │
+│  Auth, Metrics     │  │                    │  │  gRPC + Flight     │
 │  Connection Mgmt   │  │                    │  │                    │
 └──────┬─────────────┘  └──────┬─────────────┘  └────────────────────┘
        │                       │
@@ -91,9 +91,11 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export` | - |
 | `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
 | `go/astraeadb` | Go client: JSON/TCP, gRPC (protobuf), unified client with auto-transport selection | 30 |
+| `java/astraeadb` | Java client: JSON/TCP, gRPC (protobuf), Arrow Flight, unified client with auto-transport selection | 113 |
 | **Rust Total** | | **441** |
 | **Python Total** | | **23** |
 | **Go Total** | | **30** |
+| **Java Total** | | **113** |
 
 ## Data Model: Vector-Property Graph
 
@@ -927,6 +929,125 @@ func main() {
 | Batch | `CreateNodes(ctx, nodes)` / `CreateEdges(ctx, edges)` | Batch create |
 | | `DeleteNodes(ctx, ids)` / `DeleteEdges(ctx, ids)` | Batch delete |
 
+### Java Client
+
+A full-featured Java client is provided in the `java/astraeadb` Gradle project with three transport layers, a unified client, and idiomatic Java patterns (records, builders, try-with-resources):
+
+- **`JsonClient`** — JSON/TCP transport with all 22 operations. Requires Jackson for JSON serialization.
+- **`GrpcClient`** — gRPC transport with Protocol Buffers for type-safe, high-performance access (14 RPCs).
+- **`FlightAstraeaClient`** — Arrow Flight transport for zero-copy queries and bulk import.
+- **`UnifiedClient`** — Auto-selects the best transport per operation with graceful degradation.
+
+**Requirements:** Java 17+ (uses records and text blocks)
+
+**Installation (Gradle):**
+
+```groovy
+dependencies {
+    implementation 'com.astraeadb:astraeadb-unified:0.1.0'  // All transports
+    // Or pick individual transports:
+    // implementation 'com.astraeadb:astraeadb-json:0.1.0'
+    // implementation 'com.astraeadb:astraeadb-grpc:0.1.0'
+}
+```
+
+**Using the unified client:**
+
+```java
+import com.astraeadb.unified.UnifiedClient;
+import com.astraeadb.model.*;
+import com.astraeadb.options.*;
+
+try (var client = UnifiedClient.builder()
+        .host("127.0.0.1")
+        .jsonPort(7687)
+        .grpcPort(7688)
+        .authToken("my-api-key")
+        .build()) {
+
+    client.connect();
+
+    // Create nodes with embeddings
+    long alice = client.createNode(
+        List.of("Person"),
+        Map.of("name", "Alice", "age", 30),
+        new float[]{0.1f, 0.2f, 0.3f});
+
+    long bob = client.createNode(
+        List.of("Person"),
+        Map.of("name", "Bob", "age", 25),
+        null);
+
+    // Create a temporal edge
+    long edge = client.createEdge(alice, bob, "KNOWS",
+        EdgeOptions.builder()
+            .weight(0.9)
+            .properties(Map.of("since", 2020))
+            .validFrom(1609459200000L)
+            .build());
+
+    // Traverse
+    List<NeighborEntry> neighbors = client.neighbors(alice,
+        NeighborOptions.builder().direction("outgoing").build());
+
+    List<BfsEntry> bfs = client.bfs(alice, 3);
+
+    PathResult path = client.shortestPath(alice, bob, true);
+
+    // Vector search
+    List<SearchResult> results = client.vectorSearch(
+        new float[]{0.15f, 0.25f, 0.35f}, 5);
+
+    // Hybrid search (graph + vector)
+    List<SearchResult> hybrid = client.hybridSearch(alice,
+        new float[]{0.15f, 0.25f, 0.35f},
+        HybridSearchOptions.builder().k(10).maxHops(3).build());
+
+    // Temporal query
+    List<NeighborEntry> temporal = client.neighborsAt(
+        alice, "outgoing", 1577836800000L);
+
+    // GQL query
+    QueryResult result = client.query(
+        "MATCH (n:Person) WHERE n.age > 25 RETURN n.name");
+
+    // GraphRAG
+    RagResult rag = client.graphRag("Who does Alice know?",
+        RagOptions.builder().anchor(alice).hops(2).build());
+
+    // Batch operations
+    List<Long> ids = client.createNodes(List.of(
+        new NodeInput(List.of("Person"), Map.of("name", "Charlie")),
+        new NodeInput(List.of("Person"), Map.of("name", "Diana"))
+    ));
+}
+```
+
+**Client API reference:**
+
+| Category | Method | Description |
+|---|---|---|
+| Health | `ping()` | Health check, returns server version |
+| Node CRUD | `createNode(labels, properties, embedding)` | Create a node, returns node ID |
+| | `getNode(id)` / `updateNode(id, props)` / `deleteNode(id)` | Get, update, or delete a node |
+| Edge CRUD | `createEdge(src, tgt, type, options)` | Create edge with `EdgeOptions` (weight, temporal validity) |
+| | `getEdge(id)` / `updateEdge(id, props)` / `deleteEdge(id)` | Get, update, or delete an edge |
+| Traversal | `neighbors(id, options)` | Get neighbors with `NeighborOptions` (direction, edge type) |
+| | `bfs(start, maxDepth)` | Breadth-first traversal |
+| | `shortestPath(from, to, weighted)` | Shortest path (BFS or Dijkstra) |
+| Temporal | `neighborsAt(id, direction, timestamp)` | Neighbors at point in time |
+| | `bfsAt(start, maxDepth, timestamp)` | BFS at point in time |
+| | `shortestPathAt(from, to, timestamp, weighted)` | Path at point in time |
+| Vector | `vectorSearch(embedding, k)` | k-nearest-neighbor search |
+| | `hybridSearch(anchor, embedding, options)` | Blended graph + vector search |
+| | `semanticNeighbors(id, concept, options)` | Rank neighbors by concept similarity |
+| | `semanticWalk(start, concept, maxHops)` | Greedy semantic walk |
+| GraphRAG | `extractSubgraph(center, options)` | Extract + linearize subgraph |
+| | `graphRag(question, options)` | Full RAG pipeline with LLM |
+| GQL | `query(gql)` | Execute a GQL query |
+| Batch | `createNodes(nodes)` / `createEdges(edges)` | Batch create |
+| | `deleteNodes(ids)` / `deleteEdges(ids)` | Batch delete |
+
 ## Example: Cybersecurity Threat Investigation
 
 This example demonstrates how AstraeaDB enables security analysts to investigate network alerts by tracing connections through a graph. A full runnable demo is provided at `examples/cybersecurity_demo.py` with matching Rust tests in the `astraea-graph` crate.
@@ -1320,6 +1441,22 @@ astraeadb/
 │       └── examples/
 │           ├── basic/         # CRUD, traversal, and GQL demo
 │           └── cybersecurity/ # Threat investigation demo
+├── java/
+│   └── astraeadb/              # Java client library (Gradle multi-module)
+│       ├── build.gradle.kts    # Root build (Java 17 toolchain)
+│       ├── settings.gradle.kts # Module includes
+│       ├── gradle.properties   # Version catalog
+│       ├── astraeadb-api/      # Interface, models, exceptions, options
+│       │   └── src/main/java/com/astraeadb/
+│       │       ├── AstraeaClient.java    # Core interface (22 operations)
+│       │       ├── model/                # Records: Node, Edge, PathResult, etc.
+│       │       ├── exception/            # AstraeaException hierarchy (7 subclasses)
+│       │       └── options/              # EdgeOptions, NeighborOptions, etc.
+│       ├── astraeadb-json/     # JSON/TCP client (all 22 operations)
+│       ├── astraeadb-grpc/     # gRPC client (14 RPCs, protobuf)
+│       ├── astraeadb-flight/   # Arrow Flight client (query + bulk import)
+│       ├── astraeadb-unified/  # Auto-transport selection + fallback
+│       └── examples/           # BasicExample, VectorSearch, GraphRAG, Cybersecurity
 ├── examples/
 │   ├── python_client.py       # Legacy Python TCP/JSON client
 │   ├── cybersecurity_demo.py  # Cybersecurity investigation demo

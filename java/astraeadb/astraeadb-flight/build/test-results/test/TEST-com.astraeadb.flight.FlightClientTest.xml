@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.astraeadb.flight.FlightClientTest" tests="30" skipped="0" failures="0" errors="0" timestamp="2026-02-09T15:05:46" hostname="MacBook-Pro.local" time="0.093">
+  <properties/>
+  <testcase name="unsupported_bfsAt_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.071"/>
+  <testcase name="unsupported_extractSubgraph_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_graphRag_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_semanticNeighbors_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_updateEdge_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_vectorSearch_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_shortestPathAt_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_deleteNodes_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_deleteEdges_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="notConnected_query_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_deleteEdge_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_neighbors_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_hybridSearch_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_getNode_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_neighborsAtWithEdgeType_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_createNode_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_shortestPath_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_semanticWalk_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_bfs_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="buildReturnsFlightAstraeaClient()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_updateNode_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_getEdge_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_ping_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="builderCustomValues()" classname="com.astraeadb.flight.FlightClientTest" time="0.002"/>
+  <testcase name="unsupported_neighborsAt_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="builderDefaults()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="notConnected_createNodes_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <testcase name="unsupported_createEdge_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="notConnected_createEdges_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.0"/>
+  <testcase name="unsupported_deleteNode_throwsException()" classname="com.astraeadb.flight.FlightClientTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
