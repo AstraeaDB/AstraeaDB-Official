@@ -148,6 +148,7 @@ td code { font-size: 0.85em; }
 <a href="#cli">CLI Reference</a>
 <a href="#python-client">Python Client</a>
 <a href="#r-client">R Client</a>
+<a href="#go-client">Go Client</a>
 <div class="sep"></div>
 <a href="#cybersecurity-demo">Cybersecurity Demo</a>
 <a href="#api-reference">API Reference</a>
@@ -171,6 +172,7 @@ td code { font-size: 0.85em; }
 <li><strong>GraphRAG</strong> &mdash; Graph-enhanced Retrieval-Augmented Generation: extract subgraphs, convert to text, and feed to an LLM (Large Language Model) in one atomic operation.</li>
 <li><strong>GQL Support</strong> &mdash; Hand-written ISO GQL (Graph Query Language) / Cypher parser and executor for declarative graph queries.</li>
 <li><strong>Three Transport Layers</strong> &mdash; JSON-over-TCP, gRPC (Google's high-performance RPC framework), and Apache Arrow Flight (columnar data streaming).</li>
+<li><strong>Four Client Libraries</strong> &mdash; Python, R, Go, and embedded Rust. Each supports all 22 server operations with idiomatic language patterns.</li>
 <li><strong>Pure Rust</strong> &mdash; Zero garbage-collection pauses, memory safety, 441 tests across 14 crates.</li>
 <li><strong>Cloud-Native Storage</strong> &mdash; Cold storage backends for S3, GCS, Azure, and Parquet (columnar file format).</li>
 <li><strong>Production Security</strong> &mdash; API key RBAC (Role-Based Access Control) and mTLS (mutual TLS) with client certificate authentication.</li>
@@ -182,6 +184,8 @@ td code { font-size: 0.85em; }
 <tr><td>Rust Crates</td><td>14</td></tr>
 <tr><td>Rust Tests</td><td>441</td></tr>
 <tr><td>Python Tests</td><td>23</td></tr>
+<tr><td>Go Tests</td><td>30</td></tr>
+<tr><td>Client Libraries</td><td>Python, R, Go, Rust (embedded)</td></tr>
 <tr><td>Rust Edition</td><td>2024</td></tr>
 <tr><td>License</td><td>MIT</td></tr>
 </table>
@@ -232,10 +236,10 @@ astraea&gt; .quit</pre>
           +-------------------------+-------------------------+
           |                         |                         |
 +---------v----------+  +-----------v--------+  +------------v-------+
-|  astraea-server    |  |  astraea-flight    |  |  python/astraeadb  |
-|  JSON-TCP (7687)   |  |  Arrow Flight      |  |  Python Client     |
-|  gRPC (7688)       |  |  do_get / do_put   |  |  JSON + Arrow      |
-|  Auth, Metrics     |  |                    |  |                    |
+|  astraea-server    |  |  astraea-flight    |  |  Client Libraries  |
+|  JSON-TCP (7687)   |  |  Arrow Flight      |  |  Python, R, Go     |
+|  gRPC (7688)       |  |  do_get / do_put   |  |  JSON + gRPC       |
+|  Auth, Metrics     |  |                    |  |  + Arrow Flight    |
 |  Connection Mgmt   |  |                    |  |                    |
 +---------+----------+  +-----------+--------+  +--------------------+
           |                         |
@@ -1378,6 +1382,167 @@ cargo run -p astraea-cli -- serve
 
 <span class="cm"># Terminal 2</span>
 Rscript examples/r_client.R</pre>
+
+<!-- ============================================================ -->
+<h2 id="go-client">Go Client</h2>
+
+<p>A full-featured Go client library is provided in the <code>go/astraeadb</code> directory, published as <code>github.com/jimeharrisjr/astraeadb-go</code>. It supports three transport layers with idiomatic Go patterns including functional options, <code>context.Context</code> on every operation, and thread-safe connections.</p>
+
+<h3>Client Types</h3>
+<ul>
+<li><strong><code>JSONClient</code></strong> &mdash; JSON/TCP transport (port 7687). Zero external dependencies beyond the Go standard library. Supports all 22 server operations.</li>
+<li><strong><code>GRPCClient</code></strong> &mdash; gRPC transport (port 7688) with Protocol Buffers. Supports 14 RPCs for type-safe, high-performance access.</li>
+<li><strong><code>Client</code></strong> (unified) &mdash; Auto-selects gRPC when available, falls back to JSON/TCP. Arrow Flight is stubbed for future implementation.</li>
+</ul>
+
+<h3>Installation</h3>
+<pre>go get github.com/jimeharrisjr/astraeadb-go</pre>
+
+<h3>Quick Start</h3>
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"log"</span>
+
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    ctx := context.<span class="fn">Background</span>()
+
+    <span class="cm">// Unified client: auto-selects gRPC when available</span>
+    client := astraeadb.<span class="fn">NewClient</span>(
+        astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+        astraeadb.<span class="fn">WithAuthToken</span>(<span class="str">"my-api-key"</span>),
+    )
+    <span class="kw">if</span> err := client.<span class="fn">Connect</span>(ctx); err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Create nodes</span>
+    alice, _ := client.<span class="fn">CreateNode</span>(ctx,
+        []<span class="ty">string</span>{<span class="str">"Person"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"age"</span>: <span class="num">30</span>},
+        []<span class="ty">float32</span>{<span class="num">0.1</span>, <span class="num">0.2</span>, <span class="num">0.3</span>},
+    )
+    bob, _ := client.<span class="fn">CreateNode</span>(ctx,
+        []<span class="ty">string</span>{<span class="str">"Person"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"name"</span>: <span class="str">"Bob"</span>, <span class="str">"age"</span>: <span class="num">25</span>},
+        <span class="kw">nil</span>,
+    )
+
+    <span class="cm">// Create a temporal edge with options</span>
+    client.<span class="fn">CreateEdge</span>(ctx, alice, bob, <span class="str">"KNOWS"</span>,
+        astraeadb.<span class="fn">WithWeight</span>(<span class="num">0.9</span>),
+        astraeadb.<span class="fn">WithProperties</span>(<span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"since"</span>: <span class="num">2020</span>}),
+        astraeadb.<span class="fn">WithValidFrom</span>(<span class="num">1609459200000</span>),
+    )
+
+    <span class="cm">// Traverse, search, and query</span>
+    neighbors, _ := client.<span class="fn">Neighbors</span>(ctx, alice,
+        astraeadb.<span class="fn">WithDirection</span>(<span class="str">"outgoing"</span>))
+    results, _ := client.<span class="fn">VectorSearch</span>(ctx, []<span class="ty">float32</span>{<span class="num">0.15</span>, <span class="num">0.25</span>, <span class="num">0.35</span>}, <span class="num">5</span>)
+    result, _ := client.<span class="fn">Query</span>(ctx, <span class="str">"MATCH (n:Person) RETURN n.name"</span>)
+    rag, _ := client.<span class="fn">GraphRAG</span>(ctx, <span class="str">"Who does Alice know?"</span>,
+        astraeadb.<span class="fn">WithAnchor</span>(alice))
+
+    fmt.<span class="fn">Println</span>(neighbors, results, result, rag)
+}</pre>
+
+<h3>Configuration Options</h3>
+<p>The client uses the functional options pattern for configuration:</p>
+<pre><span class="cm">// All available options</span>
+client := astraeadb.<span class="fn">NewClient</span>(
+    astraeadb.<span class="fn">WithAddress</span>(<span class="str">"db.example.com"</span>, <span class="num">7687</span>),
+    astraeadb.<span class="fn">WithGRPCPort</span>(<span class="num">7688</span>),
+    astraeadb.<span class="fn">WithFlightPort</span>(<span class="num">7689</span>),
+    astraeadb.<span class="fn">WithAuthToken</span>(<span class="str">"my-api-key"</span>),
+    astraeadb.<span class="fn">WithTimeout</span>(<span class="num">30</span> * time.Second),
+    astraeadb.<span class="fn">WithDialTimeout</span>(<span class="num">5</span> * time.Second),
+    astraeadb.<span class="fn">WithTLS</span>(<span class="str">"ca.pem"</span>),                       <span class="cm">// Server TLS</span>
+    astraeadb.<span class="fn">WithMTLS</span>(<span class="str">"client.pem"</span>, <span class="str">"client.key"</span>, <span class="str">"ca.pem"</span>), <span class="cm">// Mutual TLS</span>
+    astraeadb.<span class="fn">WithMaxRetries</span>(<span class="num">5</span>),
+    astraeadb.<span class="fn">WithReconnect</span>(<span class="kw">true</span>),
+)</pre>
+
+<h3>Error Handling</h3>
+<p>The Go client provides sentinel errors for programmatic error handling with <code>errors.Is()</code>:</p>
+<pre><span class="kw">import</span> <span class="str">"errors"</span>
+
+_, err := client.<span class="fn">GetNode</span>(ctx, <span class="num">999</span>)
+<span class="kw">if</span> errors.<span class="fn">Is</span>(err, astraeadb.ErrNodeNotFound) {
+    <span class="cm">// Handle missing node</span>
+}
+
+<span class="cm">// Available sentinel errors:</span>
+<span class="cm">// ErrNotConnected, ErrNodeNotFound, ErrEdgeNotFound,</span>
+<span class="cm">// ErrNoVectorIndex, ErrAccessDenied, ErrInvalidCreds, ErrAuthRequired</span></pre>
+
+<h3>Batch Operations</h3>
+<pre>nodes := []astraeadb.<span class="ty">NodeInput</span>{
+    {Labels: []<span class="ty">string</span>{<span class="str">"Person"</span>}, Properties: <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"name"</span>: <span class="str">"Charlie"</span>}},
+    {Labels: []<span class="ty">string</span>{<span class="str">"Person"</span>}, Properties: <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"name"</span>: <span class="str">"Diana"</span>}},
+}
+ids, err := client.<span class="fn">CreateNodes</span>(ctx, nodes)
+
+edges := []astraeadb.<span class="ty">EdgeInput</span>{
+    {Source: ids[<span class="num">0</span>], Target: ids[<span class="num">1</span>], EdgeType: <span class="str">"KNOWS"</span>, Weight: <span class="num">0.8</span>},
+}
+edgeIDs, err := client.<span class="fn">CreateEdges</span>(ctx, edges)</pre>
+
+<h3>API Reference</h3>
+<table>
+<thead>
+<tr><th>Category</th><th>Method</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Health</td><td><code>Ping(ctx)</code></td><td>Health check, returns server version</td></tr>
+<tr><td>Node CRUD</td><td><code>CreateNode(ctx, labels, properties, embedding)</code></td><td>Create a node, returns node ID</td></tr>
+<tr><td></td><td><code>GetNode(ctx, id)</code></td><td>Retrieve node by ID</td></tr>
+<tr><td></td><td><code>UpdateNode(ctx, id, props)</code></td><td>Merge properties into node</td></tr>
+<tr><td></td><td><code>DeleteNode(ctx, id)</code></td><td>Delete node and connected edges</td></tr>
+<tr><td>Edge CRUD</td><td><code>CreateEdge(ctx, src, tgt, type, opts...)</code></td><td>Create edge with <code>WithWeight</code>, <code>WithProperties</code>, <code>WithValidFrom</code>, <code>WithValidTo</code></td></tr>
+<tr><td></td><td><code>GetEdge(ctx, id)</code> / <code>UpdateEdge</code> / <code>DeleteEdge</code></td><td>Get, update, or delete an edge</td></tr>
+<tr><td>Traversal</td><td><code>Neighbors(ctx, id, opts...)</code></td><td>Get neighbors with <code>WithDirection</code>, <code>WithEdgeType</code></td></tr>
+<tr><td></td><td><code>BFS(ctx, start, maxDepth)</code></td><td>Breadth-first traversal</td></tr>
+<tr><td></td><td><code>ShortestPath(ctx, from, to, weighted)</code></td><td>Shortest path (BFS or Dijkstra)</td></tr>
+<tr><td>Temporal</td><td><code>NeighborsAt(ctx, id, direction, timestamp)</code></td><td>Neighbors at point in time</td></tr>
+<tr><td></td><td><code>BFSAt(ctx, start, maxDepth, timestamp)</code></td><td>BFS at point in time</td></tr>
+<tr><td></td><td><code>ShortestPathAt(ctx, from, to, timestamp, weighted)</code></td><td>Path at point in time</td></tr>
+<tr><td>Vector</td><td><code>VectorSearch(ctx, embedding, k)</code></td><td>k-nearest-neighbor search</td></tr>
+<tr><td></td><td><code>HybridSearch(ctx, anchor, embedding, opts...)</code></td><td>Blended graph + vector search</td></tr>
+<tr><td></td><td><code>SemanticNeighbors(ctx, id, concept, opts...)</code></td><td>Rank neighbors by concept similarity</td></tr>
+<tr><td></td><td><code>SemanticWalk(ctx, start, concept, maxHops)</code></td><td>Greedy semantic walk</td></tr>
+<tr><td>GraphRAG</td><td><code>ExtractSubgraph(ctx, center, opts...)</code></td><td>Extract + linearize subgraph</td></tr>
+<tr><td></td><td><code>GraphRAG(ctx, question, opts...)</code></td><td>Full RAG pipeline with LLM</td></tr>
+<tr><td>GQL</td><td><code>Query(ctx, gql)</code></td><td>Execute a GQL query</td></tr>
+<tr><td>Batch</td><td><code>CreateNodes(ctx, nodes)</code> / <code>CreateEdges(ctx, edges)</code></td><td>Batch create</td></tr>
+<tr><td></td><td><code>DeleteNodes(ctx, ids)</code> / <code>DeleteEdges(ctx, ids)</code></td><td>Batch delete</td></tr>
+</tbody>
+</table>
+
+<h3>Transport Selection</h3>
+<p>The unified <code>Client</code> automatically selects the best available transport:</p>
+<ul>
+<li><strong>gRPC-supported operations</strong> (CRUD, traversal, vector search, GQL query) &rarr; gRPC when available, JSON/TCP fallback</li>
+<li><strong>Temporal queries</strong> (<code>NeighborsAt</code>, <code>BFSAt</code>, <code>ShortestPathAt</code>) &rarr; always JSON/TCP (not in gRPC proto)</li>
+<li><strong>Semantic operations</strong> (<code>HybridSearch</code>, <code>SemanticNeighbors</code>, <code>SemanticWalk</code>) &rarr; always JSON/TCP</li>
+<li><strong>GraphRAG</strong> (<code>ExtractSubgraph</code>, <code>GraphRAG</code>) &rarr; always JSON/TCP</li>
+</ul>
+
+<pre><span class="cm">// Check transport availability at runtime</span>
+fmt.<span class="fn">Println</span>(<span class="str">"gRPC available:"</span>, client.<span class="fn">IsGRPCAvailable</span>())
+fmt.<span class="fn">Println</span>(<span class="str">"Arrow available:"</span>, client.<span class="fn">IsArrowAvailable</span>())</pre>
+
+<h3>Running the Tests</h3>
+<pre><span class="cm"># From go/astraeadb/</span>
+go test -v -race ./...
+
+<span class="cm"># Run with the Makefile</span>
+make test</pre>
 
 <!-- ============================================================ -->
 <h2 id="cybersecurity-demo">Cybersecurity Demo</h2>

@@ -17,10 +17,10 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
           ┌────────────────────────┼────────────────────────┐
           │                        │                        │
 ┌─────────▼──────────┐  ┌─────────▼──────────┐  ┌─────────▼──────────┐
-│  astraea-server    │  │  astraea-flight    │  │  python/astraeadb  │
-│  JSON-TCP (7687)   │  │  Arrow Flight      │  │  Python Client     │
-│  gRPC (7688)       │  │  do_get / do_put   │  │  JSON + Arrow      │
-│  Auth, Metrics     │  │                    │  │                    │
+│  astraea-server    │  │  astraea-flight    │  │  Client Libraries  │
+│  JSON-TCP (7687)   │  │  Arrow Flight      │  │  Python, R, Go     │
+│  gRPC (7688)       │  │  do_get / do_put   │  │  JSON + gRPC       │
+│  Auth, Metrics     │  │                    │  │  + Arrow Flight    │
 │  Connection Mgmt   │  │                    │  │                    │
 └──────┬─────────────┘  └──────┬─────────────┘  └────────────────────┘
        │                       │
@@ -90,8 +90,10 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `astraea-cluster` | Distributed processing foundation: hash/range partitioning, shard management, cluster coordinator trait | 19 |
 | `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export` | - |
 | `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
+| `go/astraeadb` | Go client: JSON/TCP, gRPC (protobuf), unified client with auto-transport selection | 30 |
 | **Rust Total** | | **441** |
 | **Python Total** | | **23** |
+| **Go Total** | | **30** |
 
 ## Data Model: Vector-Property Graph
 
@@ -813,6 +815,118 @@ client$close()
 | Arrow | `ArrowClient$query(gql)` / `$query_df(gql)` | High-performance queries |
 | | `UnifiedClient` (auto-selects transport) | Best of both worlds |
 
+### Go Client
+
+A full-featured Go client is provided in the `go/astraeadb` package with three transport layers and idiomatic Go patterns:
+
+- **`JSONClient`** — JSON/TCP transport with zero external dependencies beyond the Go standard library
+- **`GRPCClient`** — gRPC transport with Protocol Buffers for type-safe, high-performance access (14 RPCs)
+- **`Client`** (unified) — Auto-selects gRPC when available, falls back to JSON/TCP. Arrow Flight support is stubbed for future implementation.
+
+**Installation:**
+
+```bash
+go get github.com/jimeharrisjr/astraeadb-go
+```
+
+**Using the unified client:**
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/jimeharrisjr/astraeadb-go"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Connect with auto-transport selection (gRPC preferred, JSON/TCP fallback)
+    client := astraeadb.NewClient(
+        astraeadb.WithAddress("127.0.0.1", 7687),
+        astraeadb.WithAuthToken("my-api-key"),
+    )
+    if err := client.Connect(ctx); err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    // Create nodes with embeddings
+    alice, _ := client.CreateNode(ctx, []string{"Person"},
+        map[string]any{"name": "Alice", "age": 30},
+        []float32{0.1, 0.2, 0.3})
+
+    bob, _ := client.CreateNode(ctx, []string{"Person"},
+        map[string]any{"name": "Bob", "age": 25}, nil)
+
+    // Create a temporal edge
+    client.CreateEdge(ctx, alice, bob, "KNOWS",
+        astraeadb.WithWeight(0.9),
+        astraeadb.WithProperties(map[string]any{"since": 2020}),
+        astraeadb.WithValidFrom(1609459200000))
+
+    // Traverse
+    neighbors, _ := client.Neighbors(ctx, alice, astraeadb.WithDirection("outgoing"))
+    bfs, _ := client.BFS(ctx, alice, 3)
+    path, _ := client.ShortestPath(ctx, alice, bob, true)
+
+    // Vector search
+    results, _ := client.VectorSearch(ctx, []float32{0.15, 0.25, 0.35}, 5)
+
+    // Hybrid search (graph proximity + vector similarity)
+    hybrid, _ := client.HybridSearch(ctx, alice, []float32{0.15, 0.25, 0.35},
+        astraeadb.WithK(10), astraeadb.WithMaxHops(3))
+
+    // Temporal query - neighbors at a point in time
+    temporal, _ := client.NeighborsAt(ctx, alice, "outgoing", 1577836800000)
+
+    // GQL query
+    result, _ := client.Query(ctx, "MATCH (n:Person) WHERE n.age > 25 RETURN n.name")
+
+    // GraphRAG
+    rag, _ := client.GraphRAG(ctx, "Who does Alice know?",
+        astraeadb.WithAnchor(alice), astraeadb.WithRAGHops(2))
+
+    // Batch operations
+    ids, _ := client.CreateNodes(ctx, []astraeadb.NodeInput{
+        {Labels: []string{"Person"}, Properties: map[string]any{"name": "Charlie"}},
+        {Labels: []string{"Person"}, Properties: map[string]any{"name": "Diana"}},
+    })
+
+    fmt.Printf("neighbors=%d bfs=%d path=%v results=%d hybrid=%d temporal=%d rows=%d rag=%s ids=%v\n",
+        len(neighbors), len(bfs), path.Found, len(results), len(hybrid), len(temporal), len(result.Rows), rag.Context, ids)
+}
+```
+
+**Client API reference:**
+
+| Category | Method | Description |
+|---|---|---|
+| Health | `Ping(ctx)` | Health check, returns server version |
+| Node CRUD | `CreateNode(ctx, labels, properties, embedding)` | Create a node, returns node ID |
+| | `GetNode(ctx, id)` / `UpdateNode(ctx, id, props)` / `DeleteNode(ctx, id)` | Get, update, or delete a node |
+| Edge CRUD | `CreateEdge(ctx, src, tgt, type, opts...)` | Create edge with `WithWeight`, `WithProperties`, `WithValidFrom`, `WithValidTo` |
+| | `GetEdge(ctx, id)` / `UpdateEdge(ctx, id, props)` / `DeleteEdge(ctx, id)` | Get, update, or delete an edge |
+| Traversal | `Neighbors(ctx, id, opts...)` | Get neighbors with `WithDirection`, `WithEdgeType` |
+| | `BFS(ctx, start, maxDepth)` | Breadth-first traversal |
+| | `ShortestPath(ctx, from, to, weighted)` | Shortest path (BFS or Dijkstra) |
+| Temporal | `NeighborsAt(ctx, id, direction, timestamp, opts...)` | Neighbors at point in time |
+| | `BFSAt(ctx, start, maxDepth, timestamp)` | BFS at point in time |
+| | `ShortestPathAt(ctx, from, to, timestamp, weighted)` | Path at point in time |
+| Vector | `VectorSearch(ctx, embedding, k)` | k-nearest-neighbor search |
+| | `HybridSearch(ctx, anchor, embedding, opts...)` | Blended graph + vector search |
+| | `SemanticNeighbors(ctx, id, concept, opts...)` | Rank neighbors by concept similarity |
+| | `SemanticWalk(ctx, start, concept, maxHops)` | Greedy semantic walk |
+| GraphRAG | `ExtractSubgraph(ctx, center, opts...)` | Extract + linearize subgraph |
+| | `GraphRAG(ctx, question, opts...)` | Full RAG pipeline with LLM |
+| GQL | `Query(ctx, gql)` | Execute a GQL query |
+| Batch | `CreateNodes(ctx, nodes)` / `CreateEdges(ctx, edges)` | Batch create |
+| | `DeleteNodes(ctx, ids)` / `DeleteEdges(ctx, ids)` | Batch delete |
+
 ## Example: Cybersecurity Threat Investigation
 
 This example demonstrates how AstraeaDB enables security analysts to investigate network alerts by tracing connections through a graph. A full runnable demo is provided at `examples/cybersecurity_demo.py` with matching Rust tests in the `astraea-graph` crate.
@@ -1185,6 +1299,27 @@ astraeadb/
 │   │   └── client.py          # Unified client (auto-selects transport)
 │   └── tests/
 │       └── test_json_client.py # 23 unit tests
+├── go/
+│   └── astraeadb/             # Go client library
+│       ├── go.mod             # Module: github.com/jimeharrisjr/astraeadb-go
+│       ├── doc.go             # Package documentation
+│       ├── types.go           # Node, Edge, SearchResult, etc.
+│       ├── errors.go          # Sentinel errors (ErrNodeNotFound, etc.)
+│       ├── options.go         # Functional options (WithAddress, WithTLS, etc.)
+│       ├── json_client.go     # JSON/TCP client (all 22 operations)
+│       ├── grpc_client.go     # gRPC client (14 RPCs with protobuf)
+│       ├── arrow_client.go    # Arrow Flight client (stub)
+│       ├── client.go          # Unified client (auto-selects transport)
+│       ├── Makefile           # proto, test, build, lint targets
+│       ├── proto/
+│       │   └── astraea.proto  # gRPC service definition
+│       ├── pb/astraea/        # Generated protobuf Go code
+│       ├── internal/
+│       │   ├── protocol/      # NDJSON wire protocol
+│       │   └── backoff/       # Exponential backoff with jitter
+│       └── examples/
+│           ├── basic/         # CRUD, traversal, and GQL demo
+│           └── cybersecurity/ # Threat investigation demo
 ├── examples/
 │   ├── python_client.py       # Legacy Python TCP/JSON client
 │   ├── cybersecurity_demo.py  # Cybersecurity investigation demo

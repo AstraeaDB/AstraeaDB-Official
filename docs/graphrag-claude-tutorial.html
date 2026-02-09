@@ -143,6 +143,7 @@ td code { font-size: 0.85em; }
 <a href="#configure-claude">Configure Claude</a>
 <a href="#rust-api">Rust API</a>
 <a href="#python-api">Python API</a>
+<a href="#go-api">Go API</a>
 <a href="#json-protocol">JSON Protocol</a>
 <div class="sep"></div>
 <a href="#example-cybersec">Example: Security Analysis</a>
@@ -260,6 +261,9 @@ cargo run -p astraea-cli -- serve</pre>
 
 <h3>3. Python Client (Optional)</h3>
 <pre>pip install astraeadb anthropic</pre>
+
+<h3>4. Go Client (Optional)</h3>
+<pre>go get github.com/jimeharrisjr/astraeadb-go</pre>
 
 <!-- ============================================================ -->
 <h2 id="build-graph">Build a Knowledge Graph</h2>
@@ -614,6 +618,85 @@ Use the following graph context to answer questions:
         print(<span class="str">"Answer:"</span>, answer)
     <span class="kw">finally</span>:
         client.close()</pre>
+
+<!-- ============================================================ -->
+<h2 id="go-api">Go API</h2>
+
+<p>The Go client provides native GraphRAG support via the unified client. All GraphRAG operations are routed through the JSON/TCP transport.</p>
+
+<h3>Extract Subgraph</h3>
+<pre><span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+ctx := context.<span class="fn">Background</span>()
+client := astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+client.<span class="fn">Connect</span>(ctx)
+<span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+<span class="cm">// Extract a 2-hop subgraph around a node, linearized as prose</span>
+subgraph, err := client.<span class="fn">ExtractSubgraph</span>(ctx, aliceNodeID,
+    astraeadb.<span class="fn">WithHops</span>(<span class="num">2</span>),
+    astraeadb.<span class="fn">WithMaxNodes</span>(<span class="num">50</span>),
+    astraeadb.<span class="fn">WithFormat</span>(<span class="str">"prose"</span>),
+)
+fmt.<span class="fn">Printf</span>(<span class="str">"Context: %s\nNodes: %d, Edges: %d, ~%d tokens\n"</span>,
+    subgraph.Text, subgraph.NodeCount, subgraph.EdgeCount,
+    subgraph.EstimatedTokens)</pre>
+
+<h3>Full GraphRAG Pipeline</h3>
+<pre><span class="cm">// GraphRAG with explicit anchor node</span>
+rag, err := client.<span class="fn">GraphRAG</span>(ctx, <span class="str">"What is the relationship between Alice and the fraud ring?"</span>,
+    astraeadb.<span class="fn">WithAnchor</span>(aliceNodeID),
+    astraeadb.<span class="fn">WithRAGHops</span>(<span class="num">3</span>),
+    astraeadb.<span class="fn">WithRAGMaxNodes</span>(<span class="num">100</span>),
+    astraeadb.<span class="fn">WithRAGFormat</span>(<span class="str">"structured"</span>),
+)
+<span class="kw">if</span> err != <span class="kw">nil</span> {
+    log.<span class="fn">Fatal</span>(err)
+}
+
+fmt.<span class="fn">Printf</span>(<span class="str">"Anchor: node %d\n"</span>, rag.AnchorNodeID)
+fmt.<span class="fn">Printf</span>(<span class="str">"Context: %d nodes, %d edges (~%d tokens)\n"</span>,
+    rag.NodesInContext, rag.EdgesInContext, rag.EstimatedTokens)
+fmt.<span class="fn">Println</span>(<span class="str">"Context for LLM:"</span>, rag.Context)
+
+<span class="cm">// GraphRAG with vector search (find anchor automatically)</span>
+rag2, err := client.<span class="fn">GraphRAG</span>(ctx, <span class="str">"Who is involved in money laundering?"</span>,
+    astraeadb.<span class="fn">WithQuestionEmbedding</span>([]<span class="ty">float32</span>{<span class="num">0.1</span>, <span class="num">0.8</span>, <span class="num">0.3</span>}),
+    astraeadb.<span class="fn">WithRAGHops</span>(<span class="num">2</span>),
+)</pre>
+
+<h3>Combining GraphRAG with Claude (using Go HTTP client)</h3>
+<pre><span class="kw">import</span> (
+    <span class="str">"bytes"</span>
+    <span class="str">"encoding/json"</span>
+    <span class="str">"net/http"</span>
+)
+
+<span class="cm">// Step 1: Get graph context from AstraeaDB</span>
+rag, _ := client.<span class="fn">GraphRAG</span>(ctx, question,
+    astraeadb.<span class="fn">WithAnchor</span>(anchorID),
+    astraeadb.<span class="fn">WithRAGHops</span>(<span class="num">3</span>),
+    astraeadb.<span class="fn">WithRAGFormat</span>(<span class="str">"structured"</span>),
+)
+
+<span class="cm">// Step 2: Send to Claude API</span>
+prompt := fmt.<span class="fn">Sprintf</span>(<span class="str">"Graph context:\n%s\n\nQuestion: %s"</span>, rag.Context, question)
+body, _ := json.<span class="fn">Marshal</span>(<span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{
+    <span class="str">"model"</span>:      <span class="str">"claude-sonnet-4-5-20250929"</span>,
+    <span class="str">"max_tokens"</span>: <span class="num">1024</span>,
+    <span class="str">"messages"</span>:   []<span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">string</span>{{<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: prompt}},
+})
+req, _ := http.<span class="fn">NewRequest</span>(<span class="str">"POST"</span>, <span class="str">"https://api.anthropic.com/v1/messages"</span>, bytes.<span class="fn">NewReader</span>(body))
+req.Header.<span class="fn">Set</span>(<span class="str">"x-api-key"</span>, apiKey)
+req.Header.<span class="fn">Set</span>(<span class="str">"anthropic-version"</span>, <span class="str">"2023-06-01"</span>)
+req.Header.<span class="fn">Set</span>(<span class="str">"content-type"</span>, <span class="str">"application/json"</span>)
+
+resp, _ := http.DefaultClient.<span class="fn">Do</span>(req)
+<span class="cm">// ... parse response ...</span></pre>
 
 <!-- ============================================================ -->
 <h2 id="json-protocol">JSON Protocol</h2>

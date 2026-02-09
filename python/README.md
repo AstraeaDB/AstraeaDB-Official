@@ -63,3 +63,11 @@ with ArrowClient("grpc://localhost:50051") as client:
 ## API Reference
 
 See the docstrings in each client class for detailed API documentation.
+
+## Other Client Libraries
+
+AstraeaDB also provides clients for other languages:
+
+- **Go** — `go get github.com/jimeharrisjr/astraeadb-go` — JSON/TCP, gRPC, and unified client with auto-transport selection. See `go/astraeadb/`.
+- **R** — JSON/TCP and Arrow Flight client. See `examples/r_client.R`.
+- **Rust (embedded)** — Use AstraeaDB directly as a library with no network overhead.

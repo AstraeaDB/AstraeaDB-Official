@@ -227,7 +227,7 @@ footer a { color: rgba(255,255,255,0.7); }
     <div class="stat-label">Transport Protocols</div>
   </div>
   <div class="stat">
-    <div class="stat-num">3</div>
+    <div class="stat-num">4</div>
     <div class="stat-label">Client Libraries</div>
   </div>
 </div>
@@ -333,10 +333,10 @@ footer a { color: rgba(255,255,255,0.7); }
           +------------------------+------------------------+
           |                        |                        |
 +---------v-----------+  +---------v-----------+  +---------v-----------+
-|   astraea-server    |  |   astraea-flight    |  |   Python / R Client |
-|   JSON-TCP (7687)   |  |   Arrow Flight      |  |   JSON + Arrow      |
-|   gRPC   (7688)     |  |   do_get / do_put   |  |                     |
-|   Auth, Metrics     |  |                     |  |                     |
+|   astraea-server    |  |   astraea-flight    |  | Python / R / Go     |
+|   JSON-TCP (7687)   |  |   Arrow Flight      |  |   Client Libraries  |
+|   gRPC   (7688)     |  |   do_get / do_put   |  |   JSON + gRPC       |
+|   Auth, Metrics     |  |                     |  |   + Arrow Flight    |
 +--------+------------+  +--------+------------+  +---------------------+
          |                        |
          +-----------+------------+
@@ -429,6 +429,21 @@ pip install ./python
     results = client.<span class="fn">hybrid_search</span>(alice, query_vec,
                                    max_hops=<span class="num">3</span>, k=<span class="num">10</span>, alpha=<span class="num">0.5</span>)
     answer = client.<span class="fn">graph_rag</span>(<span class="str">"Who does Alice know?"</span>, anchor=alice)
+    </div>
+
+    <div class="code-block" style="margin-top: 28px;">
+<span class="cm">// Go client (auto-selects gRPC when available, falls back to JSON/TCP)</span>
+<span class="kw">import</span> <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+
+client := astraeadb.<span class="fn">NewClient</span>(
+    astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+)
+client.<span class="fn">Connect</span>(ctx)
+<span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+alice, _ := client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Person"</span>},
+    <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"name"</span>: <span class="str">"Alice"</span>}, <span class="kw">nil</span>)
+result, _ := client.<span class="fn">Query</span>(ctx, <span class="str">"MATCH (n:Person) RETURN n.name"</span>)
     </div>
   </div>
 </section>
@@ -534,6 +549,10 @@ pip install ./python
       <div class="feature-card">
         <h3>R</h3>
         <p><code>AstraeaClient</code>, <code>ArrowClient</code>, and <code>UnifiedClient</code>. Full feature parity with the Python client, including data.frame import/export.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Go</h3>
+        <p><code>JSONClient</code> (zero deps), <code>GRPCClient</code> (protobuf), and unified <code>Client</code> that auto-selects gRPC when available. Functional options, <code>context.Context</code> support, and batch operations. 30 tests.</p>
       </div>
       <div class="feature-card">
         <h3>Rust (Embedded)</h3>
