@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Appendix B: Client API Reference &mdash; A Gentle Introduction to AstraeaDB</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html" class="active">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Appendix B: Client API Reference</h1>
+  <p class="subtitle">
+    A side-by-side reference of every operation across all four official AstraeaDB client libraries: Python, R, Go, and Java. Use this page to quickly translate code between languages or to look up the exact method signature you need.
+  </p>
+
+  <!-- B.1 Connection -->
+  <h2>B.1 Connection Management</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Create client</strong></td>
+        <td><code>AstraeaClient(host, port)</code></td>
+        <td><code>AstraeaClient$new(host, port)</code></td>
+        <td><code>astraeadb.NewClient(WithAddress(h, p))</code></td>
+        <td><code>UnifiedClient.builder().host(h).port(p).build()</code></td>
+      </tr>
+      <tr>
+        <td><strong>Connect</strong></td>
+        <td><code>client.connect()</code> or context manager</td>
+        <td><code>client$connect()</code></td>
+        <td><code>client.Connect(ctx)</code></td>
+        <td><code>client.connect()</code></td>
+      </tr>
+      <tr>
+        <td><strong>Close</strong></td>
+        <td><code>client.close()</code></td>
+        <td><code>client$close()</code></td>
+        <td><code>client.Close()</code></td>
+        <td><code>client.close()</code> (auto with try-with-resources)</td>
+      </tr>
+      <tr>
+        <td><strong>Ping</strong></td>
+        <td><code>client.ping()</code></td>
+        <td><code>client$ping()</code></td>
+        <td><code>client.Ping(ctx)</code></td>
+        <td><code>client.ping()</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>Context managers and auto-close</strong>
+    In Python, prefer <code>with AstraeaClient(host, port) as client:</code> to ensure the connection is closed automatically. In Java, use try-with-resources: <code>try (var client = UnifiedClient.builder()...build()) { ... }</code>. In Go, use <code>defer client.Close()</code> after connecting.
+  </div>
+
+  <!-- B.2 Node Operations -->
+  <h2>B.2 Node Operations</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Create</strong></td>
+        <td><code>create_node(labels, props, embedding)</code></td>
+        <td><code>create_node(labels, props, embedding)</code></td>
+        <td><code>CreateNode(ctx, labels, props, embedding)</code></td>
+        <td><code>createNode(labels, props, embedding)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Get</strong></td>
+        <td><code>get_node(id)</code></td>
+        <td><code>get_node(id)</code></td>
+        <td><code>GetNode(ctx, id)</code></td>
+        <td><code>getNode(id)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Update</strong></td>
+        <td><code>update_node(id, props)</code></td>
+        <td><code>update_node(id, props)</code></td>
+        <td><code>UpdateNode(ctx, id, props)</code></td>
+        <td><code>updateNode(id, props)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Delete</strong></td>
+        <td><code>delete_node(id)</code></td>
+        <td><code>delete_node(id)</code></td>
+        <td><code>DeleteNode(ctx, id)</code></td>
+        <td><code>deleteNode(id)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- B.3 Edge Operations -->
+  <h2>B.3 Edge Operations</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Create</strong></td>
+        <td><code>create_edge(src, tgt, type, props, weight, valid_from, valid_to)</code></td>
+        <td><code>create_edge(src, tgt, type, props, weight, valid_from, valid_to)</code></td>
+        <td><code>CreateEdge(ctx, src, tgt, edgeType, props, weight, validFrom, validTo)</code></td>
+        <td><code>createEdge(src, tgt, type, props, weight, validFrom, validTo)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Get</strong></td>
+        <td><code>get_edge(id)</code></td>
+        <td><code>get_edge(id)</code></td>
+        <td><code>GetEdge(ctx, id)</code></td>
+        <td><code>getEdge(id)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Update</strong></td>
+        <td><code>update_edge(id, props)</code></td>
+        <td><code>update_edge(id, props)</code></td>
+        <td><code>UpdateEdge(ctx, id, props)</code></td>
+        <td><code>updateEdge(id, props)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Delete</strong></td>
+        <td><code>delete_edge(id)</code></td>
+        <td><code>delete_edge(id)</code></td>
+        <td><code>DeleteEdge(ctx, id)</code></td>
+        <td><code>deleteEdge(id)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- B.4 Query -->
+  <h2>B.4 GQL Query</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Execute GQL</strong></td>
+        <td><code>query(gql)</code></td>
+        <td><code>query(gql)</code></td>
+        <td><code>Query(ctx, gql)</code></td>
+        <td><code>query(gql)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>All four clients accept a GQL string and return the results as the language-native data structure: a list of dictionaries in Python, a list in R, a slice of maps in Go, and a <code>List&lt;Map&lt;String, Object&gt;&gt;</code> in Java.</p>
+
+  <!-- B.5 Traversals -->
+  <h2>B.5 Traversals</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>BFS</strong></td>
+        <td><code>bfs(start, max_depth)</code></td>
+        <td><code>bfs(start, max_depth)</code></td>
+        <td><code>Bfs(ctx, start, maxDepth)</code></td>
+        <td><code>bfs(start, maxDepth)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Shortest Path</strong></td>
+        <td><code>shortest_path(from_id, to_id, weighted)</code></td>
+        <td><code>shortest_path(from_id, to_id, weighted)</code></td>
+        <td><code>ShortestPath(ctx, fromID, toID, weighted)</code></td>
+        <td><code>shortestPath(fromId, toId, weighted)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Neighbors</strong></td>
+        <td><code>neighbors(id, direction, edge_type)</code></td>
+        <td><code>neighbors(id, direction, edge_type)</code></td>
+        <td><code>Neighbors(ctx, id, direction, edgeType)</code></td>
+        <td><code>neighbors(id, direction, edgeType)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Direction values</strong>
+    The <code>direction</code> parameter accepts <code>"outgoing"</code>, <code>"incoming"</code>, or <code>"both"</code> across all four clients.
+  </div>
+
+  <!-- B.6 Vector Operations -->
+  <h2>B.6 Vector Operations</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Vector Search</strong></td>
+        <td><code>vector_search(vec, k)</code></td>
+        <td><code>vector_search(vec, k)</code></td>
+        <td><code>VectorSearch(ctx, vec, k)</code></td>
+        <td><code>vectorSearch(vec, k)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Hybrid Search</strong></td>
+        <td><code>hybrid_search(anchor, vec, hops, k, alpha)</code></td>
+        <td><code>hybrid_search(anchor, vec, hops, k, alpha)</code></td>
+        <td><code>HybridSearch(ctx, anchor, vec, hops, k, alpha)</code></td>
+        <td><code>hybridSearch(anchor, vec, hops, k, alpha)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Semantic Neighbors</strong></td>
+        <td><code>semantic_neighbors(id, concept, dir, k)</code></td>
+        <td><code>semantic_neighbors(id, concept, dir, k)</code></td>
+        <td><code>SemanticNeighbors(ctx, id, concept, dir, k)</code></td>
+        <td><code>semanticNeighbors(id, concept, dir, k)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Semantic Walk</strong></td>
+        <td><code>semantic_walk(start, concept, hops)</code></td>
+        <td><code>semantic_walk(start, concept, hops)</code></td>
+        <td><code>SemanticWalk(ctx, start, concept, hops)</code></td>
+        <td><code>semanticWalk(start, concept, hops)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>The alpha parameter</strong>
+    In <code>hybrid_search</code>, the <code>alpha</code> parameter (0.0 to 1.0) controls the balance between vector similarity and structural proximity. A value of <code>0.0</code> means pure graph traversal; <code>1.0</code> means pure vector search. The default of <code>0.5</code> gives equal weight to both signals.
+  </div>
+
+  <!-- B.7 Temporal Operations -->
+  <h2>B.7 Temporal Operations</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Neighbors At</strong></td>
+        <td><code>neighbors_at(id, dir, ts, edge_type)</code></td>
+        <td><code>neighbors_at(id, dir, ts, edge_type)</code></td>
+        <td><code>NeighborsAt(ctx, id, dir, ts, edgeType)</code></td>
+        <td><code>neighborsAt(id, dir, ts, edgeType)</code></td>
+      </tr>
+      <tr>
+        <td><strong>BFS At</strong></td>
+        <td><code>bfs_at(start, depth, ts)</code></td>
+        <td><code>bfs_at(start, depth, ts)</code></td>
+        <td><code>BfsAt(ctx, start, depth, ts)</code></td>
+        <td><code>bfsAt(start, depth, ts)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Shortest Path At</strong></td>
+        <td><code>shortest_path_at(from_id, to_id, ts, weighted)</code></td>
+        <td><code>shortest_path_at(from_id, to_id, ts, weighted)</code></td>
+        <td><code>ShortestPathAt(ctx, fromID, toID, ts, weighted)</code></td>
+        <td><code>shortestPathAt(fromId, toId, ts, weighted)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Timestamp format</strong>
+    The <code>ts</code> parameter accepts an ISO 8601 timestamp string (e.g., <code>"2024-01-15T00:00:00Z"</code>) across all clients. The server evaluates edge validity intervals and returns only edges whose <code>[valid_from, valid_to)</code> range includes the given timestamp.
+  </div>
+
+  <!-- B.8 GraphRAG -->
+  <h2>B.8 GraphRAG Operations</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Extract Subgraph</strong></td>
+        <td><code>extract_subgraph(center, hops, max_nodes, format)</code></td>
+        <td><code>extract_subgraph(center, hops, max_nodes, format)</code></td>
+        <td><code>ExtractSubgraph(ctx, center, hops, maxNodes, format)</code></td>
+        <td><code>extractSubgraph(center, hops, maxNodes, format)</code></td>
+      </tr>
+      <tr>
+        <td><strong>Graph RAG</strong></td>
+        <td><code>graph_rag(question, anchor, embedding, hops, max_nodes, format)</code></td>
+        <td><code>graph_rag(question, anchor, embedding, hops, max_nodes, format)</code></td>
+        <td><code>GraphRAG(ctx, question, anchor, embedding, hops, maxNodes, format)</code></td>
+        <td><code>graphRag(question, anchor, embedding, hops, maxNodes, format)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>Format parameter</strong>
+    The <code>format</code> parameter controls how the extracted subgraph is serialized for LLM consumption. Supported values are <code>"text"</code> (human-readable linearization), <code>"json"</code> (structured JSON), and <code>"markdown"</code> (formatted for chat contexts).
+  </div>
+
+  <!-- B.9 Batch Operations -->
+  <h2>B.9 Batch Operations</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Operation</th>
+        <th>Python</th>
+        <th>R</th>
+        <th>Go</th>
+        <th>Java</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Create Nodes</strong></td>
+        <td><code>create_nodes([...])</code></td>
+        <td><code>create_nodes(list(...))</code></td>
+        <td><code>CreateNodes(ctx, [...])</code></td>
+        <td><code>createNodes(List.of(...))</code></td>
+      </tr>
+      <tr>
+        <td><strong>Create Edges</strong></td>
+        <td><code>create_edges([...])</code></td>
+        <td><code>create_edges(list(...))</code></td>
+        <td><code>CreateEdges(ctx, [...])</code></td>
+        <td><code>createEdges(List.of(...))</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Batch operations accept a list of node or edge specifications and create them in a single round-trip to the server. This is significantly faster than issuing individual create calls in a loop, especially over a network connection.
+  </p>
+
+  <!-- B.10 Transport Protocols -->
+  <h2>B.10 Transport Protocols</h2>
+
+  <p>
+    Each client library supports one or more transport protocols. The table below shows which transports are available in each language and the corresponding client class to use.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Language</th>
+        <th>JSON-TCP</th>
+        <th>gRPC</th>
+        <th>Arrow Flight</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Python</strong></td>
+        <td><code>JsonClient</code></td>
+        <td>&mdash;</td>
+        <td><code>ArrowClient</code></td>
+      </tr>
+      <tr>
+        <td><strong>R</strong></td>
+        <td><code>AstraeaClient</code></td>
+        <td>&mdash;</td>
+        <td><code>ArrowClient</code></td>
+      </tr>
+      <tr>
+        <td><strong>Go</strong></td>
+        <td><code>JSONClient</code></td>
+        <td><code>GRPCClient</code></td>
+        <td>Planned</td>
+      </tr>
+      <tr>
+        <td><strong>Java</strong></td>
+        <td><code>JsonClient</code></td>
+        <td><code>GrpcClient</code></td>
+        <td><code>FlightClient</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Choosing a transport</strong>
+    <ul>
+      <li><strong>JSON-TCP</strong> is the simplest protocol and is available in every language. Best for development and small workloads.</li>
+      <li><strong>gRPC</strong> offers efficient binary serialization and HTTP/2 multiplexing. Ideal for production microservices in Go and Java.</li>
+      <li><strong>Arrow Flight</strong> provides zero-copy data transfer using Apache Arrow columnar format. Best for analytical workloads and large result sets in Python, R, and Java.</li>
+    </ul>
+  </div>
+
+  <!-- B.11 Unified Client -->
+  <h2>B.11 Unified Client (Java)</h2>
+
+  <p>
+    The Java SDK provides a <code>UnifiedClient</code> that can switch between transports at runtime. This is useful when different operations benefit from different protocols.
+  </p>
+
+<pre>
+<span class="cm">// Create a unified client with all three transports</span>
+<span class="kw">var</span> client = UnifiedClient.builder()
+    .host(<span class="str">"localhost"</span>)
+    .port(<span class="num">7687</span>)
+    .grpcPort(<span class="num">7688</span>)
+    .flightPort(<span class="num">7689</span>)
+    .defaultTransport(Transport.GRPC)
+    .build();
+
+<span class="cm">// Use gRPC for CRUD</span>
+client.createNode(List.of(<span class="str">"Person"</span>), props, embedding);
+
+<span class="cm">// Switch to Arrow Flight for large queries</span>
+client.setTransport(Transport.FLIGHT);
+<span class="kw">var</span> results = client.query(<span class="str">"MATCH (n:Person) RETURN n"</span>);
+</pre>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-appA.html">&larr; Appendix A: GQL Quick Reference</a>
+    <a href="gentle-intro-appC.html">Appendix C: Configuration Reference &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 7: Transport Protocols &mdash; AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html" class="active">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 7: Transport Protocols</h1>
+  <p class="subtitle">
+    AstraeaDB exposes three network protocols, each optimized for a different use case. This chapter walks through all three&mdash;JSON over TCP, gRPC, and Apache Arrow Flight&mdash;so you can choose the right tool for every situation.
+  </p>
+
+  <div class="info-box info">
+    <strong>Key takeaway</strong>
+    You do not need to master all three protocols. JSON-TCP is the easiest way to get started and is perfectly adequate for development and light workloads. Move to gRPC or Arrow Flight when your application demands type safety, streaming, or zero-copy analytics.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 7.1 JSON over TCP -->
+  <!-- ================================================================== -->
+  <h2>7.1 JSON over TCP (Port 7687)</h2>
+
+  <p>
+    The default protocol is the simplest: newline-delimited JSON messages sent over a raw TCP socket. Every request is a single JSON object terminated by a newline character (<code>\n</code>), and the server responds with a single JSON object (also newline-terminated).
+  </p>
+
+  <h3>Why start here?</h3>
+  <ul>
+    <li><strong>Zero dependencies.</strong> Every client library ships with a built-in JSON-TCP transport. You do not need protobuf compilers, Arrow libraries, or generated stubs.</li>
+    <li><strong>Human-readable.</strong> Because the wire format is plain JSON text, you can inspect traffic with standard Unix tools like <code>telnet</code>, <code>netcat</code>, or <code>tcpdump</code>.</li>
+    <li><strong>Easy to debug.</strong> If something goes wrong, paste the raw JSON into any formatter and inspect it directly.</li>
+  </ul>
+
+  <h3>Raw TCP example</h3>
+  <p>
+    You can test the connection without any client library at all. The following command sends a <code>Ping</code> message to the server and prints the response:
+  </p>
+
+  <pre><span class="cm"># Send a Ping message via netcat</span>
+<span class="fn">echo</span> <span class="str">'{"type":"Ping"}\n'</span> | <span class="fn">nc</span> localhost <span class="num">7687</span>
+
+<span class="cm"># Expected response:</span>
+<span class="cm"># {"type":"Pong","version":"0.1.0"}</span></pre>
+
+  <p>You can also send a full GQL query this way:</p>
+
+  <pre><span class="fn">echo</span> <span class="str">'{"type":"GqlQuery","query":"MATCH (n) RETURN n LIMIT 5"}\n'</span> | <span class="fn">nc</span> localhost <span class="num">7687</span></pre>
+
+  <h3>Client library connections</h3>
+  <p>Every official client library provides a JSON-TCP client class. Here is how to connect in each language:</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'tcp-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'tcp-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'tcp-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'tcp-java')">Java</button>
+  </div>
+  <div id="tcp-py" class="lang-panel active">
+<pre><span class="kw">from</span> astraeadb.client <span class="kw">import</span> <span class="ty">JsonClient</span>
+
+<span class="cm"># Connect via JSON-TCP (default port 7687)</span>
+client = <span class="ty">JsonClient</span>(<span class="str">"localhost"</span>, port=<span class="num">7687</span>)
+client.<span class="fn">connect</span>()
+
+<span class="cm"># Ping the server</span>
+response = client.<span class="fn">ping</span>()
+<span class="fn">print</span>(response)  <span class="cm"># {'type': 'Pong', 'version': '0.1.0'}</span>
+
+<span class="cm"># Run a GQL query</span>
+results = client.<span class="fn">gql_query</span>(<span class="str">"MATCH (n:Person) RETURN n.name LIMIT 10"</span>)
+<span class="kw">for</span> row <span class="kw">in</span> results:
+    <span class="fn">print</span>(row)</pre>
+  </div>
+  <div id="tcp-r" class="lang-panel">
+<pre><span class="kw">library</span>(astraea)
+
+<span class="cm"># Connect via JSON-TCP (default port 7687)</span>
+client <span class="kw">&lt;-</span> <span class="ty">AstraeaClient</span><span class="kw">$</span><span class="fn">new</span>(<span class="str">"localhost"</span>, port = <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Ping the server</span>
+response <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">ping</span>()
+<span class="fn">print</span>(response)
+
+<span class="cm"># Run a GQL query</span>
+results <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">gql_query</span>(<span class="str">"MATCH (n:Person) RETURN n.name LIMIT 10"</span>)
+<span class="fn">print</span>(results)</pre>
+  </div>
+  <div id="tcp-go" class="lang-panel">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"fmt"</span>
+    <span class="str">"log"</span>
+    astraea <span class="str">"github.com/jimeharrisjr/astraea-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Connect via JSON-TCP (default port 7687)</span>
+    client, err := astraea.<span class="fn">NewJSONClient</span>(<span class="str">"localhost"</span>, <span class="num">7687</span>)
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Ping the server</span>
+    pong, _ := client.<span class="fn">Ping</span>()
+    fmt.<span class="fn">Println</span>(pong)
+
+    <span class="cm">// Run a GQL query</span>
+    results, _ := client.<span class="fn">GqlQuery</span>(<span class="str">"MATCH (n:Person) RETURN n.name LIMIT 10"</span>)
+    <span class="kw">for</span> _, row := <span class="kw">range</span> results {
+        fmt.<span class="fn">Println</span>(row)
+    }
+}</pre>
+  </div>
+  <div id="tcp-java" class="lang-panel">
+<pre><span class="kw">import</span> com.astraeadb.client.<span class="ty">JsonClient</span>;
+
+<span class="kw">public class</span> <span class="ty">TcpExample</span> {
+    <span class="kw">public static void</span> <span class="fn">main</span>(<span class="ty">String</span>[] args) {
+        <span class="cm">// Connect via JSON-TCP (default port 7687)</span>
+        <span class="ty">JsonClient</span> client = <span class="kw">new</span> <span class="ty">JsonClient</span>(<span class="str">"localhost"</span>, <span class="num">7687</span>);
+        client.<span class="fn">connect</span>();
+
+        <span class="cm">// Ping the server</span>
+        <span class="ty">String</span> pong = client.<span class="fn">ping</span>();
+        <span class="ty">System</span>.out.<span class="fn">println</span>(pong);
+
+        <span class="cm">// Run a GQL query</span>
+        <span class="ty">List</span>&lt;<span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Object</span>&gt;&gt; results =
+            client.<span class="fn">gqlQuery</span>(<span class="str">"MATCH (n:Person) RETURN n.name LIMIT 10"</span>);
+        results.<span class="fn">forEach</span>(<span class="ty">System</span>.out::<span class="fn">println</span>);
+    }
+}</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Best for</strong>
+    Getting started, debugging, shell scripts, lightweight workloads, and any environment where you want zero external dependencies.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 7.2 gRPC -->
+  <!-- ================================================================== -->
+  <h2>7.2 gRPC (Port 7688)</h2>
+
+  <p>
+    For production deployments, AstraeaDB provides a <strong>gRPC</strong> interface on port <code>7688</code>. gRPC uses Protocol Buffers (protobuf) as its serialization format, which means every message is strongly typed, compact, and fast to encode/decode.
+  </p>
+
+  <h3>Why gRPC?</h3>
+  <ul>
+    <li><strong>Strongly typed.</strong> The <code>.proto</code> file defines every request and response field. Compilation catches type errors before runtime.</li>
+    <li><strong>Binary efficiency.</strong> Protobuf messages are significantly smaller than equivalent JSON, reducing network bandwidth.</li>
+    <li><strong>Streaming.</strong> gRPC supports server-side streaming, allowing the server to push large result sets incrementally rather than buffering everything in memory.</li>
+    <li><strong>Generated stubs.</strong> Client code is auto-generated from the <code>.proto</code> definition in Go, Java, Python, C++, and many other languages.</li>
+    <li><strong>14 RPCs.</strong> The AstraeaDB gRPC service exposes 14 remote procedure calls that map one-to-one with the core operations: <code>Ping</code>, <code>CreateNode</code>, <code>GetNode</code>, <code>CreateEdge</code>, <code>GetEdge</code>, <code>DeleteNode</code>, <code>DeleteEdge</code>, <code>GqlQuery</code>, <code>BFS</code>, <code>ShortestPath</code>, <code>VectorSearch</code>, <code>HybridSearch</code>, <code>PageRank</code>, and <code>Louvain</code>.</li>
+  </ul>
+
+  <h3>The proto definition (excerpt)</h3>
+<pre><span class="kw">syntax</span> = <span class="str">"proto3"</span>;
+
+<span class="kw">package</span> astraeadb;
+
+<span class="kw">service</span> <span class="ty">AstraeaDB</span> {
+  <span class="kw">rpc</span> <span class="fn">Ping</span>       (<span class="ty">PingRequest</span>)       <span class="kw">returns</span> (<span class="ty">PongResponse</span>);
+  <span class="kw">rpc</span> <span class="fn">CreateNode</span> (<span class="ty">CreateNodeRequest</span>) <span class="kw">returns</span> (<span class="ty">CreateNodeResponse</span>);
+  <span class="kw">rpc</span> <span class="fn">GetNode</span>    (<span class="ty">GetNodeRequest</span>)    <span class="kw">returns</span> (<span class="ty">GetNodeResponse</span>);
+  <span class="kw">rpc</span> <span class="fn">GqlQuery</span>   (<span class="ty">GqlQueryRequest</span>)   <span class="kw">returns</span> (<span class="ty">GqlQueryResponse</span>);
+  <span class="cm">// ... 10 more RPCs</span>
+}
+
+<span class="kw">message</span> <span class="ty">CreateNodeRequest</span> {
+  <span class="kw">repeated</span> <span class="ty">string</span> labels     = <span class="num">1</span>;
+  <span class="ty">string</span>          properties = <span class="num">2</span>;  <span class="cm">// JSON-encoded</span>
+  <span class="kw">repeated</span> <span class="ty">float</span>  embedding  = <span class="num">3</span>;
+}</pre>
+
+  <h3>Connecting via gRPC</h3>
+  <p>
+    The Go and Java clients have the strongest native gRPC support, since both ecosystems have mature protobuf tooling. Python and R primarily use JSON-TCP, though you can use the generated Python stubs directly if needed.
+  </p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'grpc-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'grpc-java')">Java</button>
+    <button class="lang-tab" onclick="switchTab(event, 'grpc-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'grpc-r')">R</button>
+  </div>
+  <div id="grpc-go" class="lang-panel active">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"log"</span>
+
+    pb <span class="str">"github.com/jimeharrisjr/astraea-go/proto"</span>
+    <span class="str">"google.golang.org/grpc"</span>
+    <span class="str">"google.golang.org/grpc/credentials/insecure"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Connect to gRPC port</span>
+    conn, err := grpc.<span class="fn">NewClient</span>(
+        <span class="str">"localhost:7688"</span>,
+        grpc.<span class="fn">WithTransportCredentials</span>(insecure.<span class="fn">NewCredentials</span>()),
+    )
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> conn.<span class="fn">Close</span>()
+
+    client := pb.<span class="fn">NewAstraeaDBClient</span>(conn)
+    ctx := context.<span class="fn">Background</span>()
+
+    <span class="cm">// Ping</span>
+    pong, _ := client.<span class="fn">Ping</span>(ctx, &amp;pb.<span class="ty">PingRequest</span>{})
+    fmt.<span class="fn">Println</span>(<span class="str">"Version:"</span>, pong.Version)
+
+    <span class="cm">// Create a node</span>
+    resp, _ := client.<span class="fn">CreateNode</span>(ctx, &amp;pb.<span class="ty">CreateNodeRequest</span>{
+        Labels:     []<span class="ty">string</span>{<span class="str">"Person"</span>},
+        Properties: <span class="str">`{"name":"Alice","age":30}`</span>,
+    })
+    fmt.<span class="fn">Println</span>(<span class="str">"Node ID:"</span>, resp.NodeId)
+}</pre>
+  </div>
+  <div id="grpc-java" class="lang-panel">
+<pre><span class="kw">import</span> com.astraeadb.client.<span class="ty">GrpcClient</span>;
+
+<span class="kw">public class</span> <span class="ty">GrpcExample</span> {
+    <span class="kw">public static void</span> <span class="fn">main</span>(<span class="ty">String</span>[] args) {
+        <span class="cm">// Connect to gRPC port</span>
+        <span class="ty">GrpcClient</span> client = <span class="kw">new</span> <span class="ty">GrpcClient</span>(<span class="str">"localhost"</span>, <span class="num">7688</span>);
+        client.<span class="fn">connect</span>();
+
+        <span class="cm">// Ping</span>
+        <span class="ty">String</span> version = client.<span class="fn">ping</span>();
+        <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Version: "</span> + version);
+
+        <span class="cm">// Create a node</span>
+        <span class="ty">String</span> nodeId = client.<span class="fn">createNode</span>(
+            <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Person"</span>),
+            <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Alice"</span>, <span class="str">"age"</span>, <span class="num">30</span>)
+        );
+        <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Node ID: "</span> + nodeId);
+
+        <span class="cm">// GQL query</span>
+        <span class="ty">List</span>&lt;<span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Object</span>&gt;&gt; results =
+            client.<span class="fn">gqlQuery</span>(<span class="str">"MATCH (n:Person) RETURN n.name"</span>);
+        results.<span class="fn">forEach</span>(<span class="ty">System</span>.out::<span class="fn">println</span>);
+
+        client.<span class="fn">close</span>();
+    }
+}</pre>
+  </div>
+  <div id="grpc-py" class="lang-panel">
+<pre><span class="cm"># Python: gRPC via generated stubs</span>
+<span class="cm"># pip install grpcio grpcio-tools</span>
+<span class="kw">import</span> grpc
+<span class="kw">from</span> astraeadb.proto <span class="kw">import</span> astraeadb_pb2, astraeadb_pb2_grpc
+
+channel = grpc.<span class="fn">insecure_channel</span>(<span class="str">"localhost:7688"</span>)
+stub = astraeadb_pb2_grpc.<span class="fn">AstraeaDBStub</span>(channel)
+
+<span class="cm"># Ping</span>
+pong = stub.<span class="fn">Ping</span>(astraeadb_pb2.<span class="ty">PingRequest</span>())
+<span class="fn">print</span>(<span class="str">"Version:"</span>, pong.version)
+
+<span class="cm"># Create a node</span>
+resp = stub.<span class="fn">CreateNode</span>(astraeadb_pb2.<span class="ty">CreateNodeRequest</span>(
+    labels=[<span class="str">"Person"</span>],
+    properties=<span class="str">'{"name":"Alice","age":30}'</span>
+))
+<span class="fn">print</span>(<span class="str">"Node ID:"</span>, resp.node_id)</pre>
+  </div>
+  <div id="grpc-r" class="lang-panel">
+<pre><span class="cm"># R does not have native gRPC support.</span>
+<span class="cm"># Use the JSON-TCP client (AstraeaClient) for R workflows.</span>
+<span class="cm"># If you need gRPC from R, call the Python stubs via reticulate:</span>
+
+<span class="kw">library</span>(reticulate)
+grpc <span class="kw">&lt;-</span> <span class="fn">import</span>(<span class="str">"grpc"</span>)
+pb   <span class="kw">&lt;-</span> <span class="fn">import</span>(<span class="str">"astraeadb.proto.astraeadb_pb2"</span>)
+stub_mod <span class="kw">&lt;-</span> <span class="fn">import</span>(<span class="str">"astraeadb.proto.astraeadb_pb2_grpc"</span>)
+
+channel <span class="kw">&lt;-</span> grpc<span class="kw">$</span><span class="fn">insecure_channel</span>(<span class="str">"localhost:7688"</span>)
+stub    <span class="kw">&lt;-</span> stub_mod<span class="kw">$</span><span class="fn">AstraeaDBStub</span>(channel)
+
+pong <span class="kw">&lt;-</span> stub<span class="kw">$</span><span class="fn">Ping</span>(pb<span class="kw">$</span><span class="fn">PingRequest</span>())
+<span class="fn">print</span>(pong<span class="kw">$</span>version)</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Best for</strong>
+    Production microservices, polyglot environments, streaming large result sets, and any deployment where you want compile-time type safety and maximum wire efficiency.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 7.3 Arrow Flight -->
+  <!-- ================================================================== -->
+  <h2>7.3 Apache Arrow Flight (Port 7689)</h2>
+
+  <p>
+    For analytics-heavy workloads, AstraeaDB supports <strong>Apache Arrow Flight</strong> on port <code>7689</code>. Arrow Flight transfers query results as columnar <strong>RecordBatches</strong>&mdash;the same in-memory format used by Pandas, Polars, DuckDB, and the broader Arrow ecosystem. This means data flows from the database into your DataFrame <em>without any serialization or deserialization overhead</em>.
+  </p>
+
+  <h3>Why Arrow Flight?</h3>
+  <ul>
+    <li><strong>Zero-copy transfer.</strong> The bytes on the wire are identical to the bytes in your DataFrame's memory. No JSON parsing, no protobuf decoding&mdash;just raw columnar buffers.</li>
+    <li><strong>Columnar format.</strong> Analytical operations (aggregations, filters, scans) are dramatically faster on columnar data because modern CPUs can leverage cache prefetching and SIMD instructions.</li>
+    <li><strong>Ecosystem interoperability.</strong> Arrow is the universal exchange format. Once data is in Arrow, you can hand it to Pandas, Polars, R's <code>arrow</code> package, DuckDB, or any other tool&mdash;at zero cost.</li>
+    <li><strong>Bulk import.</strong> The <code>do_put</code> endpoint lets you upload Arrow tables directly into AstraeaDB, enabling high-throughput batch ingestion from ETL pipelines.</li>
+  </ul>
+
+  <h3>Two key operations</h3>
+  <table>
+    <tr>
+      <th>Operation</th>
+      <th>Description</th>
+      <th>Use case</th>
+    </tr>
+    <tr>
+      <td><code>do_get</code></td>
+      <td>Execute a GQL query and receive the results as an Arrow table</td>
+      <td>Analytics, dashboards, DataFrame workflows</td>
+    </tr>
+    <tr>
+      <td><code>do_put</code></td>
+      <td>Upload an Arrow table into AstraeaDB as new nodes/edges</td>
+      <td>Bulk import, ETL pipelines, batch ingestion</td>
+    </tr>
+  </table>
+
+  <h3>Connecting via Arrow Flight</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'arrow-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'arrow-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'arrow-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'arrow-java')">Java</button>
+  </div>
+  <div id="arrow-py" class="lang-panel active">
+<pre><span class="kw">from</span> astraeadb.arrow_client <span class="kw">import</span> <span class="ty">ArrowClient</span>
+
+<span class="cm"># Connect to Arrow Flight endpoint</span>
+client = <span class="ty">ArrowClient</span>(<span class="str">"grpc://localhost:50051"</span>)
+client.<span class="fn">connect</span>()
+
+<span class="cm"># do_get: execute GQL and receive a Pandas DataFrame</span>
+df = client.<span class="fn">query_to_dataframe</span>(
+    <span class="str">"MATCH (n:Person) RETURN n.name, n.age"</span>
+)
+<span class="fn">print</span>(df)
+<span class="cm">#       name  age</span>
+<span class="cm"># 0    Alice   30</span>
+<span class="cm"># 1      Bob   25</span>
+<span class="cm"># 2  Charlie   35</span>
+
+<span class="cm"># do_get: receive a Polars DataFrame instead</span>
+<span class="kw">import</span> polars <span class="kw">as</span> pl
+arrow_table = client.<span class="fn">query_to_arrow</span>(
+    <span class="str">"MATCH (n:Person) RETURN n.name, n.age"</span>
+)
+polars_df = pl.<span class="fn">from_arrow</span>(arrow_table)
+
+<span class="cm"># do_put: bulk import a DataFrame as nodes</span>
+<span class="kw">import</span> pandas <span class="kw">as</span> pd
+new_people = pd.<span class="ty">DataFrame</span>({
+    <span class="str">"name"</span>: [<span class="str">"Dave"</span>, <span class="str">"Eve"</span>],
+    <span class="str">"age"</span>: [<span class="num">28</span>, <span class="num">32</span>],
+    <span class="str">"_label"</span>: [<span class="str">"Person"</span>, <span class="str">"Person"</span>]
+})
+client.<span class="fn">put_dataframe</span>(new_people)</pre>
+  </div>
+  <div id="arrow-r" class="lang-panel">
+<pre><span class="kw">library</span>(arrow)
+<span class="kw">library</span>(astraea)
+
+<span class="cm"># Connect to Arrow Flight endpoint</span>
+client <span class="kw">&lt;-</span> <span class="ty">ArrowFlightClient</span><span class="kw">$</span><span class="fn">new</span>(<span class="str">"grpc://localhost:50051"</span>)
+
+<span class="cm"># do_get: execute GQL and receive an Arrow Table</span>
+tbl <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">"MATCH (n:Person) RETURN n.name, n.age"</span>)
+
+<span class="cm"># Convert to a base R data.frame</span>
+df <span class="kw">&lt;-</span> <span class="fn">as.data.frame</span>(tbl)
+<span class="fn">print</span>(df)
+
+<span class="cm"># do_put: bulk import a data.frame as nodes</span>
+new_people <span class="kw">&lt;-</span> <span class="fn">data.frame</span>(
+  name   = <span class="fn">c</span>(<span class="str">"Dave"</span>, <span class="str">"Eve"</span>),
+  age    = <span class="fn">c</span>(<span class="num">28L</span>, <span class="num">32L</span>),
+  _label = <span class="fn">c</span>(<span class="str">"Person"</span>, <span class="str">"Person"</span>)
+)
+client<span class="kw">$</span><span class="fn">put</span>(new_people)</pre>
+  </div>
+  <div id="arrow-go" class="lang-panel">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"log"</span>
+
+    <span class="str">"github.com/apache/arrow/go/v17/arrow/flight"</span>
+    <span class="str">"google.golang.org/grpc"</span>
+    <span class="str">"google.golang.org/grpc/credentials/insecure"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Connect to Arrow Flight endpoint</span>
+    client, err := flight.<span class="fn">NewClientWithMiddleware</span>(
+        <span class="str">"localhost:7689"</span>,
+        <span class="kw">nil</span>,
+        <span class="kw">nil</span>,
+        grpc.<span class="fn">WithTransportCredentials</span>(insecure.<span class="fn">NewCredentials</span>()),
+    )
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    ctx := context.<span class="fn">Background</span>()
+
+    <span class="cm">// do_get: execute a GQL query</span>
+    desc := &amp;flight.<span class="ty">FlightDescriptor</span>{
+        Type: flight.<span class="ty">DescriptorCMD</span>,
+        Cmd:  []<span class="fn">byte</span>(<span class="str">"MATCH (n:Person) RETURN n.name, n.age"</span>),
+    }
+    info, _ := client.<span class="fn">GetFlightInfo</span>(ctx, desc)
+
+    stream, _ := client.<span class="fn">DoGet</span>(ctx, info.Endpoint[<span class="num">0</span>].Ticket)
+    <span class="kw">for</span> {
+        record, err := stream.<span class="fn">Recv</span>()
+        <span class="kw">if</span> err != <span class="kw">nil</span> {
+            <span class="kw">break</span>
+        }
+        fmt.<span class="fn">Println</span>(record)
+    }
+}</pre>
+  </div>
+  <div id="arrow-java" class="lang-panel">
+<pre><span class="kw">import</span> org.apache.arrow.flight.*;
+<span class="kw">import</span> org.apache.arrow.memory.<span class="ty">RootAllocator</span>;
+
+<span class="kw">public class</span> <span class="ty">ArrowFlightExample</span> {
+    <span class="kw">public static void</span> <span class="fn">main</span>(<span class="ty">String</span>[] args) {
+        <span class="ty">RootAllocator</span> allocator = <span class="kw">new</span> <span class="ty">RootAllocator</span>();
+        <span class="ty">FlightClient</span> client = <span class="ty">FlightClient</span>.<span class="fn">builder</span>(
+            allocator,
+            <span class="ty">Location</span>.<span class="fn">forGrpcInsecure</span>(<span class="str">"localhost"</span>, <span class="num">7689</span>)
+        ).<span class="fn">build</span>();
+
+        <span class="cm">// do_get: execute GQL and receive Arrow RecordBatches</span>
+        <span class="ty">FlightInfo</span> info = client.<span class="fn">getInfo</span>(
+            <span class="ty">FlightDescriptor</span>.<span class="fn">command</span>(
+                <span class="str">"MATCH (n:Person) RETURN n.name, n.age"</span>.<span class="fn">getBytes</span>()
+            )
+        );
+
+        <span class="ty">FlightStream</span> stream = client.<span class="fn">getStream</span>(
+            info.<span class="fn">getEndpoints</span>().<span class="fn">get</span>(<span class="num">0</span>).<span class="fn">getTicket</span>()
+        );
+
+        <span class="kw">while</span> (stream.<span class="fn">next</span>()) {
+            <span class="ty">System</span>.out.<span class="fn">println</span>(stream.<span class="fn">getRoot</span>().<span class="fn">contentToTSVString</span>());
+        }
+
+        client.<span class="fn">close</span>();
+        allocator.<span class="fn">close</span>();
+    }
+}</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Best for</strong>
+    Analytics pipelines, data science workflows, bulk import/export, and any scenario where you want query results to land directly in a DataFrame without serialization overhead.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 7.4 Choosing the Right Protocol -->
+  <!-- ================================================================== -->
+  <h2>7.4 Choosing the Right Protocol</h2>
+
+  <p>
+    The table below summarizes the trade-offs. In practice, most teams start with JSON-TCP during development and add gRPC or Arrow Flight when specific requirements arise.
+  </p>
+
+  <table>
+    <tr>
+      <th>Criterion</th>
+      <th>JSON-TCP</th>
+      <th>gRPC</th>
+      <th>Arrow Flight</th>
+    </tr>
+    <tr>
+      <td>Default port</td>
+      <td><code>7687</code></td>
+      <td><code>7688</code></td>
+      <td><code>7689</code></td>
+    </tr>
+    <tr>
+      <td>Setup complexity</td>
+      <td>Lowest</td>
+      <td>Medium</td>
+      <td>Highest</td>
+    </tr>
+    <tr>
+      <td>Dependencies</td>
+      <td>None</td>
+      <td>protobuf</td>
+      <td>pyarrow / arrow</td>
+    </tr>
+    <tr>
+      <td>Wire format</td>
+      <td>JSON text</td>
+      <td>Binary (protobuf)</td>
+      <td>Binary (Arrow IPC)</td>
+    </tr>
+    <tr>
+      <td>Performance</td>
+      <td>Good</td>
+      <td>Better</td>
+      <td>Best (analytics)</td>
+    </tr>
+    <tr>
+      <td>Debugging</td>
+      <td>Easy (human-readable)</td>
+      <td>Hard (binary)</td>
+      <td>Hard (binary)</td>
+    </tr>
+    <tr>
+      <td>Type safety</td>
+      <td>None (schemaless JSON)</td>
+      <td>Strong (proto schema)</td>
+      <td>Strong (Arrow schema)</td>
+    </tr>
+    <tr>
+      <td>Streaming</td>
+      <td>No</td>
+      <td>Yes</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>Best for</td>
+      <td>Development, scripts</td>
+      <td>Production, microservices</td>
+      <td>Analytics, DataFrames</td>
+    </tr>
+  </table>
+
+  <h3>The UnifiedClient: automatic protocol selection</h3>
+  <p>
+    If you do not want to think about protocols at all, use the <strong>UnifiedClient</strong> (Python) or <strong>AstraeaClient</strong> (R). These wrapper classes detect which server endpoints are available and automatically select the best protocol:
+  </p>
+
+  <ol>
+    <li>If the Arrow Flight port is reachable and <code>pyarrow</code> is installed, use Arrow Flight.</li>
+    <li>Otherwise, if the gRPC port is reachable and stubs are available, use gRPC.</li>
+    <li>Otherwise, fall back to JSON-TCP.</li>
+  </ol>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'unified-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'unified-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'unified-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'unified-java')">Java</button>
+  </div>
+  <div id="unified-py" class="lang-panel active">
+<pre><span class="kw">from</span> astraeadb.client <span class="kw">import</span> <span class="ty">UnifiedClient</span>
+
+<span class="cm"># Auto-selects the best available protocol</span>
+client = <span class="ty">UnifiedClient</span>(<span class="str">"localhost"</span>)
+client.<span class="fn">connect</span>()
+
+<span class="fn">print</span>(<span class="str">"Using protocol:"</span>, client.protocol)
+<span class="cm"># "arrow_flight", "grpc", or "json_tcp"</span>
+
+<span class="cm"># All the same methods work regardless of protocol</span>
+results = client.<span class="fn">gql_query</span>(<span class="str">"MATCH (n) RETURN n LIMIT 5"</span>)</pre>
+  </div>
+  <div id="unified-r" class="lang-panel">
+<pre><span class="kw">library</span>(astraea)
+
+<span class="cm"># Auto-selects the best available protocol</span>
+client <span class="kw">&lt;-</span> <span class="ty">AstraeaClient</span><span class="kw">$</span><span class="fn">new</span>(<span class="str">"localhost"</span>, auto = <span class="kw">TRUE</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="fn">cat</span>(<span class="str">"Using protocol:"</span>, client<span class="kw">$</span>protocol, <span class="str">"\n"</span>)
+
+<span class="cm"># All the same methods work regardless of protocol</span>
+results <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">gql_query</span>(<span class="str">"MATCH (n) RETURN n LIMIT 5"</span>)</pre>
+  </div>
+  <div id="unified-go" class="lang-panel">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"fmt"</span>
+    <span class="str">"log"</span>
+    astraea <span class="str">"github.com/jimeharrisjr/astraea-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Auto-selects the best available protocol</span>
+    client, err := astraea.<span class="fn">NewAutoClient</span>(<span class="str">"localhost"</span>)
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    fmt.<span class="fn">Println</span>(<span class="str">"Using protocol:"</span>, client.<span class="fn">Protocol</span>())
+
+    results, _ := client.<span class="fn">GqlQuery</span>(<span class="str">"MATCH (n) RETURN n LIMIT 5"</span>)
+    fmt.<span class="fn">Println</span>(results)
+}</pre>
+  </div>
+  <div id="unified-java" class="lang-panel">
+<pre><span class="kw">import</span> com.astraeadb.client.<span class="ty">UnifiedClient</span>;
+
+<span class="kw">public class</span> <span class="ty">UnifiedExample</span> {
+    <span class="kw">public static void</span> <span class="fn">main</span>(<span class="ty">String</span>[] args) {
+        <span class="cm">// Auto-selects the best available protocol</span>
+        <span class="ty">UnifiedClient</span> client = <span class="kw">new</span> <span class="ty">UnifiedClient</span>(<span class="str">"localhost"</span>);
+        client.<span class="fn">connect</span>();
+
+        <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Using: "</span> + client.<span class="fn">getProtocol</span>());
+
+        <span class="kw">var</span> results = client.<span class="fn">gqlQuery</span>(<span class="str">"MATCH (n) RETURN n LIMIT 5"</span>);
+        results.<span class="fn">forEach</span>(<span class="ty">System</span>.out::<span class="fn">println</span>);
+
+        client.<span class="fn">close</span>();
+    }
+}</pre>
+  </div>
+
+  <div class="info-box info">
+    <strong>Recommendation</strong>
+    Use <code>UnifiedClient</code> / <code>AstraeaClient(auto=TRUE)</code> in application code. This future-proofs your application: if you later install <code>pyarrow</code> or deploy a gRPC-enabled server, your code automatically benefits without any changes.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch06.html">&larr; Ch 6: Graph Traversals</a>
+    <a href="gentle-intro-ch08.html">Ch 8: Vector Search &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+
+function switchTab(event, panelId) {
+  const tabGroup = event.target.parentElement;
+  const container = tabGroup.parentElement;
+  tabGroup.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  let sibling = tabGroup.nextElementSibling;
+  while (sibling && sibling.classList.contains('lang-panel')) {
+    sibling.classList.remove('active');
+    sibling = sibling.nextElementSibling;
+  }
+  document.getElementById(panelId).classList.add('active');
+}
+</script>
+</body>
+</html>

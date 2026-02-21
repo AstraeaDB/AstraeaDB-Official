@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 10: Graph Algorithms - AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<aside class="sidebar">
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">1. Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">2. The Graph Database Landscape</a>
+  <div class="sep"></div>
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">3. Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">4. Your First Graph</a>
+  <div class="sep"></div>
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">5. GQL</a>
+  <a href="gentle-intro-ch06.html">6. Traversals</a>
+  <a href="gentle-intro-ch07.html">7. Transport</a>
+  <div class="sep"></div>
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">8. Vector Search</a>
+  <a href="gentle-intro-ch09.html">9. Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html" class="active">10. Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">11. GraphRAG</a>
+  <a href="gentle-intro-ch12.html">12. Graph Neural Networks</a>
+  <div class="sep"></div>
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">13. Security</a>
+  <a href="gentle-intro-ch14.html">14. Performance</a>
+  <a href="gentle-intro-ch15.html">15. Cybersecurity</a>
+  <div class="sep"></div>
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A. GQL Reference</a>
+  <a href="gentle-intro-appB.html">B. Configuration Options</a>
+  <a href="gentle-intro-appC.html">C. Troubleshooting</a>
+</aside>
+
+<div class="main">
+
+  <h1>Chapter 10: Graph Algorithms</h1>
+  <p class="subtitle">AstraeaDB includes production-ready implementations of key graph algorithms that run server-side for maximum efficiency. This chapter covers the built-in algorithms, their use cases, and how to invoke them from your application code.</p>
+
+  <p>Graph algorithms transform the raw structure of your data into actionable insights. Rather than exporting your graph to an external analytics tool, AstraeaDB executes these algorithms directly on the storage engine, avoiding serialization overhead and leveraging the index-free adjacency model for optimal traversal performance. These algorithms are currently accessed via the Rust API, with client wrappers available for common operations through GQL extensions or direct API calls.</p>
+
+  <!-- 10.1 PageRank -->
+  <h2>10.1 PageRank</h2>
+
+  <h3>What It Does</h3>
+  <p>PageRank is the algorithm that originally powered Google's search engine. It ranks nodes by their <strong>importance</strong> based on the quantity and quality of incoming connections. A node is considered important if it is pointed to by other important nodes. This recursive definition produces a global ranking of every node in the graph.</p>
+
+  <h3>How It Works</h3>
+  <p>PageRank models a "random surfer" who starts at a random node and follows outgoing edges. At each step, there is a small probability (controlled by the <strong>damping factor</strong>) that the surfer jumps to a completely random node instead of following an edge. After many iterations, the fraction of time the surfer spends at each node converges to that node's PageRank score.</p>
+
+  <p>The algorithm iterates until scores stabilize (converge) or a maximum number of iterations is reached. Nodes with more high-quality incoming links accumulate higher scores.</p>
+
+  <h3>Configuration Parameters</h3>
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>damping_factor</code></td><td><code>0.85</code></td><td>Probability of following an edge vs. jumping randomly. Higher values emphasize link structure; lower values distribute rank more evenly.</td></tr>
+      <tr><td><code>max_iterations</code></td><td><code>100</code></td><td>Maximum number of iterations before stopping, even if convergence has not been reached.</td></tr>
+      <tr><td><code>convergence_threshold</code></td><td><code>1e-6</code></td><td>The algorithm stops when the total change in scores between iterations falls below this value.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example: Ranking Influence in a Social Network</h3>
+  <p>Consider a social network where edges represent "follows" relationships. PageRank will identify the most influential people -- those who are followed by other influential people, not just those with the most followers.</p>
+
+  <h4>Conceptual Rust API</h4>
+  <pre><span class="kw">use</span> astraeadb::algorithms::{<span class="ty">PageRank</span>, <span class="ty">PageRankConfig</span>};
+
+<span class="cm">// Configure the algorithm</span>
+<span class="kw">let</span> config = <span class="ty">PageRankConfig</span> {
+    damping_factor: <span class="num">0.85</span>,
+    max_iterations: <span class="num">100</span>,
+    convergence_threshold: <span class="num">1e-6</span>,
+};
+
+<span class="cm">// Run PageRank on the entire graph</span>
+<span class="kw">let</span> scores: <span class="ty">HashMap</span>&lt;<span class="ty">NodeId</span>, <span class="ty">f64</span>&gt; = graph.<span class="fn">run_algorithm</span>(<span class="ty">PageRank</span>::<span class="fn">new</span>(config))?;
+
+<span class="cm">// Print the top 5 most important nodes</span>
+<span class="kw">let mut</span> ranked: <span class="ty">Vec</span>&lt;_&gt; = scores.<span class="fn">iter</span>().<span class="fn">collect</span>();
+ranked.<span class="fn">sort_by</span>(|a, b| b.<span class="num">1</span>.<span class="fn">partial_cmp</span>(a.<span class="num">1</span>).<span class="fn">unwrap</span>());
+<span class="kw">for</span> (node_id, score) <span class="kw">in</span> ranked.<span class="fn">iter</span>().<span class="fn">take</span>(<span class="num">5</span>) {
+    <span class="fn">println!</span>(<span class="str">"Node {}: score {:.4}"</span>, node_id, score);
+}</pre>
+
+  <h4>Calling from Python</h4>
+  <p>The Python client wraps the algorithm endpoint, making it accessible as a single method call:</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-pr')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-pr')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-pr')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-pr')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-pr">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Run PageRank with default parameters</span>
+    scores = client.<span class="fn">pagerank</span>(
+        damping_factor=<span class="num">0.85</span>,
+        max_iterations=<span class="num">100</span>,
+        convergence_threshold=<span class="num">1e-6</span>
+    )
+
+    <span class="cm"># Sort by score descending</span>
+    ranked = <span class="fn">sorted</span>(scores.<span class="fn">items</span>(), key=<span class="kw">lambda</span> x: x[<span class="num">1</span>], reverse=<span class="kw">True</span>)
+    <span class="kw">for</span> node_id, score <span class="kw">in</span> ranked[:<span class="num">5</span>]:
+        <span class="fn">print</span>(<span class="str">f"Node </span>{node_id}<span class="str">: </span>{score:<span class="str">.4f}"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-pr">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Run PageRank</span>
+scores <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">pagerank</span>(
+  damping_factor = <span class="num">0.85</span>,
+  max_iterations = <span class="num">100</span>,
+  convergence_threshold = <span class="num">1e-6</span>
+)
+
+<span class="cm"># Sort and display top results</span>
+ranked <span class="kw">&lt;-</span> scores[<span class="fn">order</span>(<span class="fn">unlist</span>(scores), decreasing = <span class="kw">TRUE</span>)]
+<span class="fn">head</span>(ranked, <span class="num">5</span>)
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-pr">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"sort"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    scores, _ <span class="kw">:=</span> client.<span class="fn">PageRank</span>(ctx, &amp;astraeadb.<span class="ty">PageRankConfig</span>{
+        DampingFactor:        <span class="num">0.85</span>,
+        MaxIterations:        <span class="num">100</span>,
+        ConvergenceThreshold: <span class="num">1e-6</span>,
+    })
+
+    <span class="cm">// Sort and print top 5</span>
+    <span class="kw">type</span> <span class="ty">entry</span> <span class="kw">struct</span> { ID <span class="ty">string</span>; Score <span class="ty">float64</span> }
+    <span class="kw">var</span> entries []<span class="ty">entry</span>
+    <span class="kw">for</span> id, s <span class="kw">:=</span> <span class="kw">range</span> scores {
+        entries = <span class="fn">append</span>(entries, <span class="ty">entry</span>{id, s})
+    }
+    sort.<span class="fn">Slice</span>(entries, <span class="kw">func</span>(i, j <span class="ty">int</span>) <span class="ty">bool</span> {
+        <span class="kw">return</span> entries[i].Score &gt; entries[j].Score
+    })
+    <span class="kw">for</span> _, e <span class="kw">:=</span> <span class="kw">range</span> entries[:<span class="num">5</span>] {
+        fmt.<span class="fn">Printf</span>(<span class="str">"Node %s: %.4f\n"</span>, e.ID, e.Score)
+    }
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-pr">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+<span class="kw">import</span> java.util.Map;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Double</span>&gt; scores = client.<span class="fn">pagerank</span>(
+        <span class="num">0.85</span>,   <span class="cm">// damping factor</span>
+        <span class="num">100</span>,    <span class="cm">// max iterations</span>
+        <span class="num">1e-6</span>   <span class="cm">// convergence threshold</span>
+    );
+
+    <span class="cm">// Sort by score descending and print top 5</span>
+    scores.<span class="fn">entrySet</span>().<span class="fn">stream</span>()
+        .<span class="fn">sorted</span>(<span class="ty">Map.Entry</span>.&lt;<span class="ty">String</span>, <span class="ty">Double</span>&gt;<span class="fn">comparingByValue</span>().<span class="fn">reversed</span>())
+        .<span class="fn">limit</span>(<span class="num">5</span>)
+        .<span class="fn">forEach</span>(e -&gt; System.out.<span class="fn">printf</span>(<span class="str">"Node %s: %.4f%n"</span>, e.<span class="fn">getKey</span>(), e.<span class="fn">getValue</span>()));
+}</pre>
+  </div>
+
+  <h3>Understanding the Output</h3>
+  <p>PageRank returns a map of <code>node_id -&gt; score</code>, where scores are floating-point values between 0.0 and 1.0. The scores across all nodes sum to 1.0 (they represent a probability distribution). A higher score means greater importance. In practice, most nodes will have very small scores, while a few highly connected "hub" nodes will dominate.</p>
+
+  <div class="info-box tip">
+    <strong>Tip: Interpreting Scores</strong>
+    PageRank scores are relative, not absolute. A score of 0.02 does not mean "2% important" in isolation -- it means this node captures 2% of the total "importance budget" in the graph. Compare scores to each other to find the most influential nodes.
+  </div>
+
+  <!-- 10.2 Connected and Strongly Connected Components -->
+  <h2>10.2 Connected and Strongly Connected Components</h2>
+
+  <h3>Connected Components</h3>
+  <p>A <strong>connected component</strong> is a group of nodes where every node can reach every other node through some path, <em>ignoring edge direction</em>. If you have an undirected graph (or treat a directed graph as undirected), connected components tell you how many separate "islands" exist in your data.</p>
+
+  <p>This is computed using a simple breadth-first or depth-first traversal: start at any unvisited node, visit all reachable nodes (marking them as the same component), then repeat for any remaining unvisited nodes.</p>
+
+  <h3>Strongly Connected Components (SCCs)</h3>
+  <p><strong>Strongly connected components</strong> are the directed-graph equivalent. A set of nodes forms an SCC if every node can reach every other node <em>following edge direction</em>. AstraeaDB uses <strong>Tarjan's algorithm</strong>, which finds all SCCs in a single depth-first traversal with <em>O(V + E)</em> complexity.</p>
+
+  <p>SCCs are strictly more restrictive than connected components. Every SCC is contained within a connected component, but a connected component may contain multiple SCCs (or nodes that belong to no SCC at all).</p>
+
+  <h3>Use Cases</h3>
+  <ul>
+    <li><strong>Finding isolated subgraphs:</strong> Identify disconnected portions of your data that have no connections to the rest of the graph.</li>
+    <li><strong>Detecting clusters:</strong> Connected components can reveal natural groupings without any algorithm parameters to tune.</li>
+    <li><strong>Data quality:</strong> A graph that should be fully connected but has multiple components may indicate missing data or broken relationships.</li>
+    <li><strong>Cycle detection:</strong> SCCs with more than one node contain at least one directed cycle, which is useful for detecting circular dependencies.</li>
+  </ul>
+
+  <h3>Example: Finding Disconnected Communities</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-cc')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-cc')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-cc')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-cc')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-cc">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+<span class="kw">from</span> collections <span class="kw">import</span> Counter
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Find connected components (undirected)</span>
+    components = client.<span class="fn">connected_components</span>()
+    <span class="cm"># Returns: {"nd-1": 0, "nd-2": 0, "nd-3": 1, "nd-4": 1, ...}</span>
+
+    <span class="cm"># Count nodes per component</span>
+    counts = <span class="fn">Counter</span>(components.<span class="fn">values</span>())
+    <span class="fn">print</span>(<span class="str">f"Found </span>{<span class="fn">len</span>(counts)}<span class="str"> connected components"</span>)
+    <span class="kw">for</span> comp_id, size <span class="kw">in</span> counts.<span class="fn">most_common</span>():
+        <span class="fn">print</span>(<span class="str">f"  Component </span>{comp_id}<span class="str">: </span>{size}<span class="str"> nodes"</span>)
+
+    <span class="cm"># Find strongly connected components (directed)</span>
+    sccs = client.<span class="fn">strongly_connected_components</span>()
+    scc_counts = <span class="fn">Counter</span>(sccs.<span class="fn">values</span>())
+    <span class="fn">print</span>(<span class="str">f"Found </span>{<span class="fn">len</span>(scc_counts)}<span class="str"> strongly connected components"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-cc">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Connected components</span>
+components <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">connected_components</span>()
+comp_table <span class="kw">&lt;-</span> <span class="fn">table</span>(<span class="fn">unlist</span>(components))
+<span class="fn">cat</span>(<span class="str">"Found"</span>, <span class="fn">length</span>(comp_table), <span class="str">"connected components\n"</span>)
+
+<span class="cm"># Strongly connected components</span>
+sccs <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">strongly_connected_components</span>()
+scc_table <span class="kw">&lt;-</span> <span class="fn">table</span>(<span class="fn">unlist</span>(sccs))
+<span class="fn">cat</span>(<span class="str">"Found"</span>, <span class="fn">length</span>(scc_table), <span class="str">"strongly connected components\n"</span>)
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-cc">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Connected components</span>
+    components, _ <span class="kw">:=</span> client.<span class="fn">ConnectedComponents</span>(ctx)
+    counts <span class="kw">:=</span> <span class="kw">make</span>(<span class="kw">map</span>[<span class="ty">int</span>]<span class="ty">int</span>)
+    <span class="kw">for</span> _, compID <span class="kw">:=</span> <span class="kw">range</span> components {
+        counts[compID]++
+    }
+    fmt.<span class="fn">Printf</span>(<span class="str">"Found %d connected components\n"</span>, <span class="fn">len</span>(counts))
+
+    <span class="cm">// Strongly connected components</span>
+    sccs, _ <span class="kw">:=</span> client.<span class="fn">StronglyConnectedComponents</span>(ctx)
+    sccCounts <span class="kw">:=</span> <span class="kw">make</span>(<span class="kw">map</span>[<span class="ty">int</span>]<span class="ty">int</span>)
+    <span class="kw">for</span> _, compID <span class="kw">:=</span> <span class="kw">range</span> sccs {
+        sccCounts[compID]++
+    }
+    fmt.<span class="fn">Printf</span>(<span class="str">"Found %d strongly connected components\n"</span>, <span class="fn">len</span>(sccCounts))
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-cc">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+<span class="kw">import</span> java.util.Map;
+<span class="kw">import</span> java.util.stream.Collectors;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Connected components</span>
+    <span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Integer</span>&gt; components = client.<span class="fn">connectedComponents</span>();
+    <span class="kw">var</span> counts = components.<span class="fn">values</span>().<span class="fn">stream</span>()
+        .<span class="fn">collect</span>(<span class="ty">Collectors</span>.<span class="fn">groupingBy</span>(c -&gt; c, <span class="ty">Collectors</span>.<span class="fn">counting</span>()));
+    System.out.<span class="fn">printf</span>(<span class="str">"Found %d connected components%n"</span>, counts.<span class="fn">size</span>());
+
+    <span class="cm">// Strongly connected components</span>
+    <span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Integer</span>&gt; sccs = client.<span class="fn">stronglyConnectedComponents</span>();
+    <span class="kw">var</span> sccCounts = sccs.<span class="fn">values</span>().<span class="fn">stream</span>()
+        .<span class="fn">collect</span>(<span class="ty">Collectors</span>.<span class="fn">groupingBy</span>(c -&gt; c, <span class="ty">Collectors</span>.<span class="fn">counting</span>()));
+    System.out.<span class="fn">printf</span>(<span class="str">"Found %d strongly connected components%n"</span>, sccCounts.<span class="fn">size</span>());
+}</pre>
+  </div>
+
+  <h3>Output Format</h3>
+  <p>Both algorithms return a map of <code>node_id -&gt; component_id</code>. Nodes with the same component ID belong to the same component. Component IDs are arbitrary integers -- only equality matters, not the specific values.</p>
+
+  <div class="info-box info">
+    <strong>Note: Connected vs. Strongly Connected</strong>
+    If your graph is undirected (or you treat it as undirected), connected components and SCCs produce the same result. SCCs become meaningful only for directed graphs, where the direction of edges matters for reachability.
+  </div>
+
+  <!-- 10.3 Centrality Measures -->
+  <h2>10.3 Centrality Measures</h2>
+
+  <p>Centrality measures quantify how "central" or "important" a node is within the graph. Different centrality metrics capture different aspects of importance.</p>
+
+  <h3>Degree Centrality</h3>
+  <p>The simplest centrality measure: count the number of connections a node has. In a directed graph, you can distinguish between:</p>
+
+  <ul>
+    <li><strong>In-degree centrality:</strong> Number of incoming edges. High in-degree means many nodes point to this one (e.g., a popular page).</li>
+    <li><strong>Out-degree centrality:</strong> Number of outgoing edges. High out-degree means this node connects to many others (e.g., an active user).</li>
+    <li><strong>Total degree centrality:</strong> Sum of in-degree and out-degree.</li>
+  </ul>
+
+  <p><strong>Normalized degree centrality</strong> divides the raw degree by <em>(N - 1)</em>, where <em>N</em> is the total number of nodes. This produces a value between 0.0 and 1.0, making it comparable across graphs of different sizes.</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-dc')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-dc')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-dc')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-dc')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-dc">
+<pre><span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Degree centrality (normalized by default)</span>
+    centrality = client.<span class="fn">degree_centrality</span>(direction=<span class="str">"both"</span>, normalized=<span class="kw">True</span>)
+
+    <span class="cm"># Find top connectors</span>
+    top = <span class="fn">sorted</span>(centrality.<span class="fn">items</span>(), key=<span class="kw">lambda</span> x: x[<span class="num">1</span>], reverse=<span class="kw">True</span>)[:<span class="num">5</span>]
+    <span class="kw">for</span> node_id, score <span class="kw">in</span> top:
+        <span class="fn">print</span>(<span class="str">f"</span>{node_id}<span class="str">: centrality = </span>{score:<span class="str">.4f}"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-dc">
+<pre>client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+centrality <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">degree_centrality</span>(direction = <span class="str">"both"</span>, normalized = <span class="kw">TRUE</span>)
+ranked <span class="kw">&lt;-</span> centrality[<span class="fn">order</span>(<span class="fn">unlist</span>(centrality), decreasing = <span class="kw">TRUE</span>)]
+<span class="fn">head</span>(ranked, <span class="num">5</span>)
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-dc">
+<pre>scores, _ <span class="kw">:=</span> client.<span class="fn">DegreeCentrality</span>(ctx, <span class="str">"both"</span>, <span class="kw">true</span>)
+<span class="kw">for</span> id, score <span class="kw">:=</span> <span class="kw">range</span> scores {
+    fmt.<span class="fn">Printf</span>(<span class="str">"%s: centrality = %.4f\n"</span>, id, score)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-dc">
+<pre><span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Double</span>&gt; centrality = client.<span class="fn">degreeCentrality</span>(<span class="str">"both"</span>, <span class="kw">true</span>);
+centrality.<span class="fn">entrySet</span>().<span class="fn">stream</span>()
+    .<span class="fn">sorted</span>(<span class="ty">Map.Entry</span>.&lt;<span class="ty">String</span>, <span class="ty">Double</span>&gt;<span class="fn">comparingByValue</span>().<span class="fn">reversed</span>())
+    .<span class="fn">limit</span>(<span class="num">5</span>)
+    .<span class="fn">forEach</span>(e -&gt; System.out.<span class="fn">printf</span>(<span class="str">"%s: %.4f%n"</span>, e.<span class="fn">getKey</span>(), e.<span class="fn">getValue</span>()));</pre>
+  </div>
+
+  <h3>Betweenness Centrality</h3>
+  <p><strong>Betweenness centrality</strong> measures how often a node lies on the shortest path between <em>other</em> pairs of nodes. It is computed using <strong>Brandes' algorithm</strong>, which efficiently calculates the shortest-path dependency for all node pairs.</p>
+
+  <p>A node with high betweenness centrality acts as a <strong>"bridge"</strong> or <strong>"broker"</strong> in the network. Removing it would significantly disrupt communication between other parts of the graph. This makes betweenness centrality essential for identifying critical infrastructure, key intermediaries, or bottlenecks.</p>
+
+  <p>Brandes' algorithm has a time complexity of <em>O(V * E)</em>, which makes it more expensive than degree centrality. For very large graphs (millions of nodes), consider sampling or approximate methods.</p>
+
+  <h3>Example: Identifying Critical Routers</h3>
+  <p>In a network topology graph, betweenness centrality reveals which routers carry the most traffic between different network segments. A router with high betweenness is a single point of failure.</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-bc')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-bc')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-bc')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-bc')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-bc">
+<pre><span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Betweenness centrality (Brandes' algorithm)</span>
+    betweenness = client.<span class="fn">betweenness_centrality</span>(normalized=<span class="kw">True</span>)
+
+    <span class="cm"># Identify the most critical "bridge" nodes</span>
+    bridges = <span class="fn">sorted</span>(betweenness.<span class="fn">items</span>(), key=<span class="kw">lambda</span> x: x[<span class="num">1</span>], reverse=<span class="kw">True</span>)
+    <span class="fn">print</span>(<span class="str">"Most critical nodes (highest betweenness):"</span>)
+    <span class="kw">for</span> node_id, score <span class="kw">in</span> bridges[:<span class="num">5</span>]:
+        <span class="fn">print</span>(<span class="str">f"  </span>{node_id}<span class="str">: </span>{score:<span class="str">.4f}"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-bc">
+<pre>betweenness <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">betweenness_centrality</span>(normalized = <span class="kw">TRUE</span>)
+ranked <span class="kw">&lt;-</span> betweenness[<span class="fn">order</span>(<span class="fn">unlist</span>(betweenness), decreasing = <span class="kw">TRUE</span>)]
+<span class="fn">cat</span>(<span class="str">"Most critical bridge nodes:\n"</span>)
+<span class="fn">head</span>(ranked, <span class="num">5</span>)</pre>
+  </div>
+  <div class="lang-panel" id="go-bc">
+<pre>betweenness, _ <span class="kw">:=</span> client.<span class="fn">BetweennessCentrality</span>(ctx, <span class="kw">true</span>)
+<span class="cm">// Sort and print top bridges</span>
+<span class="kw">type</span> <span class="ty">entry</span> <span class="kw">struct</span> { ID <span class="ty">string</span>; Score <span class="ty">float64</span> }
+<span class="kw">var</span> entries []<span class="ty">entry</span>
+<span class="kw">for</span> id, s <span class="kw">:=</span> <span class="kw">range</span> betweenness {
+    entries = <span class="fn">append</span>(entries, <span class="ty">entry</span>{id, s})
+}
+sort.<span class="fn">Slice</span>(entries, <span class="kw">func</span>(i, j <span class="ty">int</span>) <span class="ty">bool</span> {
+    <span class="kw">return</span> entries[i].Score &gt; entries[j].Score
+})
+fmt.<span class="fn">Println</span>(<span class="str">"Most critical bridge nodes:"</span>)
+<span class="kw">for</span> _, e <span class="kw">:=</span> <span class="kw">range</span> entries[:<span class="num">5</span>] {
+    fmt.<span class="fn">Printf</span>(<span class="str">"  %s: %.4f\n"</span>, e.ID, e.Score)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-bc">
+<pre><span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Double</span>&gt; betweenness = client.<span class="fn">betweennessCentrality</span>(<span class="kw">true</span>);
+System.out.<span class="fn">println</span>(<span class="str">"Most critical bridge nodes:"</span>);
+betweenness.<span class="fn">entrySet</span>().<span class="fn">stream</span>()
+    .<span class="fn">sorted</span>(<span class="ty">Map.Entry</span>.&lt;<span class="ty">String</span>, <span class="ty">Double</span>&gt;<span class="fn">comparingByValue</span>().<span class="fn">reversed</span>())
+    .<span class="fn">limit</span>(<span class="num">5</span>)
+    .<span class="fn">forEach</span>(e -&gt; System.out.<span class="fn">printf</span>(<span class="str">"  %s: %.4f%n"</span>, e.<span class="fn">getKey</span>(), e.<span class="fn">getValue</span>()));</pre>
+  </div>
+
+  <div class="info-box warn">
+    <strong>Warning: Computational Cost</strong>
+    Betweenness centrality has <em>O(V * E)</em> complexity. On a graph with 1 million nodes and 10 million edges, this can take significant time. For large graphs, consider running this algorithm during off-peak hours or using approximate sampling methods.
+  </div>
+
+  <!-- 10.4 Community Detection (Louvain) -->
+  <h2>10.4 Community Detection (Louvain)</h2>
+
+  <h3>What It Does</h3>
+  <p>The <strong>Louvain algorithm</strong> discovers natural groupings (communities) within a graph. Nodes within the same community are densely connected to each other but sparsely connected to nodes in other communities. This is useful for understanding the macro-structure of complex networks.</p>
+
+  <h3>How It Works</h3>
+  <p>Louvain optimizes a metric called <strong>modularity</strong> through two alternating phases:</p>
+  <ol>
+    <li><strong>Local optimization:</strong> Each node is moved to the neighboring community that produces the largest increase in modularity. This repeats until no move improves modularity.</li>
+    <li><strong>Aggregation:</strong> The communities found in phase 1 are collapsed into single "super-nodes," and the process repeats on the coarsened graph.</li>
+  </ol>
+  <p>This continues until no further improvement is possible.</p>
+
+  <h3>Understanding Modularity</h3>
+  <p><strong>Modularity</strong> is a score between -0.5 and 1.0 that measures how well a graph divides into communities:</p>
+  <table>
+    <thead>
+      <tr><th>Modularity Score</th><th>Interpretation</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>< 0.0</td><td>Worse than random assignment; no meaningful community structure.</td></tr>
+      <tr><td>0.0</td><td>Equivalent to random assignment of nodes to communities.</td></tr>
+      <tr><td>0.3 - 0.7</td><td>Good community structure detected. Most real-world networks fall in this range.</td></tr>
+      <tr><td>> 0.7</td><td>Very strong community structure.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example: Co-Authorship Networks</h3>
+  <p>In a graph of academic papers where edges represent co-authorship, Louvain naturally discovers research groups -- clusters of authors who frequently collaborate.</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-lv')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-lv')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-lv')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-lv')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-lv">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+<span class="kw">from</span> collections <span class="kw">import</span> Counter
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Run Louvain community detection</span>
+    communities = client.<span class="fn">louvain_communities</span>()
+    <span class="cm"># Returns: {"nd-1": 0, "nd-2": 0, "nd-3": 1, ...}</span>
+
+    <span class="cm"># Analyze the results</span>
+    counts = <span class="fn">Counter</span>(communities.<span class="fn">values</span>())
+    <span class="fn">print</span>(<span class="str">f"Detected </span>{<span class="fn">len</span>(counts)}<span class="str"> communities"</span>)
+    <span class="kw">for</span> comm_id, size <span class="kw">in</span> counts.<span class="fn">most_common</span>(<span class="num">10</span>):
+        <span class="fn">print</span>(<span class="str">f"  Community </span>{comm_id}<span class="str">: </span>{size}<span class="str"> members"</span>)
+
+    <span class="cm"># Find which community a specific author belongs to</span>
+    alice_id = <span class="str">"nd-42"</span>
+    <span class="fn">print</span>(<span class="str">f"Alice is in community </span>{communities[alice_id]}<span class="str">"</span>)
+
+    <span class="cm"># Find all members of Alice's community</span>
+    alice_comm = communities[alice_id]
+    peers = [nid <span class="kw">for</span> nid, cid <span class="kw">in</span> communities.<span class="fn">items</span>() <span class="kw">if</span> cid == alice_comm]
+    <span class="fn">print</span>(<span class="str">f"Alice's community has </span>{<span class="fn">len</span>(peers)}<span class="str"> members"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-lv">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Run Louvain community detection</span>
+communities <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">louvain_communities</span>()
+
+<span class="cm"># Analyze results</span>
+comm_table <span class="kw">&lt;-</span> <span class="fn">table</span>(<span class="fn">unlist</span>(communities))
+<span class="fn">cat</span>(<span class="str">"Detected"</span>, <span class="fn">length</span>(comm_table), <span class="str">"communities\n"</span>)
+<span class="fn">print</span>(<span class="fn">sort</span>(comm_table, decreasing = <span class="kw">TRUE</span>))
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-lv">
+<pre>communities, _ <span class="kw">:=</span> client.<span class="fn">LouvainCommunities</span>(ctx)
+
+<span class="cm">// Count nodes per community</span>
+counts <span class="kw">:=</span> <span class="kw">make</span>(<span class="kw">map</span>[<span class="ty">int</span>]<span class="ty">int</span>)
+<span class="kw">for</span> _, commID <span class="kw">:=</span> <span class="kw">range</span> communities {
+    counts[commID]++
+}
+fmt.<span class="fn">Printf</span>(<span class="str">"Detected %d communities\n"</span>, <span class="fn">len</span>(counts))
+<span class="kw">for</span> commID, size <span class="kw">:=</span> <span class="kw">range</span> counts {
+    fmt.<span class="fn">Printf</span>(<span class="str">"  Community %d: %d members\n"</span>, commID, size)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-lv">
+<pre><span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Integer</span>&gt; communities = client.<span class="fn">louvainCommunities</span>();
+
+<span class="cm">// Count nodes per community</span>
+<span class="kw">var</span> counts = communities.<span class="fn">values</span>().<span class="fn">stream</span>()
+    .<span class="fn">collect</span>(<span class="ty">Collectors</span>.<span class="fn">groupingBy</span>(c -&gt; c, <span class="ty">Collectors</span>.<span class="fn">counting</span>()));
+
+System.out.<span class="fn">printf</span>(<span class="str">"Detected %d communities%n"</span>, counts.<span class="fn">size</span>());
+counts.<span class="fn">entrySet</span>().<span class="fn">stream</span>()
+    .<span class="fn">sorted</span>(<span class="ty">Map.Entry</span>.&lt;<span class="ty">Integer</span>, <span class="ty">Long</span>&gt;<span class="fn">comparingByValue</span>().<span class="fn">reversed</span>())
+    .<span class="fn">limit</span>(<span class="num">10</span>)
+    .<span class="fn">forEach</span>(e -&gt; System.out.<span class="fn">printf</span>(<span class="str">"  Community %d: %d members%n"</span>,
+        e.<span class="fn">getKey</span>(), e.<span class="fn">getValue</span>()));</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Tip: Non-Determinism</strong>
+    The Louvain algorithm is <strong>non-deterministic</strong>. Different runs may discover slightly different community assignments, especially for nodes that sit on the boundary between two communities. The overall structure (number of communities, approximate sizes) will be consistent, but individual node assignments at the margins may vary. If reproducibility is required, set a random seed in the algorithm configuration.
+  </div>
+
+  <!-- Algorithm Comparison Table -->
+  <h2>10.5 Algorithm Comparison</h2>
+
+  <p>The following table summarizes all the graph algorithms available in AstraeaDB, their purpose, computational complexity, and output format.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Algorithm</th>
+        <th>Purpose</th>
+        <th>Complexity</th>
+        <th>Output</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>PageRank</strong></td>
+        <td>Node importance ranking</td>
+        <td><em>O(V + E)</em> per iteration</td>
+        <td>Scores (0.0 to 1.0)</td>
+      </tr>
+      <tr>
+        <td><strong>Connected Components</strong></td>
+        <td>Cluster detection (undirected)</td>
+        <td><em>O(V + E)</em></td>
+        <td>Component IDs</td>
+      </tr>
+      <tr>
+        <td><strong>SCCs (Tarjan)</strong></td>
+        <td>Directed cluster detection</td>
+        <td><em>O(V + E)</em></td>
+        <td>Component IDs</td>
+      </tr>
+      <tr>
+        <td><strong>Degree Centrality</strong></td>
+        <td>Connection counting</td>
+        <td><em>O(V + E)</em></td>
+        <td>Scores (0.0 to 1.0)</td>
+      </tr>
+      <tr>
+        <td><strong>Betweenness Centrality</strong></td>
+        <td>Bridge / broker detection</td>
+        <td><em>O(V * E)</em></td>
+        <td>Scores (0.0 to 1.0)</td>
+      </tr>
+      <tr>
+        <td><strong>Louvain</strong></td>
+        <td>Community detection</td>
+        <td><em>O(V * log V)</em> avg</td>
+        <td>Community IDs</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Note: GPU Acceleration</strong>
+    For large-scale analytical workloads, AstraeaDB can offload graph algorithms to the GPU via the cuGraph backend. Algorithms like PageRank and Louvain are fundamentally matrix operations and benefit enormously from GPU parallelism. See Chapter 14 (Performance) for details on enabling GPU acceleration.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch09.html">&larr; Chapter 9: Temporal Graphs</a>
+    <span class="spacer"></span>
+    <a href="gentle-intro-ch11.html">Chapter 11: GraphRAG &rarr;</a>
+  </div>
+</div>
+
+<footer>
+  &copy; 2026 AstraeaDB Project. Released under the MIT License.
+  <a href="https://github.com/jimeharrisjr/graph-astraeadb">GitHub</a>
+</footer>
+
+<script>
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

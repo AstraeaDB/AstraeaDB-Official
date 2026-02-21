@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 9: Temporal Graphs &mdash; AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html" class="active">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 9: Temporal Graphs</h1>
+  <p class="subtitle">
+    Relationships change over time. People switch jobs, supply chains reconfigure, permissions are granted and revoked. AstraeaDB's temporal graph model lets you capture <em>when</em> a relationship was active, and query the graph as it existed at any point in the past.
+  </p>
+
+  <div class="info-box info">
+    <strong>Prerequisites</strong>
+    This chapter assumes you have completed Chapters 3&ndash;6 and are comfortable creating nodes, edges, and running basic queries. You will also use the traversal operations introduced in Chapter 6.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 9.1 Validity Intervals -->
+  <!-- ================================================================== -->
+  <h2>9.1 Validity Intervals</h2>
+
+  <p>
+    In a traditional graph database, an edge either exists or it does not. In AstraeaDB, every edge can optionally carry a <strong>validity interval</strong>: a pair of timestamps <code>[valid_from, valid_to)</code> that defines the period during which that edge is considered "active."
+  </p>
+
+  <h3>The rules</h3>
+  <ul>
+    <li><code>valid_from</code> and <code>valid_to</code> are <strong>Unix timestamps in milliseconds</strong> (milliseconds since January 1, 1970 UTC).</li>
+    <li>An edge is <strong>active</strong> at time <code>t</code> if <code>valid_from &lt;= t &lt; valid_to</code>. The interval is half-open: inclusive on the left, exclusive on the right.</li>
+    <li>If <code>valid_to</code> is omitted (or set to <code>null</code>/<code>0</code>), the edge is considered <strong>ongoing</strong>&mdash;it is active from <code>valid_from</code> through the present and into the future.</li>
+    <li>If neither <code>valid_from</code> nor <code>valid_to</code> is set, the edge behaves like a traditional edge: it is always active.</li>
+    <li>Multiple edges between the same two nodes can have <strong>non-overlapping intervals</strong>, representing the same relationship at different times (e.g., Alice worked at Company A from 2021&ndash;2023, then returned in 2025).</li>
+  </ul>
+
+  <div class="diagram">  Timeline for Alice's employment:
+
+  2021-01-01           2023-01-01           2025-01-01        now
+      │                    │                    │               │
+      ├────────────────────┤                    ├───────────────►
+      │  WORKS_AT          │                    │  WORKS_AT
+      │  Company A         │                    │  Company B
+      │  role: "Engineer"  │                    │  role: "Senior Engineer"
+      │                    │                    │
+  ────┴────────────────────┴────────────────────┴───────────────►  time</div>
+
+  <h3>Creating temporal edges</h3>
+  <p>
+    The following example models Alice's employment history. She worked at Company A from January 1, 2021 through January 1, 2023, then moved to Company B starting January 1, 2023 (ongoing).
+  </p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'temporal-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'temporal-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'temporal-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'temporal-java')">Java</button>
+  </div>
+  <div id="temporal-py" class="lang-panel active">
+<pre><span class="kw">from</span> astraeadb.client <span class="kw">import</span> <span class="ty">JsonClient</span>
+
+client = <span class="ty">JsonClient</span>(<span class="str">"localhost"</span>)
+client.<span class="fn">connect</span>()
+
+<span class="cm"># Create nodes</span>
+alice     = client.<span class="fn">create_node</span>([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Alice"</span>})
+company_a = client.<span class="fn">create_node</span>([<span class="str">"Company"</span>], {<span class="str">"name"</span>: <span class="str">"Acme Corp"</span>})
+company_b = client.<span class="fn">create_node</span>([<span class="str">"Company"</span>], {<span class="str">"name"</span>: <span class="str">"Globex Inc"</span>})
+
+<span class="cm"># Temporal edge: Alice worked at Acme Corp from 2021 to 2023</span>
+client.<span class="fn">create_edge</span>(
+    alice, company_a, <span class="str">"WORKS_AT"</span>,
+    {<span class="str">"role"</span>: <span class="str">"Engineer"</span>},
+    valid_from=<span class="num">1609459200000</span>,   <span class="cm"># Jan 1, 2021 00:00 UTC</span>
+    valid_to=<span class="num">1672531200000</span>     <span class="cm"># Jan 1, 2023 00:00 UTC</span>
+)
+
+<span class="cm"># Temporal edge: Alice works at Globex Inc from 2023 onward (ongoing)</span>
+client.<span class="fn">create_edge</span>(
+    alice, company_b, <span class="str">"WORKS_AT"</span>,
+    {<span class="str">"role"</span>: <span class="str">"Senior Engineer"</span>},
+    valid_from=<span class="num">1672531200000</span>    <span class="cm"># Jan 1, 2023 00:00 UTC</span>
+    <span class="cm"># valid_to omitted = ongoing</span>
+)
+
+<span class="cm"># Non-temporal edge (always active)</span>
+bob = client.<span class="fn">create_node</span>([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Bob"</span>})
+client.<span class="fn">create_edge</span>(alice, bob, <span class="str">"KNOWS"</span>, {<span class="str">"since"</span>: <span class="str">"college"</span>})</pre>
+  </div>
+  <div id="temporal-r" class="lang-panel">
+<pre><span class="kw">library</span>(astraea)
+
+client <span class="kw">&lt;-</span> <span class="ty">AstraeaClient</span><span class="kw">$</span><span class="fn">new</span>(<span class="str">"localhost"</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Create nodes</span>
+alice     <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(<span class="fn">c</span>(<span class="str">"Person"</span>),  <span class="fn">list</span>(name = <span class="str">"Alice"</span>))
+company_a <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(<span class="fn">c</span>(<span class="str">"Company"</span>), <span class="fn">list</span>(name = <span class="str">"Acme Corp"</span>))
+company_b <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(<span class="fn">c</span>(<span class="str">"Company"</span>), <span class="fn">list</span>(name = <span class="str">"Globex Inc"</span>))
+
+<span class="cm"># Temporal edge: Alice worked at Acme Corp from 2021 to 2023</span>
+client<span class="kw">$</span><span class="fn">create_edge</span>(
+  from_node  = alice,
+  to_node    = company_a,
+  label      = <span class="str">"WORKS_AT"</span>,
+  properties = <span class="fn">list</span>(role = <span class="str">"Engineer"</span>),
+  valid_from = <span class="num">1609459200000</span>,   <span class="cm"># Jan 1, 2021</span>
+  valid_to   = <span class="num">1672531200000</span>    <span class="cm"># Jan 1, 2023</span>
+)
+
+<span class="cm"># Temporal edge: Alice works at Globex Inc from 2023 onward</span>
+client<span class="kw">$</span><span class="fn">create_edge</span>(
+  from_node  = alice,
+  to_node    = company_b,
+  label      = <span class="str">"WORKS_AT"</span>,
+  properties = <span class="fn">list</span>(role = <span class="str">"Senior Engineer"</span>),
+  valid_from = <span class="num">1672531200000</span>    <span class="cm"># Jan 1, 2023 (ongoing)</span>
+)
+
+<span class="cm"># Non-temporal edge (always active)</span>
+bob <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(<span class="fn">c</span>(<span class="str">"Person"</span>), <span class="fn">list</span>(name = <span class="str">"Bob"</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(alice, bob, <span class="str">"KNOWS"</span>, <span class="fn">list</span>(since = <span class="str">"college"</span>))</pre>
+  </div>
+  <div id="temporal-go" class="lang-panel">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"fmt"</span>
+    <span class="str">"log"</span>
+    astraea <span class="str">"github.com/jimeharrisjr/astraea-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client, err := astraea.<span class="fn">NewJSONClient</span>(<span class="str">"localhost"</span>, <span class="num">7687</span>)
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Create nodes</span>
+    alice, _ := client.<span class="fn">CreateNode</span>([]<span class="ty">string</span>{<span class="str">"Person"</span>},
+        <span class="fn">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"name"</span>: <span class="str">"Alice"</span>}, <span class="kw">nil</span>)
+    companyA, _ := client.<span class="fn">CreateNode</span>([]<span class="ty">string</span>{<span class="str">"Company"</span>},
+        <span class="fn">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"name"</span>: <span class="str">"Acme Corp"</span>}, <span class="kw">nil</span>)
+    companyB, _ := client.<span class="fn">CreateNode</span>([]<span class="ty">string</span>{<span class="str">"Company"</span>},
+        <span class="fn">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"name"</span>: <span class="str">"Globex Inc"</span>}, <span class="kw">nil</span>)
+
+    <span class="cm">// Temporal edge: Alice at Acme Corp 2021-2023</span>
+    client.<span class="fn">CreateEdge</span>(alice, companyA, <span class="str">"WORKS_AT"</span>,
+        <span class="fn">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"role"</span>: <span class="str">"Engineer"</span>},
+        astraea.<span class="fn">WithValidity</span>(<span class="num">1609459200000</span>, <span class="num">1672531200000</span>),
+    )
+
+    <span class="cm">// Temporal edge: Alice at Globex Inc from 2023 (ongoing)</span>
+    client.<span class="fn">CreateEdge</span>(alice, companyB, <span class="str">"WORKS_AT"</span>,
+        <span class="fn">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"role"</span>: <span class="str">"Senior Engineer"</span>},
+        astraea.<span class="fn">WithValidFrom</span>(<span class="num">1672531200000</span>),
+    )
+
+    fmt.<span class="fn">Println</span>(<span class="str">"Temporal edges created."</span>)
+}</pre>
+  </div>
+  <div id="temporal-java" class="lang-panel">
+<pre><span class="kw">import</span> com.astraeadb.client.<span class="ty">JsonClient</span>;
+<span class="kw">import</span> java.util.*;
+
+<span class="kw">public class</span> <span class="ty">TemporalExample</span> {
+    <span class="kw">public static void</span> <span class="fn">main</span>(<span class="ty">String</span>[] args) {
+        <span class="ty">JsonClient</span> client = <span class="kw">new</span> <span class="ty">JsonClient</span>(<span class="str">"localhost"</span>, <span class="num">7687</span>);
+        client.<span class="fn">connect</span>();
+
+        <span class="cm">// Create nodes</span>
+        <span class="ty">String</span> alice    = client.<span class="fn">createNode</span>(<span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Person"</span>),
+                             <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Alice"</span>));
+        <span class="ty">String</span> companyA = client.<span class="fn">createNode</span>(<span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Company"</span>),
+                             <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Acme Corp"</span>));
+        <span class="ty">String</span> companyB = client.<span class="fn">createNode</span>(<span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Company"</span>),
+                             <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Globex Inc"</span>));
+
+        <span class="cm">// Temporal edge: Alice at Acme Corp 2021-2023</span>
+        client.<span class="fn">createEdge</span>(
+            alice, companyA, <span class="str">"WORKS_AT"</span>,
+            <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"role"</span>, <span class="str">"Engineer"</span>),
+            <span class="num">1609459200000L</span>,    <span class="cm">// valid_from: Jan 1, 2021</span>
+            <span class="num">1672531200000L</span>     <span class="cm">// valid_to:   Jan 1, 2023</span>
+        );
+
+        <span class="cm">// Temporal edge: Alice at Globex Inc from 2023 (ongoing)</span>
+        client.<span class="fn">createEdge</span>(
+            alice, companyB, <span class="str">"WORKS_AT"</span>,
+            <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"role"</span>, <span class="str">"Senior Engineer"</span>),
+            <span class="num">1672531200000L</span>,    <span class="cm">// valid_from: Jan 1, 2023</span>
+            <span class="num">0L</span>                <span class="cm">// valid_to: 0 = ongoing</span>
+        );
+
+        <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Temporal edges created."</span>);
+        client.<span class="fn">close</span>();
+    }
+}</pre>
+  </div>
+
+  <div class="info-box warn">
+    <strong>Timestamp precision</strong>
+    All timestamps are in <strong>milliseconds</strong> since the Unix epoch (January 1, 1970 UTC). Be careful not to pass seconds-based timestamps&mdash;a value of <code>1672531200</code> (seconds) corresponds to the year 1970, not 2023. Multiply by 1000 to convert seconds to milliseconds.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 9.2 Point-in-Time Queries -->
+  <!-- ================================================================== -->
+  <h2>9.2 Point-in-Time Queries</h2>
+
+  <p>
+    The most fundamental temporal operation is <strong>point-in-time neighbor lookup</strong>: "Which nodes were connected to X at time T?" The <code>neighbors_at</code> method works exactly like the regular <code>neighbors</code> call, but it filters edges based on whether they were active at the specified timestamp.
+  </p>
+
+  <h3>API</h3>
+  <p>
+    <code>neighbors_at(node_id, direction, timestamp)</code> returns only edges where <code>valid_from &lt;= timestamp &lt; valid_to</code> (or where no interval is set, meaning always-active edges).
+  </p>
+
+  <h3>Example: Where did Alice work in 2022?</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'pit-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'pit-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'pit-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'pit-java')">Java</button>
+  </div>
+  <div id="pit-py" class="lang-panel active">
+<pre><span class="cm"># July 1, 2022 in milliseconds</span>
+mid_2022 = <span class="num">1656633600000</span>
+
+<span class="cm"># Who/what was Alice connected to in mid-2022?</span>
+neighbors = client.<span class="fn">neighbors_at</span>(
+    node_id=alice,
+    direction=<span class="str">"outgoing"</span>,
+    timestamp=mid_2022
+)
+
+<span class="kw">for</span> n <span class="kw">in</span> neighbors:
+    <span class="fn">print</span>(<span class="str">f"Edge: <span class="kw">{</span>n[<span class="str">'edge_label'</span>]<span class="kw">}</span>  "</span>
+          <span class="str">f"Target: <span class="kw">{</span>n[<span class="str">'node_properties'</span>][<span class="str">'name'</span>]<span class="kw">}</span>  "</span>
+          <span class="str">f"Role: <span class="kw">{</span>n[<span class="str">'edge_properties'</span>].get(<span class="str">'role'</span>, <span class="str">'N/A'</span>)<span class="kw">}</span>"</span>)
+
+<span class="cm"># Output:</span>
+<span class="cm"># Edge: WORKS_AT  Target: Acme Corp  Role: Engineer</span>
+<span class="cm"># Edge: KNOWS     Target: Bob        Role: N/A</span>
+<span class="cm">#</span>
+<span class="cm"># Notice: the Globex Inc edge does NOT appear, because it</span>
+<span class="cm"># starts on Jan 1, 2023 (after our query timestamp).</span>
+
+<span class="cm"># Now query at mid-2024</span>
+mid_2024 = <span class="num">1719792000000</span>
+neighbors_2024 = client.<span class="fn">neighbors_at</span>(alice, <span class="str">"outgoing"</span>, mid_2024)
+
+<span class="kw">for</span> n <span class="kw">in</span> neighbors_2024:
+    <span class="fn">print</span>(<span class="str">f"Edge: <span class="kw">{</span>n[<span class="str">'edge_label'</span>]<span class="kw">}</span>  "</span>
+          <span class="str">f"Target: <span class="kw">{</span>n[<span class="str">'node_properties'</span>][<span class="str">'name'</span>]<span class="kw">}</span>"</span>)
+
+<span class="cm"># Output:</span>
+<span class="cm"># Edge: WORKS_AT  Target: Globex Inc</span>
+<span class="cm"># Edge: KNOWS     Target: Bob</span>
+<span class="cm">#</span>
+<span class="cm"># Now Acme Corp is gone and Globex Inc appears.</span></pre>
+  </div>
+  <div id="pit-r" class="lang-panel">
+<pre><span class="cm"># July 1, 2022 in milliseconds</span>
+mid_2022 <span class="kw">&lt;-</span> <span class="num">1656633600000</span>
+
+<span class="cm"># Who/what was Alice connected to in mid-2022?</span>
+neighbors <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">neighbors_at</span>(
+  node_id   = alice,
+  direction = <span class="str">"outgoing"</span>,
+  timestamp = mid_2022
+)
+
+<span class="kw">for</span> (n <span class="kw">in</span> neighbors) {
+  <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"Edge: %s  Target: %s  Role: %s\n"</span>,
+              n<span class="kw">$</span>edge_label,
+              n<span class="kw">$</span>node_properties<span class="kw">$</span>name,
+              <span class="fn">ifelse</span>(<span class="fn">is.null</span>(n<span class="kw">$</span>edge_properties<span class="kw">$</span>role),
+                     <span class="str">"N/A"</span>, n<span class="kw">$</span>edge_properties<span class="kw">$</span>role)))
+}
+
+<span class="cm"># Now query at mid-2024</span>
+mid_2024 <span class="kw">&lt;-</span> <span class="num">1719792000000</span>
+neighbors_2024 <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">neighbors_at</span>(alice, <span class="str">"outgoing"</span>, mid_2024)
+<span class="kw">for</span> (n <span class="kw">in</span> neighbors_2024) {
+  <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"Edge: %s  Target: %s\n"</span>,
+              n<span class="kw">$</span>edge_label, n<span class="kw">$</span>node_properties<span class="kw">$</span>name))
+}</pre>
+  </div>
+  <div id="pit-go" class="lang-panel">
+<pre><span class="cm">// July 1, 2022 in milliseconds</span>
+<span class="kw">var</span> mid2022 <span class="ty">int64</span> = <span class="num">1656633600000</span>
+
+<span class="cm">// Who/what was Alice connected to in mid-2022?</span>
+neighbors, _ := client.<span class="fn">NeighborsAt</span>(alice, <span class="str">"outgoing"</span>, mid2022)
+
+<span class="kw">for</span> _, n := <span class="kw">range</span> neighbors {
+    fmt.<span class="fn">Printf</span>(<span class="str">"Edge: %s  Target: %s  Role: %v\n"</span>,
+        n.EdgeLabel, n.NodeProperties[<span class="str">"name"</span>],
+        n.EdgeProperties[<span class="str">"role"</span>])
+}
+
+<span class="cm">// Now query at mid-2024</span>
+<span class="kw">var</span> mid2024 <span class="ty">int64</span> = <span class="num">1719792000000</span>
+neighbors2024, _ := client.<span class="fn">NeighborsAt</span>(alice, <span class="str">"outgoing"</span>, mid2024)
+
+<span class="kw">for</span> _, n := <span class="kw">range</span> neighbors2024 {
+    fmt.<span class="fn">Printf</span>(<span class="str">"Edge: %s  Target: %s\n"</span>,
+        n.EdgeLabel, n.NodeProperties[<span class="str">"name"</span>])
+}</pre>
+  </div>
+  <div id="pit-java" class="lang-panel">
+<pre><span class="cm">// July 1, 2022 in milliseconds</span>
+<span class="kw">long</span> mid2022 = <span class="num">1656633600000L</span>;
+
+<span class="cm">// Who/what was Alice connected to in mid-2022?</span>
+<span class="ty">List</span>&lt;<span class="ty">NeighborResult</span>&gt; neighbors =
+    client.<span class="fn">neighborsAt</span>(alice, <span class="str">"outgoing"</span>, mid2022);
+
+<span class="kw">for</span> (<span class="ty">NeighborResult</span> n : neighbors) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"Edge: %s  Target: %s  Role: %s%n"</span>,
+        n.<span class="fn">getEdgeLabel</span>(),
+        n.<span class="fn">getNodeProperties</span>().<span class="fn">get</span>(<span class="str">"name"</span>),
+        n.<span class="fn">getEdgeProperties</span>().<span class="fn">getOrDefault</span>(<span class="str">"role"</span>, <span class="str">"N/A"</span>));
+}
+
+<span class="cm">// Now query at mid-2024</span>
+<span class="kw">long</span> mid2024 = <span class="num">1719792000000L</span>;
+<span class="ty">List</span>&lt;<span class="ty">NeighborResult</span>&gt; neighbors2024 =
+    client.<span class="fn">neighborsAt</span>(alice, <span class="str">"outgoing"</span>, mid2024);
+
+<span class="kw">for</span> (<span class="ty">NeighborResult</span> n : neighbors2024) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"Edge: %s  Target: %s%n"</span>,
+        n.<span class="fn">getEdgeLabel</span>(),
+        n.<span class="fn">getNodeProperties</span>().<span class="fn">get</span>(<span class="str">"name"</span>));
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 9.3 Temporal BFS and Shortest Path -->
+  <!-- ================================================================== -->
+  <h2>9.3 Temporal BFS and Shortest Path</h2>
+
+  <p>
+    Point-in-time queries extend naturally to multi-hop traversals. AstraeaDB provides temporal-aware variants of BFS and shortest path that only traverse edges active at the specified timestamp.
+  </p>
+
+  <h3>Temporal BFS</h3>
+  <p>
+    <code>bfs_at(start, max_depth, timestamp)</code> performs a breadth-first search from the start node, but at each hop it only follows edges whose validity interval contains the given timestamp.
+  </p>
+
+  <h3>Temporal Shortest Path</h3>
+  <p>
+    <code>shortest_path_at(from_node, to_node, timestamp)</code> finds the shortest path between two nodes using only edges that were active at the specified time.
+  </p>
+
+  <h3>Example: Organizational path in 2022</h3>
+  <p>
+    Suppose we have modeled a company's reporting structure with temporal <code>REPORTS_TO</code> edges. We can ask: "What was the chain of command from Alice to the CEO in mid-2022?"
+  </p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'tbfs-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'tbfs-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'tbfs-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'tbfs-java')">Java</button>
+  </div>
+  <div id="tbfs-py" class="lang-panel active">
+<pre>mid_2022 = <span class="num">1656633600000</span>
+
+<span class="cm"># ── Temporal BFS ──</span>
+<span class="cm"># Discover all nodes reachable from Alice within 5 hops at mid-2022</span>
+bfs_result = client.<span class="fn">bfs_at</span>(
+    start=alice,
+    max_depth=<span class="num">5</span>,
+    timestamp=mid_2022
+)
+
+<span class="fn">print</span>(<span class="str">f"Nodes reachable from Alice in mid-2022: <span class="kw">{</span><span class="fn">len</span>(bfs_result)<span class="kw">}</span>"</span>)
+<span class="kw">for</span> node <span class="kw">in</span> bfs_result:
+    <span class="fn">print</span>(<span class="str">f"  depth=<span class="kw">{</span>node[<span class="str">'depth'</span>]<span class="kw">}</span>  <span class="kw">{</span>node[<span class="str">'properties'</span>][<span class="str">'name'</span>]<span class="kw">}</span>"</span>)
+
+<span class="cm"># ── Temporal Shortest Path ──</span>
+<span class="cm"># What was the reporting chain from Alice to the CEO in mid-2022?</span>
+path = client.<span class="fn">shortest_path_at</span>(
+    from_node=alice,
+    to_node=ceo_id,
+    timestamp=mid_2022
+)
+
+<span class="kw">if</span> path:
+    <span class="fn">print</span>(<span class="str">"Reporting chain in mid-2022:"</span>)
+    <span class="kw">for</span> step <span class="kw">in</span> path:
+        <span class="fn">print</span>(<span class="str">f"  <span class="kw">{</span>step[<span class="str">'properties'</span>][<span class="str">'name'</span>]<span class="kw">}</span> (<span class="kw">{</span>step[<span class="str">'labels'</span>]<span class="kw">}</span>)"</span>)
+    <span class="cm"># Example output:</span>
+    <span class="cm"># Reporting chain in mid-2022:</span>
+    <span class="cm">#   Alice (['Person'])</span>
+    <span class="cm">#   Bob (['Person'])            -- Alice's manager in 2022</span>
+    <span class="cm">#   Carol (['Person'])          -- VP Engineering in 2022</span>
+    <span class="cm">#   Dave (['Person'])           -- CEO</span>
+<span class="kw">else</span>:
+    <span class="fn">print</span>(<span class="str">"No path found at that timestamp."</span>)</pre>
+  </div>
+  <div id="tbfs-r" class="lang-panel">
+<pre>mid_2022 <span class="kw">&lt;-</span> <span class="num">1656633600000</span>
+
+<span class="cm"># ── Temporal BFS ──</span>
+bfs_result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">bfs_at</span>(
+  start     = alice,
+  max_depth = <span class="num">5</span>,
+  timestamp = mid_2022
+)
+
+<span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"Nodes reachable from Alice in mid-2022: %d\n"</span>,
+            <span class="fn">length</span>(bfs_result)))
+<span class="kw">for</span> (node <span class="kw">in</span> bfs_result) {
+  <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"  depth=%d  %s\n"</span>, node<span class="kw">$</span>depth, node<span class="kw">$</span>properties<span class="kw">$</span>name))
+}
+
+<span class="cm"># ── Temporal Shortest Path ──</span>
+path <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">shortest_path_at</span>(
+  from_node = alice,
+  to_node   = ceo_id,
+  timestamp = mid_2022
+)
+
+<span class="kw">if</span> (<span class="fn">length</span>(path) > <span class="num">0</span>) {
+  <span class="fn">cat</span>(<span class="str">"Reporting chain in mid-2022:\n"</span>)
+  <span class="kw">for</span> (step <span class="kw">in</span> path) {
+    <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"  %s\n"</span>, step<span class="kw">$</span>properties<span class="kw">$</span>name))
+  }
+}</pre>
+  </div>
+  <div id="tbfs-go" class="lang-panel">
+<pre><span class="kw">var</span> mid2022 <span class="ty">int64</span> = <span class="num">1656633600000</span>
+
+<span class="cm">// ── Temporal BFS ──</span>
+bfsResult, _ := client.<span class="fn">BFSAt</span>(alice, <span class="num">5</span>, mid2022)
+
+fmt.<span class="fn">Printf</span>(<span class="str">"Nodes reachable from Alice in mid-2022: %d\n"</span>,
+    <span class="fn">len</span>(bfsResult))
+<span class="kw">for</span> _, node := <span class="kw">range</span> bfsResult {
+    fmt.<span class="fn">Printf</span>(<span class="str">"  depth=%d  %s\n"</span>,
+        node.Depth, node.Properties[<span class="str">"name"</span>])
+}
+
+<span class="cm">// ── Temporal Shortest Path ──</span>
+path, _ := client.<span class="fn">ShortestPathAt</span>(alice, ceoID, mid2022)
+
+<span class="kw">if</span> <span class="fn">len</span>(path) > <span class="num">0</span> {
+    fmt.<span class="fn">Println</span>(<span class="str">"Reporting chain in mid-2022:"</span>)
+    <span class="kw">for</span> _, step := <span class="kw">range</span> path {
+        fmt.<span class="fn">Printf</span>(<span class="str">"  %s\n"</span>, step.Properties[<span class="str">"name"</span>])
+    }
+}</pre>
+  </div>
+  <div id="tbfs-java" class="lang-panel">
+<pre><span class="kw">long</span> mid2022 = <span class="num">1656633600000L</span>;
+
+<span class="cm">// ── Temporal BFS ──</span>
+<span class="ty">List</span>&lt;<span class="ty">BfsNode</span>&gt; bfsResult = client.<span class="fn">bfsAt</span>(alice, <span class="num">5</span>, mid2022);
+
+<span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"Nodes reachable from Alice in mid-2022: %d%n"</span>,
+    bfsResult.<span class="fn">size</span>());
+<span class="kw">for</span> (<span class="ty">BfsNode</span> node : bfsResult) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"  depth=%d  %s%n"</span>,
+        node.<span class="fn">getDepth</span>(), node.<span class="fn">getProperties</span>().<span class="fn">get</span>(<span class="str">"name"</span>));
+}
+
+<span class="cm">// ── Temporal Shortest Path ──</span>
+<span class="ty">List</span>&lt;<span class="ty">PathNode</span>&gt; path = client.<span class="fn">shortestPathAt</span>(alice, ceoId, mid2022);
+
+<span class="kw">if</span> (!path.<span class="fn">isEmpty</span>()) {
+    <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Reporting chain in mid-2022:"</span>);
+    <span class="kw">for</span> (<span class="ty">PathNode</span> step : path) {
+        <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"  %s%n"</span>,
+            step.<span class="fn">getProperties</span>().<span class="fn">get</span>(<span class="str">"name"</span>));
+    }
+}</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Comparing time periods</strong>
+    Run the same query at two different timestamps to see how the graph evolved. For example, run <code>shortest_path_at</code> at mid-2022 and again at mid-2024 to see how the reporting chain changed after a reorganization.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 9.4 Use Cases -->
+  <!-- ================================================================== -->
+  <h2>9.4 Use Cases</h2>
+
+  <p>
+    Temporal graphs are useful whenever the relationships in your domain change over time. Here are four common patterns:
+  </p>
+
+  <div class="concept-grid">
+    <div class="concept-card">
+      <h4>Organizational History</h4>
+      <p>
+        Track reporting structures, team assignments, and role changes over time. Answer questions like "Who was Alice's manager in Q3 2022?" or "How did the engineering org structure change after the merger?" Each <code>REPORTS_TO</code> and <code>MEMBER_OF</code> edge carries a validity interval, so no data is lost when relationships change.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Network Evolution</h4>
+      <p>
+        Model how a social network, communication network, or infrastructure topology grew and changed. Analyze which connections appeared or disappeared during specific events. Combine with graph algorithms (Chapter 10) to compute centrality or community structure at any historical point.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Compliance and Audit</h4>
+      <p>
+        Prove the state of access permissions, data flows, or approval chains as they existed at a specific date. Auditors can query "Who had write access to the production database on March 15th?" and receive an answer that reflects the permission graph at that exact moment&mdash;not the current state.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Supply Chain Tracking</h4>
+      <p>
+        Supplier relationships, shipping routes, and inventory locations change frequently. Temporal edges let you answer "Which suppliers were feeding our Munich factory when the disruption hit on June 3rd?" and compare with the current supplier graph to understand what changed.
+      </p>
+    </div>
+  </div>
+
+  <div class="info-box info">
+    <strong>Performance note</strong>
+    Temporal queries do not duplicate the graph for each time point. AstraeaDB uses persistent data structures internally: each edge stores its validity interval, and temporal queries filter edges during traversal. The storage overhead is just two additional integers (8 bytes each) per temporal edge. There is no need to create separate "snapshot" copies of your graph.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch08.html">&larr; Ch 8: Vector Search</a>
+    <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+
+function switchTab(event, panelId) {
+  const tabGroup = event.target.parentElement;
+  const container = tabGroup.parentElement;
+  tabGroup.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  let sibling = tabGroup.nextElementSibling;
+  while (sibling && sibling.classList.contains('lang-panel')) {
+    sibling.classList.remove('active');
+    sibling = sibling.nextElementSibling;
+  }
+  document.getElementById(panelId).classList.add('active');
+}
+</script>
+</body>
+</html>

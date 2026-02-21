@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 8: Vector Search and Semantic Queries &mdash; AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html" class="active">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 8: Vector Search and Semantic Queries</h1>
+  <p class="subtitle">
+    AstraeaDB is not just a graph database&mdash;it is a <strong>Vector-Property Graph</strong>. Every node can carry a dense embedding alongside its properties and labels, enabling a family of queries that blend structural graph traversal with semantic similarity.
+  </p>
+
+  <div class="info-box info">
+    <strong>Prerequisites</strong>
+    This chapter assumes you have completed Chapters 3&ndash;6 and have a running AstraeaDB instance with the Python, R, Go, or Java client installed. Familiarity with basic machine-learning concepts (embeddings, cosine similarity) is helpful but not required&mdash;we explain everything from first principles.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 8.1 What Are Vector Embeddings? -->
+  <!-- ================================================================== -->
+  <h2>8.1 What Are Vector Embeddings?</h2>
+
+  <p>
+    A <strong>vector embedding</strong> is a fixed-size array of floating-point numbers (typically 128 to 1536 dimensions) that represents the "meaning" of a piece of content&mdash;a sentence, a document, an image, a user profile, or any concept you want to reason about computationally.
+  </p>
+
+  <h3>The core insight</h3>
+  <p>
+    Embedding models are trained so that <em>similar things have similar vectors</em>. If you embed the sentences "The cat sat on the mat" and "A kitten rested on the rug," their vectors will be very close together in high-dimensional space, even though the sentences share almost no words. Conversely, "Stock prices fell sharply" will produce a vector far from both.
+  </p>
+
+  <h3>Distance metrics</h3>
+  <p>
+    "Closeness" is measured by a distance function. AstraeaDB supports three:
+  </p>
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th>Formula</th>
+      <th>Range</th>
+      <th>When to use</th>
+    </tr>
+    <tr>
+      <td>Cosine similarity</td>
+      <td><code>1 - (A . B) / (|A| * |B|)</code></td>
+      <td>0 (identical) to 2 (opposite)</td>
+      <td>Text embeddings (most common)</td>
+    </tr>
+    <tr>
+      <td>Euclidean (L2)</td>
+      <td><code>sqrt(sum((a_i - b_i)^2))</code></td>
+      <td>0 to infinity</td>
+      <td>Image embeddings, spatial data</td>
+    </tr>
+    <tr>
+      <td>Dot product</td>
+      <td><code>A . B</code></td>
+      <td>-infinity to infinity</td>
+      <td>Pre-normalized vectors, ranking</td>
+    </tr>
+  </table>
+
+  <h3>Visual intuition</h3>
+  <p>
+    Imagine a 2D scatter plot (a simplified projection of the actual high-dimensional space):
+  </p>
+
+  <div class="diagram">         "queen" *          * "princess"
+                      \       /
+                       \     /
+              "king" *--+---*  "prince"
+                        |
+                        |
+             "man" *    |    * "woman"
+                        |
+                        |
+          "apple" *     |        * "banana"
+                        |
+              "car" *   |   * "truck"
+
+    ───────────────────────────────────────────
+    Royalty words cluster together.
+    Fruit words cluster together.
+    Vehicle words cluster together.
+    "king" - "man" + "woman" ≈ "queen"</div>
+
+  <h3>Why this matters for graph databases</h3>
+  <p>
+    Traditional graph queries answer structural questions: "Who is connected to whom?" Vector search answers semantic questions: "What is conceptually similar to X?" AstraeaDB lets you ask <em>both at once</em>: "Among Alice's 2-hop neighbors, which ones are most semantically related to 'machine learning'?" This combination&mdash;called <strong>hybrid search</strong>&mdash;is the foundation for GraphRAG, recommendation engines, and knowledge discovery.
+  </p>
+
+  <!-- ================================================================== -->
+  <!-- 8.2 Adding Embeddings to Nodes -->
+  <!-- ================================================================== -->
+  <h2>8.2 Adding Embeddings to Nodes</h2>
+
+  <p>
+    When you create a node, you can attach an embedding by passing a <code>float32</code> array. The embedding is stored alongside the node's labels and properties, and is automatically indexed for fast approximate nearest-neighbor search.
+  </p>
+
+  <div class="info-box warn">
+    <strong>Embeddings come from external models</strong>
+    AstraeaDB stores and indexes embeddings but does not generate them. You produce embeddings using a model of your choice&mdash;OpenAI's <code>text-embedding-3-small</code>, Sentence Transformers, CLIP, or any other encoder. The only requirement is that all embeddings in a given search share the same dimensionality.
+  </div>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'embed-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'embed-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'embed-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'embed-java')">Java</button>
+  </div>
+  <div id="embed-py" class="lang-panel active">
+<pre><span class="kw">from</span> astraeadb.client <span class="kw">import</span> <span class="ty">JsonClient</span>
+
+client = <span class="ty">JsonClient</span>(<span class="str">"localhost"</span>)
+client.<span class="fn">connect</span>()
+
+<span class="cm"># Generate an embedding with your model of choice</span>
+<span class="cm"># (here we use a placeholder 128-dim vector for illustration)</span>
+embedding = [<span class="num">0.12</span>, -<span class="num">0.45</span>, <span class="num">0.78</span>, <span class="num">0.03</span>, -<span class="num">0.91</span>] + [<span class="num">0.0</span>] * <span class="num">123</span>  <span class="cm"># 128 dims</span>
+
+<span class="cm"># Create a node with labels, properties, AND an embedding</span>
+node_id = client.<span class="fn">create_node</span>(
+    [<span class="str">"Document"</span>],
+    {<span class="str">"title"</span>: <span class="str">"Graph Databases"</span>, <span class="str">"content"</span>: <span class="str">"An introduction to..."</span>},
+    embedding=embedding
+)
+<span class="fn">print</span>(<span class="str">"Created node:"</span>, node_id)
+
+<span class="cm"># You can also update an embedding on an existing node</span>
+new_embedding = [<span class="num">0.22</span>, -<span class="num">0.33</span>, <span class="num">0.55</span>] + [<span class="num">0.0</span>] * <span class="num">125</span>
+client.<span class="fn">set_embedding</span>(node_id, new_embedding)</pre>
+  </div>
+  <div id="embed-r" class="lang-panel">
+<pre><span class="kw">library</span>(astraea)
+
+client <span class="kw">&lt;-</span> <span class="ty">AstraeaClient</span><span class="kw">$</span><span class="fn">new</span>(<span class="str">"localhost"</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Generate an embedding (placeholder 128-dim vector)</span>
+embedding <span class="kw">&lt;-</span> <span class="fn">c</span>(<span class="num">0.12</span>, -<span class="num">0.45</span>, <span class="num">0.78</span>, <span class="num">0.03</span>, -<span class="num">0.91</span>, <span class="fn">rep</span>(<span class="num">0</span>, <span class="num">123</span>))
+
+<span class="cm"># Create a node with labels, properties, and embedding</span>
+node_id <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels     = <span class="fn">c</span>(<span class="str">"Document"</span>),
+  properties = <span class="fn">list</span>(title = <span class="str">"Graph Databases"</span>, content = <span class="str">"An introduction to..."</span>),
+  embedding  = embedding
+)
+<span class="fn">cat</span>(<span class="str">"Created node:"</span>, node_id, <span class="str">"\n"</span>)
+
+<span class="cm"># Update an embedding on an existing node</span>
+new_embedding <span class="kw">&lt;-</span> <span class="fn">c</span>(<span class="num">0.22</span>, -<span class="num">0.33</span>, <span class="num">0.55</span>, <span class="fn">rep</span>(<span class="num">0</span>, <span class="num">125</span>))
+client<span class="kw">$</span><span class="fn">set_embedding</span>(node_id, new_embedding)</pre>
+  </div>
+  <div id="embed-go" class="lang-panel">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"fmt"</span>
+    <span class="str">"log"</span>
+    astraea <span class="str">"github.com/jimeharrisjr/astraea-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client, err := astraea.<span class="fn">NewJSONClient</span>(<span class="str">"localhost"</span>, <span class="num">7687</span>)
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Generate an embedding (placeholder 128-dim vector)</span>
+    embedding := <span class="fn">make</span>([]<span class="ty">float32</span>, <span class="num">128</span>)
+    embedding[<span class="num">0</span>] = <span class="num">0.12</span>
+    embedding[<span class="num">1</span>] = -<span class="num">0.45</span>
+    embedding[<span class="num">2</span>] = <span class="num">0.78</span>
+
+    <span class="cm">// Create a node with labels, properties, and embedding</span>
+    props := <span class="fn">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+        <span class="str">"title"</span>:   <span class="str">"Graph Databases"</span>,
+        <span class="str">"content"</span>: <span class="str">"An introduction to..."</span>,
+    }
+    nodeID, _ := client.<span class="fn">CreateNode</span>(
+        []<span class="ty">string</span>{<span class="str">"Document"</span>},
+        props,
+        astraea.<span class="fn">WithEmbedding</span>(embedding),
+    )
+    fmt.<span class="fn">Println</span>(<span class="str">"Created node:"</span>, nodeID)
+}</pre>
+  </div>
+  <div id="embed-java" class="lang-panel">
+<pre><span class="kw">import</span> com.astraeadb.client.<span class="ty">JsonClient</span>;
+<span class="kw">import</span> java.util.*;
+
+<span class="kw">public class</span> <span class="ty">EmbeddingExample</span> {
+    <span class="kw">public static void</span> <span class="fn">main</span>(<span class="ty">String</span>[] args) {
+        <span class="ty">JsonClient</span> client = <span class="kw">new</span> <span class="ty">JsonClient</span>(<span class="str">"localhost"</span>, <span class="num">7687</span>);
+        client.<span class="fn">connect</span>();
+
+        <span class="cm">// Generate an embedding (placeholder 128-dim vector)</span>
+        <span class="ty">float</span>[] embedding = <span class="kw">new</span> <span class="ty">float</span>[<span class="num">128</span>];
+        embedding[<span class="num">0</span>] = <span class="num">0.12f</span>;
+        embedding[<span class="num">1</span>] = -<span class="num">0.45f</span>;
+        embedding[<span class="num">2</span>] = <span class="num">0.78f</span>;
+
+        <span class="cm">// Create a node with labels, properties, and embedding</span>
+        <span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">Object</span>&gt; props = <span class="ty">Map</span>.<span class="fn">of</span>(
+            <span class="str">"title"</span>, <span class="str">"Graph Databases"</span>,
+            <span class="str">"content"</span>, <span class="str">"An introduction to..."</span>
+        );
+        <span class="ty">String</span> nodeId = client.<span class="fn">createNode</span>(
+            <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Document"</span>),
+            props,
+            embedding
+        );
+        <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Created node: "</span> + nodeId);
+
+        client.<span class="fn">close</span>();
+    }
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 8.3 Vector Search (k-NN) -->
+  <!-- ================================================================== -->
+  <h2>8.3 Vector Search (k-NN)</h2>
+
+  <p>
+    Once nodes carry embeddings, you can find the <strong>k most similar nodes</strong> to a query vector. This is called <em>k-nearest-neighbor</em> (k-NN) search. AstraeaDB uses an <strong>HNSW</strong> (Hierarchical Navigable Small World) index to answer these queries in sub-millisecond time, even on millions of vectors.
+  </p>
+
+  <h3>How HNSW works (in brief)</h3>
+  <p>
+    HNSW builds a multi-layer graph over the vectors. The top layer is sparse and enables long-range jumps; the bottom layer is dense and enables fine-grained search. A query starts at the top, greedily walks toward the nearest vector, then descends to the next layer and repeats. This achieves logarithmic search complexity&mdash;dramatically faster than scanning every vector.
+  </p>
+
+  <h3>API</h3>
+  <p>
+    Call <code>vector_search(query_vector, k)</code> and receive a list of results, each containing the node ID, distance, labels, and properties.
+  </p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'vsearch-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'vsearch-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'vsearch-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'vsearch-java')">Java</button>
+  </div>
+  <div id="vsearch-py" class="lang-panel active">
+<pre><span class="cm"># Suppose we have an embedding for the query "machine learning"</span>
+query_vec = model.<span class="fn">encode</span>(<span class="str">"machine learning"</span>)  <span class="cm"># returns a list of floats</span>
+
+<span class="cm"># Find the 10 most similar nodes</span>
+results = client.<span class="fn">vector_search</span>(query_vec, k=<span class="num">10</span>)
+
+<span class="kw">for</span> r <span class="kw">in</span> results:
+    <span class="fn">print</span>(<span class="str">f"Node <span class="kw">{</span>r[<span class="str">'node_id'</span>]<span class="kw">}</span>  dist=<span class="kw">{</span>r[<span class="str">'distance'</span>]:<span class="num">.4f</span><span class="kw">}</span>  "</span>
+          <span class="str">f"labels=<span class="kw">{</span>r[<span class="str">'labels'</span>]<span class="kw">}</span>  title=<span class="kw">{</span>r[<span class="str">'properties'</span>][<span class="str">'title'</span>]<span class="kw">}</span>"</span>)
+
+<span class="cm"># Example output:</span>
+<span class="cm"># Node 42  dist=0.0812  labels=['Document']  title=Introduction to ML</span>
+<span class="cm"># Node 17  dist=0.1034  labels=['Document']  title=Deep Learning Basics</span>
+<span class="cm"># Node 91  dist=0.1567  labels=['Document']  title=Neural Network Architectures</span></pre>
+  </div>
+  <div id="vsearch-r" class="lang-panel">
+<pre><span class="cm"># Suppose we have an embedding for the query "machine learning"</span>
+query_vec <span class="kw">&lt;-</span> model<span class="kw">$</span><span class="fn">encode</span>(<span class="str">"machine learning"</span>)
+
+<span class="cm"># Find the 10 most similar nodes</span>
+results <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">vector_search</span>(query_vec, k = <span class="num">10</span>)
+
+<span class="kw">for</span> (r <span class="kw">in</span> results) {
+  <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"Node %s  dist=%.4f  title=%s\n"</span>,
+              r<span class="kw">$</span>node_id, r<span class="kw">$</span>distance, r<span class="kw">$</span>properties<span class="kw">$</span>title))
+}</pre>
+  </div>
+  <div id="vsearch-go" class="lang-panel">
+<pre><span class="cm">// Suppose queryVec is a []float32 from your embedding model</span>
+results, _ := client.<span class="fn">VectorSearch</span>(queryVec, <span class="num">10</span>)
+
+<span class="kw">for</span> _, r := <span class="kw">range</span> results {
+    fmt.<span class="fn">Printf</span>(<span class="str">"Node %s  dist=%.4f  labels=%v  title=%s\n"</span>,
+        r.NodeID, r.Distance, r.Labels, r.Properties[<span class="str">"title"</span>])
+}</pre>
+  </div>
+  <div id="vsearch-java" class="lang-panel">
+<pre><span class="cm">// Suppose queryVec is a float[] from your embedding model</span>
+<span class="ty">List</span>&lt;<span class="ty">VectorResult</span>&gt; results = client.<span class="fn">vectorSearch</span>(queryVec, <span class="num">10</span>);
+
+<span class="kw">for</span> (<span class="ty">VectorResult</span> r : results) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"Node %s  dist=%.4f  labels=%s  title=%s%n"</span>,
+        r.<span class="fn">getNodeId</span>(), r.<span class="fn">getDistance</span>(),
+        r.<span class="fn">getLabels</span>(), r.<span class="fn">getProperties</span>().<span class="fn">get</span>(<span class="str">"title"</span>));
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 8.4 Hybrid Search -->
+  <!-- ================================================================== -->
+  <h2>8.4 Hybrid Search</h2>
+
+  <p>
+    Pure vector search ignores graph structure. Pure graph traversal ignores semantic meaning. <strong>Hybrid search</strong> combines both: it finds nodes that are <em>close in the graph</em> to an anchor node <strong>and</strong> <em>close in vector space</em> to a query concept.
+  </p>
+
+  <h3>How it works</h3>
+
+  <div class="diagram">                         Hybrid Search
+    ┌─────────────────────────────────────────────────────────┐
+    │                                                         │
+    │   1. Start from anchor node (e.g., "Alice")             │
+    │      │                                                  │
+    │      ▼                                                  │
+    │   2. BFS: collect all nodes within max_hops             │
+    │      │                                                  │
+    │      ▼                                                  │
+    │   3. For each candidate, compute:                       │
+    │        graph_score  = 1 / (1 + hop_distance)            │
+    │        vector_score = 1 - cosine_distance(candidate,    │
+    │                                           query_vector) │
+    │      │                                                  │
+    │      ▼                                                  │
+    │   4. Blend:                                             │
+    │        final_score = alpha * vector_score               │
+    │                    + (1 - alpha) * graph_score           │
+    │      │                                                  │
+    │      ▼                                                  │
+    │   5. Return top-k by final_score                        │
+    │                                                         │
+    └─────────────────────────────────────────────────────────┘</div>
+
+  <h3>The alpha parameter</h3>
+  <table>
+    <tr>
+      <th>Alpha</th>
+      <th>Behavior</th>
+      <th>Use case</th>
+    </tr>
+    <tr>
+      <td><code>0.0</code></td>
+      <td>Pure graph proximity (closest by hops)</td>
+      <td>Structural exploration</td>
+    </tr>
+    <tr>
+      <td><code>0.5</code></td>
+      <td>Balanced blend</td>
+      <td>General-purpose (recommended default)</td>
+    </tr>
+    <tr>
+      <td><code>1.0</code></td>
+      <td>Pure vector similarity (ignores graph distance)</td>
+      <td>Semantic search within a subgraph</td>
+    </tr>
+  </table>
+
+  <h3>Example: "Find nodes near Alice that relate to machine learning"</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'hybrid-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'hybrid-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'hybrid-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'hybrid-java')">Java</button>
+  </div>
+  <div id="hybrid-py" class="lang-panel active">
+<pre><span class="cm"># Embed the concept we are searching for</span>
+ml_vector = model.<span class="fn">encode</span>(<span class="str">"machine learning"</span>)
+
+<span class="cm"># Hybrid search: anchor on Alice, blend graph + vector</span>
+results = client.<span class="fn">hybrid_search</span>(
+    anchor=alice_id,          <span class="cm"># start node</span>
+    query_vector=ml_vector,   <span class="cm"># semantic target</span>
+    max_hops=<span class="num">3</span>,               <span class="cm"># graph radius</span>
+    k=<span class="num">10</span>,                     <span class="cm"># number of results</span>
+    alpha=<span class="num">0.5</span>                 <span class="cm"># blend factor</span>
+)
+
+<span class="kw">for</span> r <span class="kw">in</span> results:
+    <span class="fn">print</span>(<span class="str">f"Node <span class="kw">{</span>r[<span class="str">'node_id'</span>]<span class="kw">}</span>  hops=<span class="kw">{</span>r[<span class="str">'hops'</span>]<span class="kw">}</span>  "</span>
+          <span class="str">f"vector_dist=<span class="kw">{</span>r[<span class="str">'vector_distance'</span>]:<span class="num">.4f</span><span class="kw">}</span>  "</span>
+          <span class="str">f"score=<span class="kw">{</span>r[<span class="str">'score'</span>]:<span class="num">.4f</span><span class="kw">}</span>  "</span>
+          <span class="str">f"title=<span class="kw">{</span>r[<span class="str">'properties'</span>][<span class="str">'title'</span>]<span class="kw">}</span>"</span>)
+
+<span class="cm"># Example output:</span>
+<span class="cm"># Node 88  hops=2  vector_dist=0.0912  score=0.7877  title=ML Pipeline Design</span>
+<span class="cm"># Node 45  hops=1  vector_dist=0.2134  score=0.7266  title=Data Science Team</span>
+<span class="cm"># Node 67  hops=3  vector_dist=0.0501  score=0.7249  title=Deep Learning Lab</span></pre>
+  </div>
+  <div id="hybrid-r" class="lang-panel">
+<pre><span class="cm"># Embed the concept we are searching for</span>
+ml_vector <span class="kw">&lt;-</span> model<span class="kw">$</span><span class="fn">encode</span>(<span class="str">"machine learning"</span>)
+
+<span class="cm"># Hybrid search: anchor on Alice, blend graph + vector</span>
+results <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">hybrid_search</span>(
+  anchor       = alice_id,
+  query_vector = ml_vector,
+  max_hops     = <span class="num">3</span>,
+  k            = <span class="num">10</span>,
+  alpha        = <span class="num">0.5</span>
+)
+
+<span class="kw">for</span> (r <span class="kw">in</span> results) {
+  <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"Node %s  hops=%d  vector_dist=%.4f  score=%.4f  title=%s\n"</span>,
+              r<span class="kw">$</span>node_id, r<span class="kw">$</span>hops, r<span class="kw">$</span>vector_distance,
+              r<span class="kw">$</span>score, r<span class="kw">$</span>properties<span class="kw">$</span>title))
+}</pre>
+  </div>
+  <div id="hybrid-go" class="lang-panel">
+<pre><span class="cm">// Embed the concept we are searching for</span>
+mlVector := model.<span class="fn">Encode</span>(<span class="str">"machine learning"</span>)
+
+<span class="cm">// Hybrid search: anchor on Alice, blend graph + vector</span>
+results, _ := client.<span class="fn">HybridSearch</span>(astraea.<span class="ty">HybridSearchParams</span>{
+    Anchor:      aliceID,
+    QueryVector: mlVector,
+    MaxHops:     <span class="num">3</span>,
+    K:           <span class="num">10</span>,
+    Alpha:       <span class="num">0.5</span>,
+})
+
+<span class="kw">for</span> _, r := <span class="kw">range</span> results {
+    fmt.<span class="fn">Printf</span>(<span class="str">"Node %s  hops=%d  vector_dist=%.4f  score=%.4f  title=%s\n"</span>,
+        r.NodeID, r.Hops, r.VectorDistance,
+        r.Score, r.Properties[<span class="str">"title"</span>])
+}</pre>
+  </div>
+  <div id="hybrid-java" class="lang-panel">
+<pre><span class="cm">// Embed the concept we are searching for</span>
+<span class="ty">float</span>[] mlVector = model.<span class="fn">encode</span>(<span class="str">"machine learning"</span>);
+
+<span class="cm">// Hybrid search: anchor on Alice, blend graph + vector</span>
+<span class="ty">List</span>&lt;<span class="ty">HybridResult</span>&gt; results = client.<span class="fn">hybridSearch</span>(
+    aliceId,      <span class="cm">// anchor</span>
+    mlVector,     <span class="cm">// query vector</span>
+    <span class="num">3</span>,            <span class="cm">// max hops</span>
+    <span class="num">10</span>,           <span class="cm">// k</span>
+    <span class="num">0.5</span>           <span class="cm">// alpha</span>
+);
+
+<span class="kw">for</span> (<span class="ty">HybridResult</span> r : results) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(
+        <span class="str">"Node %s  hops=%d  vector_dist=%.4f  score=%.4f  title=%s%n"</span>,
+        r.<span class="fn">getNodeId</span>(), r.<span class="fn">getHops</span>(), r.<span class="fn">getVectorDistance</span>(),
+        r.<span class="fn">getScore</span>(), r.<span class="fn">getProperties</span>().<span class="fn">get</span>(<span class="str">"title"</span>));
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 8.5 Semantic Neighbors and Semantic Walk -->
+  <!-- ================================================================== -->
+  <h2>8.5 Semantic Neighbors and Semantic Walk</h2>
+
+  <p>
+    Beyond hybrid search, AstraeaDB offers two additional semantic operations that combine vector similarity with the graph's edge structure in different ways.
+  </p>
+
+  <h3>Semantic Neighbors</h3>
+  <p>
+    Given a node and a concept vector, <strong>semantic neighbors</strong> ranks that node's <em>actual graph neighbors</em> (connected by edges) by how similar their embeddings are to the concept. Unlike hybrid search, this does not perform a BFS&mdash;it only looks at direct neighbors.
+  </p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'semnb-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'semnb-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'semnb-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'semnb-java')">Java</button>
+  </div>
+  <div id="semnb-py" class="lang-panel active">
+<pre><span class="cm"># Which of Alice's outgoing neighbors are most related to "risk"?</span>
+risk_vec = model.<span class="fn">encode</span>(<span class="str">"risk management"</span>)
+
+neighbors = client.<span class="fn">semantic_neighbors</span>(
+    node_id=alice_id,
+    concept_vector=risk_vec,
+    direction=<span class="str">"outgoing"</span>,   <span class="cm"># "outgoing", "incoming", or "both"</span>
+    k=<span class="num">10</span>
+)
+
+<span class="kw">for</span> n <span class="kw">in</span> neighbors:
+    <span class="fn">print</span>(<span class="str">f"<span class="kw">{</span>n[<span class="str">'node_id'</span>]<span class="kw">}</span>  similarity=<span class="kw">{</span>n[<span class="str">'similarity'</span>]:<span class="num">.4f</span><span class="kw">}</span>  "</span>
+          <span class="str">f"edge=<span class="kw">{</span>n[<span class="str">'edge_label'</span>]<span class="kw">}</span>  title=<span class="kw">{</span>n[<span class="str">'properties'</span>][<span class="str">'title'</span>]<span class="kw">}</span>"</span>)
+
+<span class="cm"># Example output:</span>
+<span class="cm"># abc123  similarity=0.8921  edge=AUTHORED  title=Risk Assessment Framework</span>
+<span class="cm"># def456  similarity=0.7134  edge=REVIEWED  title=Compliance Guidelines</span></pre>
+  </div>
+  <div id="semnb-r" class="lang-panel">
+<pre><span class="cm"># Which of Alice's outgoing neighbors are most related to "risk"?</span>
+risk_vec <span class="kw">&lt;-</span> model<span class="kw">$</span><span class="fn">encode</span>(<span class="str">"risk management"</span>)
+
+neighbors <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">semantic_neighbors</span>(
+  node_id        = alice_id,
+  concept_vector = risk_vec,
+  direction      = <span class="str">"outgoing"</span>,
+  k              = <span class="num">10</span>
+)
+
+<span class="kw">for</span> (n <span class="kw">in</span> neighbors) {
+  <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"%s  similarity=%.4f  edge=%s  title=%s\n"</span>,
+              n<span class="kw">$</span>node_id, n<span class="kw">$</span>similarity, n<span class="kw">$</span>edge_label,
+              n<span class="kw">$</span>properties<span class="kw">$</span>title))
+}</pre>
+  </div>
+  <div id="semnb-go" class="lang-panel">
+<pre><span class="cm">// Which of Alice's outgoing neighbors are most related to "risk"?</span>
+riskVec := model.<span class="fn">Encode</span>(<span class="str">"risk management"</span>)
+
+neighbors, _ := client.<span class="fn">SemanticNeighbors</span>(astraea.<span class="ty">SemanticNeighborsParams</span>{
+    NodeID:        aliceID,
+    ConceptVector: riskVec,
+    Direction:     <span class="str">"outgoing"</span>,
+    K:             <span class="num">10</span>,
+})
+
+<span class="kw">for</span> _, n := <span class="kw">range</span> neighbors {
+    fmt.<span class="fn">Printf</span>(<span class="str">"%s  similarity=%.4f  edge=%s  title=%s\n"</span>,
+        n.NodeID, n.Similarity, n.EdgeLabel, n.Properties[<span class="str">"title"</span>])
+}</pre>
+  </div>
+  <div id="semnb-java" class="lang-panel">
+<pre><span class="cm">// Which of Alice's outgoing neighbors are most related to "risk"?</span>
+<span class="ty">float</span>[] riskVec = model.<span class="fn">encode</span>(<span class="str">"risk management"</span>);
+
+<span class="ty">List</span>&lt;<span class="ty">SemanticNeighborResult</span>&gt; neighbors = client.<span class="fn">semanticNeighbors</span>(
+    aliceId,        <span class="cm">// node ID</span>
+    riskVec,        <span class="cm">// concept vector</span>
+    <span class="str">"outgoing"</span>,     <span class="cm">// direction</span>
+    <span class="num">10</span>              <span class="cm">// k</span>
+);
+
+<span class="kw">for</span> (<span class="ty">SemanticNeighborResult</span> n : neighbors) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"%s  similarity=%.4f  edge=%s  title=%s%n"</span>,
+        n.<span class="fn">getNodeId</span>(), n.<span class="fn">getSimilarity</span>(),
+        n.<span class="fn">getEdgeLabel</span>(), n.<span class="fn">getProperties</span>().<span class="fn">get</span>(<span class="str">"title"</span>));
+}</pre>
+  </div>
+
+  <h3>Semantic Walk</h3>
+  <p>
+    A <strong>semantic walk</strong> is a greedy traversal: starting from a node, at each hop the algorithm chooses the neighbor whose embedding is <em>most similar</em> to the concept vector, then continues from that neighbor. The walk terminates after <code>max_hops</code> or when no neighbor improves the similarity score.
+  </p>
+  <p>
+    Think of it as "follow the gradient toward a concept through the graph's structure." The result is the path taken.
+  </p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'semwalk-py')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'semwalk-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'semwalk-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'semwalk-java')">Java</button>
+  </div>
+  <div id="semwalk-py" class="lang-panel active">
+<pre><span class="cm"># Starting from a "Database" topic node, walk toward "Machine Learning"</span>
+ml_vec = model.<span class="fn">encode</span>(<span class="str">"machine learning"</span>)
+
+path = client.<span class="fn">semantic_walk</span>(
+    start=database_node_id,
+    concept_vector=ml_vec,
+    max_hops=<span class="num">3</span>
+)
+
+<span class="fn">print</span>(<span class="str">"Semantic walk path:"</span>)
+<span class="kw">for</span> i, step <span class="kw">in</span> <span class="fn">enumerate</span>(path):
+    <span class="fn">print</span>(<span class="str">f"  Hop <span class="kw">{</span>i<span class="kw">}</span>: <span class="kw">{</span>step[<span class="str">'node_id'</span>]<span class="kw">}</span>  "</span>
+          <span class="str">f"similarity=<span class="kw">{</span>step[<span class="str">'similarity'</span>]:<span class="num">.4f</span><span class="kw">}</span>  "</span>
+          <span class="str">f"title=<span class="kw">{</span>step[<span class="str">'properties'</span>][<span class="str">'title'</span>]<span class="kw">}</span>"</span>)
+
+<span class="cm"># Example output:</span>
+<span class="cm"># Semantic walk path:</span>
+<span class="cm">#   Hop 0: n001  similarity=0.3210  title=Databases</span>
+<span class="cm">#   Hop 1: n047  similarity=0.5892  title=Data Mining</span>
+<span class="cm">#   Hop 2: n088  similarity=0.7831  title=Statistical Learning</span>
+<span class="cm">#   Hop 3: n112  similarity=0.9145  title=Machine Learning Fundamentals</span></pre>
+  </div>
+  <div id="semwalk-r" class="lang-panel">
+<pre><span class="cm"># Starting from a "Database" topic node, walk toward "Machine Learning"</span>
+ml_vec <span class="kw">&lt;-</span> model<span class="kw">$</span><span class="fn">encode</span>(<span class="str">"machine learning"</span>)
+
+path <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">semantic_walk</span>(
+  start          = database_node_id,
+  concept_vector = ml_vec,
+  max_hops       = <span class="num">3</span>
+)
+
+<span class="fn">cat</span>(<span class="str">"Semantic walk path:\n"</span>)
+<span class="kw">for</span> (i <span class="kw">in</span> <span class="fn">seq_along</span>(path)) {
+  step <span class="kw">&lt;-</span> path[[i]]
+  <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"  Hop %d: %s  similarity=%.4f  title=%s\n"</span>,
+              i - <span class="num">1</span>, step<span class="kw">$</span>node_id, step<span class="kw">$</span>similarity,
+              step<span class="kw">$</span>properties<span class="kw">$</span>title))
+}</pre>
+  </div>
+  <div id="semwalk-go" class="lang-panel">
+<pre><span class="cm">// Starting from a "Database" topic node, walk toward "Machine Learning"</span>
+mlVec := model.<span class="fn">Encode</span>(<span class="str">"machine learning"</span>)
+
+path, _ := client.<span class="fn">SemanticWalk</span>(astraea.<span class="ty">SemanticWalkParams</span>{
+    Start:         databaseNodeID,
+    ConceptVector: mlVec,
+    MaxHops:       <span class="num">3</span>,
+})
+
+fmt.<span class="fn">Println</span>(<span class="str">"Semantic walk path:"</span>)
+<span class="kw">for</span> i, step := <span class="kw">range</span> path {
+    fmt.<span class="fn">Printf</span>(<span class="str">"  Hop %d: %s  similarity=%.4f  title=%s\n"</span>,
+        i, step.NodeID, step.Similarity, step.Properties[<span class="str">"title"</span>])
+}</pre>
+  </div>
+  <div id="semwalk-java" class="lang-panel">
+<pre><span class="cm">// Starting from a "Database" topic node, walk toward "Machine Learning"</span>
+<span class="ty">float</span>[] mlVec = model.<span class="fn">encode</span>(<span class="str">"machine learning"</span>);
+
+<span class="ty">List</span>&lt;<span class="ty">WalkStep</span>&gt; path = client.<span class="fn">semanticWalk</span>(
+    databaseNodeId,   <span class="cm">// start</span>
+    mlVec,            <span class="cm">// concept vector</span>
+    <span class="num">3</span>                 <span class="cm">// max hops</span>
+);
+
+<span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Semantic walk path:"</span>);
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="num">0</span>; i &lt; path.<span class="fn">size</span>(); i++) {
+    <span class="ty">WalkStep</span> step = path.<span class="fn">get</span>(i);
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"  Hop %d: %s  similarity=%.4f  title=%s%n"</span>,
+        i, step.<span class="fn">getNodeId</span>(), step.<span class="fn">getSimilarity</span>(),
+        step.<span class="fn">getProperties</span>().<span class="fn">get</span>(<span class="str">"title"</span>));
+}</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>When to use which?</strong>
+    Use <strong>vector search</strong> when you want globally similar nodes regardless of graph structure. Use <strong>hybrid search</strong> when you want results that are both structurally connected and semantically relevant. Use <strong>semantic neighbors</strong> when you want to rank a specific node's direct connections. Use <strong>semantic walk</strong> when you want to discover a path through the graph toward a concept.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch07.html">&larr; Ch 7: Transport Protocols</a>
+    <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+
+function switchTab(event, panelId) {
+  const tabGroup = event.target.parentElement;
+  const container = tabGroup.parentElement;
+  tabGroup.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  let sibling = tabGroup.nextElementSibling;
+  while (sibling && sibling.classList.contains('lang-panel')) {
+    sibling.classList.remove('active');
+    sibling = sibling.nextElementSibling;
+  }
+  document.getElementById(panelId).classList.add('active');
+}
+</script>
+</body>
+</html>

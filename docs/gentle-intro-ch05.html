@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 5: The GQL Query Language - AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html" class="active">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 5: The GQL Query Language</h1>
+  <p class="subtitle">
+    AstraeaDB implements a query language compatible with the ISO GQL standard (released 2024). This chapter covers
+    pattern matching, filtering, mutations, aggregation, and built-in functions&mdash;everything you need to read
+    and write data using declarative queries.
+  </p>
+
+  <div class="info-box info">
+    <strong>Prerequisites</strong>
+    This chapter assumes you have a running AstraeaDB server and a connected client as described in
+    <a href="gentle-intro-ch03.html">Chapter 3</a> and <a href="gentle-intro-ch04.html">Chapter 4</a>.
+    All examples use the social-network graph built in Chapter 4.
+  </div>
+
+  <h3>The Python Query Interface</h3>
+  <p>
+    The primary way to execute GQL in AstraeaDB is through the <code>query()</code> method available
+    on every client library. The Python API looks like this:
+  </p>
+  <pre>result = client.<span class="fn">query</span>(<span class="str">"GQL STRING"</span>)</pre>
+  <p>Every query returns a dictionary with three keys:</p>
+  <pre>{
+    <span class="str">"columns"</span>: [<span class="str">"a.name"</span>, <span class="str">"b.name"</span>],    <span class="cm">// column headers from RETURN</span>
+    <span class="str">"rows"</span>:    [[<span class="str">"Alice"</span>, <span class="str">"Bob"</span>], ...], <span class="cm">// result rows</span>
+    <span class="str">"stats"</span>:   {<span class="str">"nodes_created"</span>: <span class="num">0</span>, ...} <span class="cm">// mutation statistics</span>
+}</pre>
+
+  <!-- ================================================================== -->
+  <!-- 5.1 Pattern Matching -->
+  <!-- ================================================================== -->
+  <h2>5.1 Pattern Matching Deep Dive</h2>
+
+  <p>
+    Pattern matching is the heart of GQL. Instead of writing procedural code to walk a graph, you
+    <em>describe the shape</em> of the subgraph you want, and the engine finds all matches.
+  </p>
+
+  <h3>Node Patterns</h3>
+  <p>A node is represented by parentheses. You can optionally bind it to a variable, add a label, or specify properties:</p>
+
+  <table>
+    <thead>
+      <tr><th>Pattern</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>(n)</code></td><td>Any node, bound to variable <code>n</code></td></tr>
+      <tr><td><code>(n:Person)</code></td><td>Any node with the label <code>Person</code></td></tr>
+      <tr><td><code>(n:Person {name: "Alice"})</code></td><td>A <code>Person</code> node whose <code>name</code> property equals <code>"Alice"</code></td></tr>
+      <tr><td><code>(:Movie)</code></td><td>An anonymous <code>Movie</code> node (no variable binding)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Edge Patterns</h3>
+  <p>Edges connect nodes with arrows. The arrow direction indicates relationship direction:</p>
+
+  <table>
+    <thead>
+      <tr><th>Pattern</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>-[:KNOWS]-&gt;</code></td><td>Outgoing edge of type <code>KNOWS</code></td></tr>
+      <tr><td><code>&lt;-[:KNOWS]-</code></td><td>Incoming edge of type <code>KNOWS</code></td></tr>
+      <tr><td><code>-[:KNOWS]-</code></td><td>Undirected (either direction)</td></tr>
+      <tr><td><code>-[e:KNOWS]-&gt;</code></td><td>Outgoing <code>KNOWS</code> edge bound to variable <code>e</code></td></tr>
+      <tr><td><code>-[e:KNOWS {since: 2020}]-&gt;</code></td><td>Edge with a property constraint</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Combined Patterns</h3>
+  <p>Combine node and edge patterns into full graph shapes:</p>
+
+  <pre><span class="kw">MATCH</span> (a:<span class="ty">Person</span>)-[:<span class="ty">KNOWS</span>]-&gt;(b:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> a.name, b.name</pre>
+
+  <p>This finds every pair of <code>Person</code> nodes connected by a <code>KNOWS</code> edge and returns both names.</p>
+
+  <h3>Multi-Hop Patterns</h3>
+  <p>Chain patterns to traverse multiple hops in a single query:</p>
+
+  <pre><span class="cm">-- Find friends-of-friends</span>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span>)-[:<span class="ty">KNOWS</span>]-&gt;(b:<span class="ty">Person</span>)-[:<span class="ty">KNOWS</span>]-&gt;(c:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> a.name, c.name</pre>
+
+  <h3>Visual Pattern Matching</h3>
+  <p>
+    One of the most intuitive aspects of GQL is that the query <em>looks like</em> the shape it matches.
+    Consider this ASCII representation of a movie database:
+  </p>
+
+  <div class="diagram">  Query pattern:
+  (a:Person)-[:ACTED_IN]-&gt;(m:Movie)&lt;-[:DIRECTED]-(d:Person)
+
+  Matches this subgraph shape:
+
+       [Alice]              [Charlie]
+      :Person               :Person
+         \                    /
+     :ACTED_IN          :DIRECTED
+           \              /
+            v            v
+          [The Matrix]
+            :Movie
+
+  Every triplet of (actor, movie, director) in the database
+  that matches this shape will appear in the results.</div>
+
+  <h3>Complete Example with Tabs</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'pm-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'pm-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'pm-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'pm-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="pm-python">
+    <pre><span class="kw">from</span> astraeadb <span class="kw">import</span> <span class="ty">AstraeaClient</span>
+
+<span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Find all actors and the movies they acted in</span>
+    result = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (a:Person)-[:ACTED_IN]-&gt;(m:Movie)
+        RETURN a.name, m.title
+    """</span>)
+
+    <span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+        <span class="fn">print</span>(<span class="str">f"</span>{row[<span class="num">0</span>]}<span class="str"> acted in </span>{row[<span class="num">1</span>]}<span class="str">"</span>)
+
+    <span class="cm"># Multi-hop: friends of friends</span>
+    fof = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (a:Person)-[:KNOWS]-&gt;(b)-[:KNOWS]-&gt;(c:Person)
+        RETURN a.name AS person, c.name AS friend_of_friend
+    """</span>)
+
+    <span class="fn">print</span>(fof[<span class="str">"columns"</span>])  <span class="cm"># ["person", "friend_of_friend"]</span>
+    <span class="fn">print</span>(fof[<span class="str">"rows"</span>])     <span class="cm"># [["Alice", "Charlie"], ...]</span></pre>
+  </div>
+  <div class="lang-panel" id="pm-r">
+    <pre><span class="fn">library</span>(astraeadb)
+
+client <span class="kw">&lt;-</span> <span class="fn">astraea_client</span>()
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Find all actors and the movies they acted in</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">"
+    MATCH (a:Person)-[:ACTED_IN]-&gt;(m:Movie)
+    RETURN a.name, m.title
+"</span>)
+
+<span class="kw">for</span> (i <span class="kw">in</span> <span class="fn">seq_len</span>(<span class="fn">nrow</span>(result<span class="kw">$</span>rows))) {
+    <span class="fn">cat</span>(result<span class="kw">$</span>rows[i, <span class="num">1</span>], <span class="str">"acted in"</span>, result<span class="kw">$</span>rows[i, <span class="num">2</span>], <span class="str">"\n"</span>)
+}
+
+<span class="cm"># Multi-hop: friends of friends</span>
+fof <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">"
+    MATCH (a:Person)-[:KNOWS]-&gt;(b)-[:KNOWS]-&gt;(c:Person)
+    RETURN a.name AS person, c.name AS friend_of_friend
+"</span>)
+
+<span class="fn">print</span>(fof<span class="kw">$</span>columns)  <span class="cm"># [1] "person" "friend_of_friend"</span>
+<span class="fn">print</span>(fof<span class="kw">$</span>rows)     <span class="cm"># data.frame with results</span>
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="pm-go">
+    <pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    ctx := context.<span class="fn">Background</span>()
+    client := astraeadb.<span class="fn">NewClient</span>(
+        astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+    )
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Find all actors and the movies they acted in</span>
+    result, _ := client.<span class="fn">Query</span>(ctx, <span class="str">`
+        MATCH (a:Person)-[:ACTED_IN]-&gt;(m:Movie)
+        RETURN a.name, m.title
+    `</span>)
+
+    <span class="kw">for</span> _, row := <span class="kw">range</span> result.Rows {
+        fmt.<span class="fn">Printf</span>(<span class="str">"%s acted in %s\n"</span>, row[<span class="num">0</span>], row[<span class="num">1</span>])
+    }
+
+    <span class="cm">// Multi-hop: friends of friends</span>
+    fof, _ := client.<span class="fn">Query</span>(ctx, <span class="str">`
+        MATCH (a:Person)-[:KNOWS]-&gt;(b)-[:KNOWS]-&gt;(c:Person)
+        RETURN a.name AS person, c.name AS friend_of_friend
+    `</span>)
+
+    fmt.<span class="fn">Println</span>(fof.Columns) <span class="cm">// [person friend_of_friend]</span>
+    fmt.<span class="fn">Println</span>(fof.Rows)    <span class="cm">// [[Alice Charlie] ...]</span>
+}</pre>
+  </div>
+  <div class="lang-panel" id="pm-java">
+    <pre><span class="kw">import</span> com.astraeadb.unified.<span class="ty">UnifiedClient</span>;
+<span class="kw">import</span> com.astraeadb.unified.<span class="ty">QueryResult</span>;
+
+<span class="kw">public class</span> <span class="ty">PatternMatchExample</span> {
+    <span class="kw">public static void</span> <span class="fn">main</span>(<span class="ty">String</span>[] args) {
+        <span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+                .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">build</span>()) {
+            client.<span class="fn">connect</span>();
+
+            <span class="cm">// Find all actors and the movies they acted in</span>
+            <span class="ty">QueryResult</span> result = client.<span class="fn">query</span>(<span class="str">"""
+                MATCH (a:Person)-[:ACTED_IN]-&gt;(m:Movie)
+                RETURN a.name, m.title
+                """</span>);
+
+            <span class="kw">for</span> (<span class="kw">var</span> row : result.<span class="fn">rows</span>()) {
+                <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"%s acted in %s%n"</span>,
+                    row.<span class="fn">get</span>(<span class="num">0</span>), row.<span class="fn">get</span>(<span class="num">1</span>));
+            }
+
+            <span class="cm">// Multi-hop: friends of friends</span>
+            <span class="ty">QueryResult</span> fof = client.<span class="fn">query</span>(<span class="str">"""
+                MATCH (a:Person)-[:KNOWS]-&gt;(b)-[:KNOWS]-&gt;(c:Person)
+                RETURN a.name AS person, c.name AS friend_of_friend
+                """</span>);
+
+            <span class="ty">System</span>.out.<span class="fn">println</span>(fof.<span class="fn">columns</span>());
+            <span class="ty">System</span>.out.<span class="fn">println</span>(fof.<span class="fn">rows</span>());
+        }
+    }
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 5.2 Filtering with WHERE -->
+  <!-- ================================================================== -->
+  <h2>5.2 Filtering with WHERE</h2>
+
+  <p>
+    The <code>WHERE</code> clause filters matched patterns based on property values. It appears after
+    <code>MATCH</code> and before <code>RETURN</code>.
+  </p>
+
+  <h3>Comparison Operators</h3>
+  <table>
+    <thead>
+      <tr><th>Operator</th><th>Meaning</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>=</code></td><td>Equal to</td><td><code>WHERE n.age = 30</code></td></tr>
+      <tr><td><code>&lt;&gt;</code></td><td>Not equal to</td><td><code>WHERE n.name &lt;&gt; "Bob"</code></td></tr>
+      <tr><td><code>&lt;</code></td><td>Less than</td><td><code>WHERE n.age &lt; 25</code></td></tr>
+      <tr><td><code>&gt;</code></td><td>Greater than</td><td><code>WHERE n.age &gt; 25</code></td></tr>
+      <tr><td><code>&lt;=</code></td><td>Less than or equal</td><td><code>WHERE n.age &lt;= 30</code></td></tr>
+      <tr><td><code>&gt;=</code></td><td>Greater than or equal</td><td><code>WHERE n.age &gt;= 18</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Boolean Operators</h3>
+  <p>Combine conditions with <code>AND</code>, <code>OR</code>, and <code>NOT</code>:</p>
+
+  <pre><span class="cm">-- Multiple conditions with AND</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">WHERE</span> n.age &gt; <span class="num">25</span> <span class="kw">AND</span> n.name &lt;&gt; <span class="str">"Bob"</span>
+<span class="kw">RETURN</span> n.name, n.age</pre>
+
+  <pre><span class="cm">-- OR to broaden the filter</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">WHERE</span> n.city = <span class="str">"London"</span> <span class="kw">OR</span> n.city = <span class="str">"Paris"</span>
+<span class="kw">RETURN</span> n.name, n.city</pre>
+
+  <pre><span class="cm">-- NOT to negate a condition</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">WHERE</span> <span class="kw">NOT</span> n.age &lt; <span class="num">18</span>
+<span class="kw">RETURN</span> n.name, n.age</pre>
+
+  <h3>String Matching</h3>
+  <p>Use the <code>STARTS WITH</code>, <code>ENDS WITH</code>, and <code>CONTAINS</code> operators for string filtering:</p>
+
+  <pre><span class="cm">-- Find people whose name starts with "A"</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">WHERE</span> n.name <span class="kw">STARTS WITH</span> <span class="str">"A"</span>
+<span class="kw">RETURN</span> n.name</pre>
+
+  <pre><span class="cm">-- Find movies containing "Matrix" in the title</span>
+<span class="kw">MATCH</span> (m:<span class="ty">Movie</span>)
+<span class="kw">WHERE</span> m.title <span class="kw">CONTAINS</span> <span class="str">"Matrix"</span>
+<span class="kw">RETURN</span> m.title, m.year</pre>
+
+  <h3>Complete Filtering Example</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'where-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'where-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'where-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'where-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="where-python">
+    <pre><span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Find adults in London who know someone over 30</span>
+    result = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (a:Person)-[:KNOWS]-&gt;(b:Person)
+        WHERE a.city = "London"
+          AND a.age &gt;= 18
+          AND b.age &gt; 30
+        RETURN a.name, a.age, b.name, b.age
+    """</span>)
+
+    <span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+        <span class="fn">print</span>(<span class="str">f"</span>{row[<span class="num">0</span>]}<span class="str"> (age </span>{row[<span class="num">1</span>]}<span class="str">) knows </span>{row[<span class="num">2</span>]}<span class="str"> (age </span>{row[<span class="num">3</span>]}<span class="str">)"</span>)
+
+<span class="cm"># Example output:</span>
+<span class="cm"># columns: ["a.name", "a.age", "b.name", "b.age"]</span>
+<span class="cm"># rows:    [["Alice", 30, "Charlie", 35], ...]</span></pre>
+  </div>
+  <div class="lang-panel" id="where-r">
+    <pre>client <span class="kw">&lt;-</span> <span class="fn">astraea_client</span>()
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Find adults in London who know someone over 30</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'
+    MATCH (a:Person)-[:KNOWS]-&gt;(b:Person)
+    WHERE a.city = "London"
+      AND a.age &gt;= 18
+      AND b.age &gt; 30
+    RETURN a.name, a.age, b.name, b.age
+'</span>)
+
+<span class="fn">print</span>(result<span class="kw">$</span>rows)
+<span class="cm">#   a.name a.age  b.name b.age</span>
+<span class="cm"># 1  Alice    30 Charlie    35</span>
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="where-go">
+    <pre>ctx := context.<span class="fn">Background</span>()
+client := astraeadb.<span class="fn">NewClient</span>(
+    astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+)
+client.<span class="fn">Connect</span>(ctx)
+<span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+<span class="cm">// Find adults in London who know someone over 30</span>
+result, _ := client.<span class="fn">Query</span>(ctx, <span class="str">`
+    MATCH (a:Person)-[:KNOWS]-&gt;(b:Person)
+    WHERE a.city = "London"
+      AND a.age &gt;= 18
+      AND b.age &gt; 30
+    RETURN a.name, a.age, b.name, b.age
+`</span>)
+
+<span class="kw">for</span> _, row := <span class="kw">range</span> result.Rows {
+    fmt.<span class="fn">Printf</span>(<span class="str">"%s (age %v) knows %s (age %v)\n"</span>,
+        row[<span class="num">0</span>], row[<span class="num">1</span>], row[<span class="num">2</span>], row[<span class="num">3</span>])
+}</pre>
+  </div>
+  <div class="lang-panel" id="where-java">
+    <pre><span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Find adults in London who know someone over 30</span>
+    <span class="ty">QueryResult</span> result = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (a:Person)-[:KNOWS]-&gt;(b:Person)
+        WHERE a.city = "London"
+          AND a.age &gt;= 18
+          AND b.age &gt; 30
+        RETURN a.name, a.age, b.name, b.age
+        """</span>);
+
+    <span class="kw">for</span> (<span class="kw">var</span> row : result.<span class="fn">rows</span>()) {
+        <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"%s (age %s) knows %s (age %s)%n"</span>,
+            row.<span class="fn">get</span>(<span class="num">0</span>), row.<span class="fn">get</span>(<span class="num">1</span>),
+            row.<span class="fn">get</span>(<span class="num">2</span>), row.<span class="fn">get</span>(<span class="num">3</span>));
+    }
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 5.3 RETURN, ORDER BY, SKIP, LIMIT -->
+  <!-- ================================================================== -->
+  <h2>5.3 RETURN, ORDER BY, SKIP, LIMIT</h2>
+
+  <p>
+    The <code>RETURN</code> clause defines which columns appear in the result set. Combined with
+    <code>ORDER BY</code>, <code>SKIP</code>, and <code>LIMIT</code>, it gives you full control
+    over result shape and pagination.
+  </p>
+
+  <h3>Projections</h3>
+  <p>Return specific properties rather than entire nodes:</p>
+  <pre><span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, n.age</pre>
+
+  <p>Result:</p>
+  <pre><span class="cm">columns: ["n.name", "n.age"]</span>
+<span class="cm">rows:</span>
+  [<span class="str">"Alice"</span>,   <span class="num">30</span>]
+  [<span class="str">"Bob"</span>,     <span class="num">28</span>]
+  [<span class="str">"Charlie"</span>, <span class="num">35</span>]
+  [<span class="str">"Diana"</span>,   <span class="num">22</span>]</pre>
+
+  <h3>Aliasing with AS</h3>
+  <p>Rename columns in the output for clarity:</p>
+  <pre><span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name <span class="kw">AS</span> person_name, n.age <span class="kw">AS</span> person_age</pre>
+
+  <p>Result:</p>
+  <pre><span class="cm">columns: ["person_name", "person_age"]</span>
+<span class="cm">rows:</span>
+  [<span class="str">"Alice"</span>,   <span class="num">30</span>]
+  [<span class="str">"Bob"</span>,     <span class="num">28</span>]
+  ...</pre>
+
+  <h3>Sorting with ORDER BY</h3>
+  <p>Sort results by one or more expressions. Use <code>ASC</code> (default) or <code>DESC</code>:</p>
+  <pre><span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, n.age
+<span class="kw">ORDER BY</span> n.age <span class="kw">DESC</span></pre>
+
+  <p>Result:</p>
+  <pre><span class="cm">rows:</span>
+  [<span class="str">"Charlie"</span>, <span class="num">35</span>]
+  [<span class="str">"Alice"</span>,   <span class="num">30</span>]
+  [<span class="str">"Bob"</span>,     <span class="num">28</span>]
+  [<span class="str">"Diana"</span>,   <span class="num">22</span>]</pre>
+
+  <h3>Pagination with SKIP and LIMIT</h3>
+  <p><code>SKIP</code> ignores the first N rows; <code>LIMIT</code> caps the total rows returned:</p>
+  <pre><span class="cm">-- Page 1: first 2 results</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, n.age
+<span class="kw">ORDER BY</span> n.age <span class="kw">DESC</span>
+<span class="kw">LIMIT</span> <span class="num">2</span></pre>
+  <pre><span class="cm">rows: [["Charlie", 35], ["Alice", 30]]</span></pre>
+
+  <pre><span class="cm">-- Page 2: skip first 2, take next 2</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, n.age
+<span class="kw">ORDER BY</span> n.age <span class="kw">DESC</span>
+<span class="kw">SKIP</span> <span class="num">2</span> <span class="kw">LIMIT</span> <span class="num">2</span></pre>
+  <pre><span class="cm">rows: [["Bob", 28], ["Diana", 22]]</span></pre>
+
+  <h3>Combined Example</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'page-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'page-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'page-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'page-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="page-python">
+    <pre><span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Paginated, sorted query</span>
+    page_size = <span class="num">5</span>
+    page_num  = <span class="num">3</span>   <span class="cm"># 0-indexed</span>
+
+    result = client.<span class="fn">query</span>(<span class="str">f"""
+        MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+        RETURN p.name AS actor, m.title AS movie, m.year AS year
+        ORDER BY m.year DESC
+        SKIP </span>{page_num * page_size}<span class="str">
+        LIMIT </span>{page_size}<span class="str">
+    """</span>)
+
+    <span class="fn">print</span>(result[<span class="str">"columns"</span>])  <span class="cm"># ["actor", "movie", "year"]</span>
+    <span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+        <span class="fn">print</span>(<span class="str">f"  </span>{row[<span class="num">0</span>]:<span class="num">15</span>}<span class="str"> | </span>{row[<span class="num">1</span>]:<span class="num">25</span>}<span class="str"> | </span>{row[<span class="num">2</span>]}<span class="str">"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="page-r">
+    <pre>page_size <span class="kw">&lt;-</span> <span class="num">5</span>
+page_num  <span class="kw">&lt;-</span> <span class="num">3</span>
+
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="fn">sprintf</span>(<span class="str">"
+    MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+    RETURN p.name AS actor, m.title AS movie, m.year AS year
+    ORDER BY m.year DESC
+    SKIP %d LIMIT %d
+"</span>, page_num * page_size, page_size))
+
+<span class="fn">print</span>(result<span class="kw">$</span>rows)
+<span class="cm">#   actor              movie                    year</span>
+<span class="cm"># 1 Alice              The Matrix               1999</span></pre>
+  </div>
+  <div class="lang-panel" id="page-go">
+    <pre>pageSize := <span class="num">5</span>
+pageNum  := <span class="num">3</span>
+
+query := fmt.<span class="fn">Sprintf</span>(<span class="str">`
+    MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+    RETURN p.name AS actor, m.title AS movie, m.year AS year
+    ORDER BY m.year DESC
+    SKIP %d LIMIT %d
+`</span>, pageNum*pageSize, pageSize)
+
+result, _ := client.<span class="fn">Query</span>(ctx, query)
+
+fmt.<span class="fn">Println</span>(result.Columns) <span class="cm">// [actor movie year]</span>
+<span class="kw">for</span> _, row := <span class="kw">range</span> result.Rows {
+    fmt.<span class="fn">Printf</span>(<span class="str">"  %-15s | %-25s | %v\n"</span>, row[<span class="num">0</span>], row[<span class="num">1</span>], row[<span class="num">2</span>])
+}</pre>
+  </div>
+  <div class="lang-panel" id="page-java">
+    <pre><span class="kw">int</span> pageSize = <span class="num">5</span>;
+<span class="kw">int</span> pageNum  = <span class="num">3</span>;
+
+<span class="ty">QueryResult</span> result = client.<span class="fn">query</span>(<span class="ty">String</span>.<span class="fn">format</span>(<span class="str">"""
+    MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+    RETURN p.name AS actor, m.title AS movie, m.year AS year
+    ORDER BY m.year DESC
+    SKIP %d LIMIT %d
+    """</span>, pageNum * pageSize, pageSize));
+
+<span class="ty">System</span>.out.<span class="fn">println</span>(result.<span class="fn">columns</span>());
+<span class="kw">for</span> (<span class="kw">var</span> row : result.<span class="fn">rows</span>()) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"  %-15s | %-25s | %s%n"</span>,
+        row.<span class="fn">get</span>(<span class="num">0</span>), row.<span class="fn">get</span>(<span class="num">1</span>), row.<span class="fn">get</span>(<span class="num">2</span>));
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 5.4 Aggregation Functions -->
+  <!-- ================================================================== -->
+  <h2>5.4 Aggregation Functions</h2>
+
+  <p>
+    AstraeaDB supports standard aggregation functions. When you use an aggregation function in <code>RETURN</code>,
+    all non-aggregated columns act as implicit <code>GROUP BY</code> keys&mdash;just like in SQL.
+  </p>
+
+  <h3>Available Functions</h3>
+  <table>
+    <thead>
+      <tr><th>Function</th><th>Description</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>count(n)</code></td><td>Number of matched items</td><td><code>RETURN count(n)</code></td></tr>
+      <tr><td><code>sum(n.age)</code></td><td>Sum of numeric values</td><td><code>RETURN sum(n.age)</code></td></tr>
+      <tr><td><code>avg(n.age)</code></td><td>Average of numeric values</td><td><code>RETURN avg(n.age)</code></td></tr>
+      <tr><td><code>min(n.age)</code></td><td>Minimum value</td><td><code>RETURN min(n.age)</code></td></tr>
+      <tr><td><code>max(n.age)</code></td><td>Maximum value</td><td><code>RETURN max(n.age)</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Implicit GROUP BY</h3>
+  <p>
+    When a <code>RETURN</code> clause mixes aggregated and non-aggregated expressions, the
+    non-aggregated expressions automatically become grouping keys. For example:
+  </p>
+
+  <pre><span class="cm">-- Count how many actors appeared in each movie</span>
+<span class="kw">MATCH</span> (p:<span class="ty">Person</span>)-[:<span class="ty">ACTED_IN</span>]-&gt;(m:<span class="ty">Movie</span>)
+<span class="kw">RETURN</span> m.title, <span class="fn">count</span>(p) <span class="kw">AS</span> actor_count
+<span class="kw">ORDER BY</span> <span class="fn">count</span>(p) <span class="kw">DESC</span></pre>
+
+  <p>Result:</p>
+  <pre><span class="cm">columns: ["m.title", "actor_count"]</span>
+<span class="cm">rows:</span>
+  [<span class="str">"The Matrix"</span>,      <span class="num">4</span>]
+  [<span class="str">"John Wick"</span>,       <span class="num">3</span>]
+  [<span class="str">"Speed"</span>,           <span class="num">2</span>]
+  [<span class="str">"Point Break"</span>,     <span class="num">2</span>]</pre>
+
+  <h3>More Aggregation Examples</h3>
+
+  <pre><span class="cm">-- Average age of people in each city</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.city, <span class="fn">avg</span>(n.age) <span class="kw">AS</span> avg_age, <span class="fn">count</span>(n) <span class="kw">AS</span> population
+<span class="kw">ORDER BY</span> avg_age <span class="kw">DESC</span></pre>
+
+  <pre><span class="cm">-- Find the youngest and oldest person overall</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> <span class="fn">min</span>(n.age) <span class="kw">AS</span> youngest, <span class="fn">max</span>(n.age) <span class="kw">AS</span> oldest, <span class="fn">sum</span>(n.age) <span class="kw">AS</span> total_age</pre>
+
+  <h3>Aggregation with Filtering</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'agg-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'agg-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'agg-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'agg-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="agg-python">
+    <pre><span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Movies with at least 3 actors, sorted by cast size</span>
+    result = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+        RETURN m.title AS movie,
+               count(p) AS cast_size,
+               avg(p.age) AS avg_age
+        ORDER BY cast_size DESC
+    """</span>)
+
+    <span class="fn">print</span>(<span class="str">f"{'Movie':<span class="num">25</span>} {'Cast':<span class="num">6</span>} {'Avg Age'}"</span>)
+    <span class="fn">print</span>(<span class="str">"-"</span> * <span class="num">42</span>)
+    <span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+        <span class="fn">print</span>(<span class="str">f"</span>{row[<span class="num">0</span>]:<span class="num">25</span>}<span class="str"> </span>{row[<span class="num">1</span>]:<span class="num">6</span>}<span class="str"> </span>{row[<span class="num">2</span>]:.1f}<span class="str">"</span>)
+
+<span class="cm"># Output:</span>
+<span class="cm"># Movie                     Cast   Avg Age</span>
+<span class="cm"># ------------------------------------------</span>
+<span class="cm"># The Matrix                4      32.5</span>
+<span class="cm"># John Wick                 3      38.0</span></pre>
+  </div>
+  <div class="lang-panel" id="agg-r">
+    <pre>result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">"
+    MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+    RETURN m.title AS movie,
+           count(p) AS cast_size,
+           avg(p.age) AS avg_age
+    ORDER BY cast_size DESC
+"</span>)
+
+<span class="fn">print</span>(result<span class="kw">$</span>rows)
+<span class="cm">#        movie cast_size avg_age</span>
+<span class="cm"># 1 The Matrix         4    32.5</span>
+<span class="cm"># 2  John Wick         3    38.0</span></pre>
+  </div>
+  <div class="lang-panel" id="agg-go">
+    <pre>result, _ := client.<span class="fn">Query</span>(ctx, <span class="str">`
+    MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+    RETURN m.title AS movie,
+           count(p) AS cast_size,
+           avg(p.age) AS avg_age
+    ORDER BY cast_size DESC
+`</span>)
+
+fmt.<span class="fn">Printf</span>(<span class="str">"%-25s %-6s %s\n"</span>, <span class="str">"Movie"</span>, <span class="str">"Cast"</span>, <span class="str">"Avg Age"</span>)
+<span class="kw">for</span> _, row := <span class="kw">range</span> result.Rows {
+    fmt.<span class="fn">Printf</span>(<span class="str">"%-25s %-6v %v\n"</span>, row[<span class="num">0</span>], row[<span class="num">1</span>], row[<span class="num">2</span>])
+}</pre>
+  </div>
+  <div class="lang-panel" id="agg-java">
+    <pre><span class="ty">QueryResult</span> result = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+    RETURN m.title AS movie,
+           count(p) AS cast_size,
+           avg(p.age) AS avg_age
+    ORDER BY cast_size DESC
+    """</span>);
+
+<span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"%-25s %-6s %s%n"</span>, <span class="str">"Movie"</span>, <span class="str">"Cast"</span>, <span class="str">"Avg Age"</span>);
+<span class="kw">for</span> (<span class="kw">var</span> row : result.<span class="fn">rows</span>()) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"%-25s %-6s %s%n"</span>,
+        row.<span class="fn">get</span>(<span class="num">0</span>), row.<span class="fn">get</span>(<span class="num">1</span>), row.<span class="fn">get</span>(<span class="num">2</span>));
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 5.5 CREATE and DELETE -->
+  <!-- ================================================================== -->
+  <h2>5.5 CREATE and DELETE in GQL</h2>
+
+  <p>
+    GQL is not just for querying&mdash;it also supports data mutation. AstraeaDB's <code>CREATE</code>
+    and <code>DELETE</code> clauses let you build and tear down graph structures declaratively.
+  </p>
+
+  <h3>Creating Nodes</h3>
+  <p>Create a new node with labels and properties:</p>
+
+  <pre><span class="kw">CREATE</span> (n:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Dave"</span>, <span class="str">age</span>: <span class="num">35</span>, <span class="str">city</span>: <span class="str">"Berlin"</span>})</pre>
+
+  <p>The <code>stats</code> field in the response confirms the mutation:</p>
+  <pre>{
+    <span class="str">"columns"</span>: [],
+    <span class="str">"rows"</span>: [],
+    <span class="str">"stats"</span>: {<span class="str">"nodes_created"</span>: <span class="num">1</span>, <span class="str">"edges_created"</span>: <span class="num">0</span>,
+              <span class="str">"nodes_deleted"</span>: <span class="num">0</span>, <span class="str">"edges_deleted"</span>: <span class="num">0</span>}
+}</pre>
+
+  <h3>Creating Edges</h3>
+
+  <div class="info-box warn">
+    <strong>Important: MATCH before CREATE for edges</strong>
+    In the current AstraeaDB implementation, creating an edge requires that both endpoints already exist.
+    Use <code>MATCH</code> to find the existing nodes first, then <code>CREATE</code> the relationship
+    between them.
+  </div>
+
+  <pre><span class="cm">-- First, match both endpoints</span>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>}), (d:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Dave"</span>})
+<span class="kw">CREATE</span> (a)-[:<span class="ty">KNOWS</span> {<span class="str">since</span>: <span class="num">2020</span>}]-&gt;(d)</pre>
+
+  <p>Response stats:</p>
+  <pre>{<span class="str">"stats"</span>: {<span class="str">"nodes_created"</span>: <span class="num">0</span>, <span class="str">"edges_created"</span>: <span class="num">1</span>, <span class="str">"nodes_deleted"</span>: <span class="num">0</span>, <span class="str">"edges_deleted"</span>: <span class="num">0</span>}}</pre>
+
+  <h3>Deleting Nodes and Edges</h3>
+  <p>
+    Use <code>MATCH</code> to find the element, then <code>DELETE</code> to remove it:
+  </p>
+
+  <pre><span class="cm">-- Delete a specific person</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Dave"</span>})
+<span class="kw">DELETE</span> n</pre>
+
+  <pre><span class="cm">-- Delete a specific edge</span>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})-[e:<span class="ty">KNOWS</span>]-&gt;(b:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Bob"</span>})
+<span class="kw">DELETE</span> e</pre>
+
+  <p>Response stats for node deletion:</p>
+  <pre>{<span class="str">"stats"</span>: {<span class="str">"nodes_created"</span>: <span class="num">0</span>, <span class="str">"edges_created"</span>: <span class="num">0</span>, <span class="str">"nodes_deleted"</span>: <span class="num">1</span>, <span class="str">"edges_deleted"</span>: <span class="num">0</span>}}</pre>
+
+  <h3>Complete CREATE/DELETE Example</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'mut-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'mut-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'mut-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'mut-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="mut-python">
+    <pre><span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Create a new person</span>
+    r1 = client.<span class="fn">query</span>(<span class="str">'CREATE (n:Person {name: "Eve", age: 27, city: "Tokyo"})'</span>)
+    <span class="fn">print</span>(r1[<span class="str">"stats"</span>])  <span class="cm"># {"nodes_created": 1, ...}</span>
+
+    <span class="cm"># Create an edge between existing nodes</span>
+    r2 = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (a:Person {name: "Alice"}), (e:Person {name: "Eve"})
+        CREATE (a)-[:KNOWS {since: 2024}]-&gt;(e)
+    """</span>)
+    <span class="fn">print</span>(r2[<span class="str">"stats"</span>])  <span class="cm"># {"edges_created": 1, ...}</span>
+
+    <span class="cm"># Verify the new connection</span>
+    r3 = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (a:Person {name: "Alice"})-[:KNOWS]-&gt;(b)
+        RETURN b.name, b.city
+    """</span>)
+    <span class="fn">print</span>(r3[<span class="str">"rows"</span>])
+    <span class="cm"># [["Bob", "London"], ["Eve", "Tokyo"], ...]</span>
+
+    <span class="cm"># Delete the person (clean up)</span>
+    r4 = client.<span class="fn">query</span>(<span class="str">'MATCH (n:Person {name: "Eve"}) DELETE n'</span>)
+    <span class="fn">print</span>(r4[<span class="str">"stats"</span>])  <span class="cm"># {"nodes_deleted": 1, ...}</span></pre>
+  </div>
+  <div class="lang-panel" id="mut-r">
+    <pre><span class="cm"># Create a new person</span>
+r1 <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'CREATE (n:Person {name: "Eve", age: 27, city: "Tokyo"})'</span>)
+<span class="fn">print</span>(r1<span class="kw">$</span>stats)  <span class="cm"># nodes_created: 1</span>
+
+<span class="cm"># Create an edge between existing nodes</span>
+r2 <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'
+    MATCH (a:Person {name: "Alice"}), (e:Person {name: "Eve"})
+    CREATE (a)-[:KNOWS {since: 2024}]-&gt;(e)
+'</span>)
+<span class="fn">print</span>(r2<span class="kw">$</span>stats)  <span class="cm"># edges_created: 1</span>
+
+<span class="cm"># Verify the new connection</span>
+r3 <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'
+    MATCH (a:Person {name: "Alice"})-[:KNOWS]-&gt;(b)
+    RETURN b.name, b.city
+'</span>)
+<span class="fn">print</span>(r3<span class="kw">$</span>rows)
+
+<span class="cm"># Delete the person</span>
+r4 <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'MATCH (n:Person {name: "Eve"}) DELETE n'</span>)
+<span class="fn">print</span>(r4<span class="kw">$</span>stats)  <span class="cm"># nodes_deleted: 1</span></pre>
+  </div>
+  <div class="lang-panel" id="mut-go">
+    <pre><span class="cm">// Create a new person</span>
+r1, _ := client.<span class="fn">Query</span>(ctx,
+    <span class="str">`CREATE (n:Person {name: "Eve", age: 27, city: "Tokyo"})`</span>)
+fmt.<span class="fn">Println</span>(r1.Stats) <span class="cm">// {NodesCreated:1 ...}</span>
+
+<span class="cm">// Create an edge between existing nodes</span>
+r2, _ := client.<span class="fn">Query</span>(ctx, <span class="str">`
+    MATCH (a:Person {name: "Alice"}), (e:Person {name: "Eve"})
+    CREATE (a)-[:KNOWS {since: 2024}]-&gt;(e)
+`</span>)
+fmt.<span class="fn">Println</span>(r2.Stats) <span class="cm">// {EdgesCreated:1 ...}</span>
+
+<span class="cm">// Verify the new connection</span>
+r3, _ := client.<span class="fn">Query</span>(ctx, <span class="str">`
+    MATCH (a:Person {name: "Alice"})-[:KNOWS]-&gt;(b)
+    RETURN b.name, b.city
+`</span>)
+fmt.<span class="fn">Println</span>(r3.Rows)
+
+<span class="cm">// Delete the person</span>
+r4, _ := client.<span class="fn">Query</span>(ctx,
+    <span class="str">`MATCH (n:Person {name: "Eve"}) DELETE n`</span>)
+fmt.<span class="fn">Println</span>(r4.Stats) <span class="cm">// {NodesDeleted:1 ...}</span></pre>
+  </div>
+  <div class="lang-panel" id="mut-java">
+    <pre><span class="cm">// Create a new person</span>
+<span class="ty">QueryResult</span> r1 = client.<span class="fn">query</span>(
+    <span class="str">"CREATE (n:Person {name: \"Eve\", age: 27, city: \"Tokyo\"})"</span>);
+<span class="ty">System</span>.out.<span class="fn">println</span>(r1.<span class="fn">stats</span>()); <span class="cm">// {nodes_created=1, ...}</span>
+
+<span class="cm">// Create an edge between existing nodes</span>
+<span class="ty">QueryResult</span> r2 = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH (a:Person {name: "Alice"}), (e:Person {name: "Eve"})
+    CREATE (a)-[:KNOWS {since: 2024}]-&gt;(e)
+    """</span>);
+<span class="ty">System</span>.out.<span class="fn">println</span>(r2.<span class="fn">stats</span>()); <span class="cm">// {edges_created=1, ...}</span>
+
+<span class="cm">// Verify the new connection</span>
+<span class="ty">QueryResult</span> r3 = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH (a:Person {name: "Alice"})-[:KNOWS]-&gt;(b)
+    RETURN b.name, b.city
+    """</span>);
+<span class="ty">System</span>.out.<span class="fn">println</span>(r3.<span class="fn">rows</span>());
+
+<span class="cm">// Delete the person</span>
+<span class="ty">QueryResult</span> r4 = client.<span class="fn">query</span>(
+    <span class="str">"MATCH (n:Person {name: \"Eve\"}) DELETE n"</span>);
+<span class="ty">System</span>.out.<span class="fn">println</span>(r4.<span class="fn">stats</span>()); <span class="cm">// {nodes_deleted=1, ...}</span></pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 5.6 Built-in Functions -->
+  <!-- ================================================================== -->
+  <h2>5.6 Built-in Functions</h2>
+
+  <p>
+    AstraeaDB provides several built-in functions for inspecting and transforming graph elements
+    within GQL queries.
+  </p>
+
+  <h3>Identity and Metadata Functions</h3>
+
+  <table>
+    <thead>
+      <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>id(n)</code></td>
+        <td>Internal numeric identifier for a node or edge</td>
+        <td>Integer</td>
+      </tr>
+      <tr>
+        <td><code>labels(n)</code></td>
+        <td>List of labels attached to a node</td>
+        <td>List of strings</td>
+      </tr>
+      <tr>
+        <td><code>type(e)</code></td>
+        <td>The relationship type of an edge</td>
+        <td>String</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h4>Examples: id(), labels(), type()</h4>
+
+  <pre><span class="cm">-- Get the internal ID and labels of all Person nodes</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> <span class="fn">id</span>(n), <span class="fn">labels</span>(n), n.name</pre>
+  <pre><span class="cm">columns: ["id(n)", "labels(n)", "n.name"]</span>
+<span class="cm">rows:</span>
+  [<span class="num">0</span>,  [<span class="str">"Person"</span>],          <span class="str">"Alice"</span>]
+  [<span class="num">1</span>,  [<span class="str">"Person"</span>],          <span class="str">"Bob"</span>]
+  [<span class="num">4</span>,  [<span class="str">"Person"</span>, <span class="str">"Actor"</span>], <span class="str">"Charlie"</span>]</pre>
+
+  <pre><span class="cm">-- Inspect edge types in a pattern</span>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span>)-[e]-&gt;(b)
+<span class="kw">RETURN</span> a.name, <span class="fn">type</span>(e), b.name</pre>
+  <pre><span class="cm">columns: ["a.name", "type(e)", "b.name"]</span>
+<span class="cm">rows:</span>
+  [<span class="str">"Alice"</span>,   <span class="str">"KNOWS"</span>,     <span class="str">"Bob"</span>]
+  [<span class="str">"Alice"</span>,   <span class="str">"ACTED_IN"</span>,  <span class="str">"The Matrix"</span>]
+  [<span class="str">"Bob"</span>,     <span class="str">"KNOWS"</span>,     <span class="str">"Charlie"</span>]</pre>
+
+  <h3>Type Conversion Functions</h3>
+
+  <table>
+    <thead>
+      <tr><th>Function</th><th>Description</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>toString(value)</code></td>
+        <td>Converts a value to its string representation</td>
+        <td><code>toString(42)</code> returns <code>"42"</code></td>
+      </tr>
+      <tr>
+        <td><code>toInteger(value)</code></td>
+        <td>Converts a string to an integer</td>
+        <td><code>toInteger("42")</code> returns <code>42</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <pre><span class="cm">-- Convert age to string for concatenation</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, <span class="fn">toString</span>(n.age) <span class="kw">AS</span> age_str</pre>
+
+  <h3>The DISTINCT Keyword</h3>
+  <p>
+    Use <code>DISTINCT</code> to eliminate duplicate rows from results:
+  </p>
+
+  <pre><span class="cm">-- Find unique cities where people live</span>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> <span class="kw">DISTINCT</span> n.city</pre>
+  <pre><span class="cm">columns: ["n.city"]</span>
+<span class="cm">rows:</span>
+  [<span class="str">"London"</span>]
+  [<span class="str">"Paris"</span>]
+  [<span class="str">"Berlin"</span>]
+  [<span class="str">"Tokyo"</span>]</pre>
+
+  <pre><span class="cm">-- Find unique relationship types in the graph</span>
+<span class="kw">MATCH</span> ()-[e]-&gt;()
+<span class="kw">RETURN</span> <span class="kw">DISTINCT</span> <span class="fn">type</span>(e) <span class="kw">AS</span> relationship_type</pre>
+  <pre><span class="cm">columns: ["relationship_type"]</span>
+<span class="cm">rows:</span>
+  [<span class="str">"KNOWS"</span>]
+  [<span class="str">"ACTED_IN"</span>]
+  [<span class="str">"DIRECTED"</span>]</pre>
+
+  <h3>Built-in Functions Example</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'fn-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'fn-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'fn-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'fn-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="fn-python">
+    <pre><span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Explore the graph metadata</span>
+    result = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (a:Person)-[e]-&gt;(b)
+        RETURN id(a) AS from_id,
+               labels(a) AS from_labels,
+               type(e) AS rel_type,
+               id(b) AS to_id,
+               labels(b) AS to_labels
+    """</span>)
+
+    <span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+        <span class="fn">print</span>(<span class="str">f"Node </span>{row[<span class="num">0</span>]}<span class="str"> </span>{row[<span class="num">1</span>]}<span class="str"> --[</span>{row[<span class="num">2</span>]}<span class="str">]--&gt; Node </span>{row[<span class="num">3</span>]}<span class="str"> </span>{row[<span class="num">4</span>]}<span class="str">"</span>)
+
+    <span class="cm"># Find unique relationship types</span>
+    types = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH ()-[e]-&gt;()
+        RETURN DISTINCT type(e) AS rel_type
+    """</span>)
+    <span class="fn">print</span>(<span class="str">"Relationship types:"</span>, [r[<span class="num">0</span>] <span class="kw">for</span> r <span class="kw">in</span> types[<span class="str">"rows"</span>]])
+    <span class="cm"># Relationship types: ["KNOWS", "ACTED_IN", "DIRECTED"]</span></pre>
+  </div>
+  <div class="lang-panel" id="fn-r">
+    <pre><span class="cm"># Explore the graph metadata</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">"
+    MATCH (a:Person)-[e]-&gt;(b)
+    RETURN id(a) AS from_id,
+           labels(a) AS from_labels,
+           type(e) AS rel_type,
+           id(b) AS to_id,
+           labels(b) AS to_labels
+"</span>)
+<span class="fn">print</span>(result<span class="kw">$</span>rows)
+
+<span class="cm"># Find unique relationship types</span>
+types <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">"
+    MATCH ()-[e]-&gt;()
+    RETURN DISTINCT type(e) AS rel_type
+"</span>)
+<span class="fn">print</span>(types<span class="kw">$</span>rows)
+<span class="cm">#   rel_type</span>
+<span class="cm"># 1    KNOWS</span>
+<span class="cm"># 2 ACTED_IN</span>
+<span class="cm"># 3 DIRECTED</span></pre>
+  </div>
+  <div class="lang-panel" id="fn-go">
+    <pre><span class="cm">// Explore the graph metadata</span>
+result, _ := client.<span class="fn">Query</span>(ctx, <span class="str">`
+    MATCH (a:Person)-[e]-&gt;(b)
+    RETURN id(a) AS from_id,
+           labels(a) AS from_labels,
+           type(e) AS rel_type,
+           id(b) AS to_id,
+           labels(b) AS to_labels
+`</span>)
+
+<span class="kw">for</span> _, row := <span class="kw">range</span> result.Rows {
+    fmt.<span class="fn">Printf</span>(<span class="str">"Node %v %v --[%v]--&gt; Node %v %v\n"</span>,
+        row[<span class="num">0</span>], row[<span class="num">1</span>], row[<span class="num">2</span>], row[<span class="num">3</span>], row[<span class="num">4</span>])
+}
+
+<span class="cm">// Find unique relationship types</span>
+types, _ := client.<span class="fn">Query</span>(ctx, <span class="str">`
+    MATCH ()-[e]-&gt;()
+    RETURN DISTINCT type(e) AS rel_type
+`</span>)
+fmt.<span class="fn">Println</span>(<span class="str">"Relationship types:"</span>, types.Rows)</pre>
+  </div>
+  <div class="lang-panel" id="fn-java">
+    <pre><span class="cm">// Explore the graph metadata</span>
+<span class="ty">QueryResult</span> result = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH (a:Person)-[e]-&gt;(b)
+    RETURN id(a) AS from_id,
+           labels(a) AS from_labels,
+           type(e) AS rel_type,
+           id(b) AS to_id,
+           labels(b) AS to_labels
+    """</span>);
+
+<span class="kw">for</span> (<span class="kw">var</span> row : result.<span class="fn">rows</span>()) {
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"Node %s %s --[%s]--&gt; Node %s %s%n"</span>,
+        row.<span class="fn">get</span>(<span class="num">0</span>), row.<span class="fn">get</span>(<span class="num">1</span>), row.<span class="fn">get</span>(<span class="num">2</span>),
+        row.<span class="fn">get</span>(<span class="num">3</span>), row.<span class="fn">get</span>(<span class="num">4</span>));
+}
+
+<span class="cm">// Find unique relationship types</span>
+<span class="ty">QueryResult</span> types = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH ()-[e]-&gt;()
+    RETURN DISTINCT type(e) AS rel_type
+    """</span>);
+<span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Relationship types: "</span> + types.<span class="fn">rows</span>());</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- Summary -->
+  <!-- ================================================================== -->
+  <h2>Chapter Summary</h2>
+
+  <div class="info-box tip">
+    <strong>Key Takeaways</strong>
+    <ul style="margin-top: 8px;">
+      <li><strong>Pattern Matching:</strong> Describe the shape you want with <code>MATCH</code>&mdash;the engine finds all instances.</li>
+      <li><strong>Filtering:</strong> <code>WHERE</code> supports comparisons, boolean logic, and string operators.</li>
+      <li><strong>Projections:</strong> <code>RETURN</code> with <code>AS</code> aliases, <code>ORDER BY</code>, <code>SKIP</code>, and <code>LIMIT</code> for clean, paginated output.</li>
+      <li><strong>Aggregation:</strong> <code>count</code>, <code>sum</code>, <code>avg</code>, <code>min</code>, <code>max</code> with implicit grouping.</li>
+      <li><strong>Mutations:</strong> <code>CREATE</code> for nodes/edges, <code>DELETE</code> after <code>MATCH</code>. Stats confirm every mutation.</li>
+      <li><strong>Built-in Functions:</strong> <code>id()</code>, <code>labels()</code>, <code>type()</code>, conversions, and <code>DISTINCT</code>.</li>
+    </ul>
+  </div>
+
+  <p>
+    In the next chapter, we move beyond declarative queries to explore the <strong>traversal algorithms</strong>
+    built into AstraeaDB: BFS, DFS, shortest path, and neighbor expansion.
+  </p>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch04.html">&larr; Chapter 4: Your First Graph</a>
+    <a href="gentle-intro-ch06.html">Chapter 6: Graph Traversals &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+</script>
+</body>
+</html>

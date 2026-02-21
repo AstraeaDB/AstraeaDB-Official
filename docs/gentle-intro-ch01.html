@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 1: Why Graphs? &mdash; A Gentle Introduction to AstraeaDB</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html" class="active">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 1: Why Graphs?</h1>
+  <p class="subtitle">
+    Relational databases revolutionized data management in the 1970s, but they carry a fundamental assumption: data lives in flat, rectangular tables. When your data is defined by its <em>connections</em>&mdash;who knows whom, which server talks to which service, how one transaction links to another&mdash;those tables start to buckle under the weight of recursive JOINs. This chapter explains why graphs are the natural data structure for connected data and introduces the core vocabulary you will use throughout this guide.
+  </p>
+
+  <!-- Section 1.1 -->
+  <h2>1.1 The Limits of Tables</h2>
+
+  <p>
+    Consider a simple social network. You have a <code>users</code> table and a <code>friendships</code> table. Alice wants to know: <strong>"Who are my friends-of-friends that I don't already know?"</strong> This is a two-hop query&mdash;traverse from Alice to her friends, then from those friends to <em>their</em> friends, excluding anyone Alice is already connected to.
+  </p>
+
+  <h3>The SQL approach</h3>
+  <p>In a relational database, you would write something like this:</p>
+
+<pre>
+<span class="cm">-- Find Alice's friends-of-friends (2 hops)</span>
+<span class="kw">SELECT DISTINCT</span> fof.name
+<span class="kw">FROM</span> users alice
+<span class="kw">JOIN</span> friendships f1
+  <span class="kw">ON</span> alice.id = f1.user_id
+<span class="kw">JOIN</span> friendships f2
+  <span class="kw">ON</span> f1.friend_id = f2.user_id
+<span class="kw">JOIN</span> users fof
+  <span class="kw">ON</span> f2.friend_id = fof.id
+<span class="kw">WHERE</span> alice.name = <span class="str">'Alice'</span>
+  <span class="kw">AND</span> fof.id != alice.id
+  <span class="kw">AND</span> fof.id <span class="kw">NOT IN</span> (
+    <span class="kw">SELECT</span> f3.friend_id
+    <span class="kw">FROM</span> friendships f3
+    <span class="kw">WHERE</span> f3.user_id = alice.id
+  );
+</pre>
+
+  <p>
+    This works for two hops, but notice the pattern: every additional hop requires another JOIN. For three hops you add another JOIN pair. For four hops, another. By the time you reach six hops&mdash;which is common in fraud detection and cybersecurity analysis&mdash;the query becomes nearly unreadable and the query planner is performing nested index lookups that scale poorly.
+  </p>
+
+  <h3>The graph approach</h3>
+  <p>In AstraeaDB's GQL dialect, the same query is a single declarative pattern:</p>
+
+<pre>
+<span class="kw">MATCH</span> (alice:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})
+      -[:<span class="ty">KNOWS</span>]-&gt;(friend)
+      -[:<span class="ty">KNOWS</span>]-&gt;(fof)
+<span class="kw">WHERE</span> fof &lt;&gt; alice
+<span class="kw">RETURN DISTINCT</span> fof.name
+</pre>
+
+  <p>
+    Adding more hops is trivial&mdash;just extend the pattern. And the execution engine does not perform index lookups at each step; it follows direct pointers from node to node (more on this in Section 1.3).
+  </p>
+
+  <h3>SQL vs. Graph: query complexity comparison</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Query Type</th>
+        <th>SQL Approach</th>
+        <th>Graph Approach</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Direct friends (1 hop)</td>
+        <td>1 JOIN &mdash; straightforward</td>
+        <td><code>MATCH (a)-[:KNOWS]->(b)</code></td>
+      </tr>
+      <tr>
+        <td>Friends-of-friends (2 hops)</td>
+        <td>2 JOINs + subquery exclusion</td>
+        <td><code>MATCH (a)-[:KNOWS]->(b)-[:KNOWS]->(c)</code></td>
+      </tr>
+      <tr>
+        <td>3-hop recommendation</td>
+        <td>3 JOINs + deduplication + exclusion</td>
+        <td>Extend the pattern by one arrow</td>
+      </tr>
+      <tr>
+        <td>Shortest path (variable depth)</td>
+        <td>Recursive CTE &mdash; hard to optimize</td>
+        <td>Built-in <code>shortest_path()</code></td>
+      </tr>
+      <tr>
+        <td>6-hop fraud ring</td>
+        <td>6+ JOINs, often impractical</td>
+        <td>BFS with depth limit of 6</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>Key takeaway</strong>
+    SQL databases are optimized for filtering and aggregating rows within a table. Graph databases are optimized for navigating relationships <em>between</em> entities. They are complementary tools, but when your questions center on connections, a graph database is the right choice.
+  </div>
+
+  <!-- Section 1.2 -->
+  <h2>1.2 Nodes, Edges, and Properties</h2>
+
+  <p>
+    Every graph database is built on three fundamental primitives. Understanding these will give you the vocabulary to work with any graph system, not just AstraeaDB.
+  </p>
+
+  <h3>Nodes (Vertices)</h3>
+  <p>
+    A <strong>node</strong> represents an entity&mdash;a person, a server, a transaction, a document. Each node has:
+  </p>
+  <ul>
+    <li><strong>A unique identifier</strong> (an internal 64-bit integer in AstraeaDB)</li>
+    <li><strong>One or more labels</strong> that classify the node (e.g., <code>Person</code>, <code>Server</code>, <code>Account</code>)</li>
+    <li><strong>A set of properties</strong>&mdash;key-value pairs stored as JSON (e.g., <code>{"name": "Alice", "age": 30}</code>)</li>
+    <li><strong>An optional embedding vector</strong>&mdash;a fixed-size float32 array for AI/vector operations (unique to AstraeaDB's Vector-Property Graph model)</li>
+  </ul>
+
+  <h3>Edges (Relationships)</h3>
+  <p>
+    An <strong>edge</strong> connects two nodes with a directed, typed relationship. Each edge has:
+  </p>
+  <ul>
+    <li><strong>A source node</strong> and a <strong>target node</strong> (edges are directed: Alice KNOWS Bob does not automatically mean Bob KNOWS Alice)</li>
+    <li><strong>A relationship type</strong> (e.g., <code>KNOWS</code>, <code>ACTED_IN</code>, <code>CONNECTS_TO</code>)</li>
+    <li><strong>A set of properties</strong> (e.g., <code>{"since": 2019, "weight": 0.85}</code>)</li>
+    <li><strong>An optional validity interval</strong> for temporal graphs (covered in Chapter 9)</li>
+  </ul>
+
+  <h3>Properties</h3>
+  <p>
+    Properties are key-value pairs attached to either nodes or edges. In AstraeaDB, property values are JSON-compatible: strings, numbers, booleans, arrays, and nested objects are all supported. Properties allow you to store rich metadata without needing separate lookup tables.
+  </p>
+
+  <h3>Putting it all together</h3>
+  <p>Here is a small social graph expressed as ASCII art:</p>
+
+<div class="diagram">
+    (Alice:Person)               (Carol:Person)
+    { name: "Alice",             { name: "Carol",
+      age: 30 }                    age: 28 }
+         |                              ^
+         | :KNOWS                       | :KNOWS
+         | { since: 2019 }              | { since: 2021 }
+         v                              |
+    (Bob:Person)  ----------------------+
+    { name: "Bob",
+      age: 32 }
+
+    Legend:
+    ( )       = Node, with Label and Properties
+    ---->     = Directed Edge, with Type and Properties
+</div>
+
+  <p>In GQL, you would create this graph like so:</p>
+
+<pre>
+<span class="cm">-- Create nodes</span>
+<span class="kw">CREATE</span> (alice:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>, <span class="str">age</span>: <span class="num">30</span>})
+<span class="kw">CREATE</span> (bob:<span class="ty">Person</span>   {<span class="str">name</span>: <span class="str">"Bob"</span>,   <span class="str">age</span>: <span class="num">32</span>})
+<span class="kw">CREATE</span> (carol:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Carol"</span>, <span class="str">age</span>: <span class="num">28</span>})
+
+<span class="cm">-- Create edges</span>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>}), (b:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Bob"</span>})
+<span class="kw">CREATE</span> (a)-[:<span class="ty">KNOWS</span> {<span class="str">since</span>: <span class="num">2019</span>}]-&gt;(b)
+
+<span class="kw">MATCH</span> (b:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Bob"</span>}), (c:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Carol"</span>})
+<span class="kw">CREATE</span> (b)-[:<span class="ty">KNOWS</span> {<span class="str">since</span>: <span class="num">2021</span>}]-&gt;(c)
+</pre>
+
+  <div class="info-box info">
+    <strong>Labels vs. types</strong>
+    In AstraeaDB terminology, <em>labels</em> classify nodes (a node can have multiple labels, e.g., <code>Person</code> and <code>Employee</code>) while <em>types</em> classify edges (each edge has exactly one type, e.g., <code>KNOWS</code>). This convention aligns with the ISO GQL standard and the broader property graph community.
+  </div>
+
+  <!-- Section 1.3 -->
+  <h2>1.3 Thinking in Connections</h2>
+
+  <p>
+    The performance advantage of graph databases over relational databases for connected queries comes down to a single architectural decision: <strong>index-free adjacency</strong>.
+  </p>
+
+  <h3>How relational databases traverse</h3>
+  <p>
+    When a relational database follows a foreign key relationship, it performs an <strong>index lookup</strong>. Even with a B-tree index, each lookup costs O(log N) where N is the total number of rows in the target table. For a single hop this is fast. But the cost multiplies with each additional hop:
+  </p>
+  <ul>
+    <li>1 hop: O(log N)</li>
+    <li>2 hops: O(k * log N) where k is the average number of matches at hop 1</li>
+    <li>d hops: O(k<sup>d-1</sup> * log N) &mdash; the log N factor applies at <em>every</em> level</li>
+  </ul>
+
+  <h3>How graph databases traverse</h3>
+  <p>
+    In a native graph storage engine like AstraeaDB's, each node stores <strong>direct pointers</strong> to its neighbors. There is no index lookup; you simply follow the pointer. The cost of visiting one neighbor is O(1)&mdash;constant time. Expanding to all neighbors of a node costs O(k) where k is that node's degree (number of neighbors). Crucially, this cost is <strong>independent of the total graph size</strong>. Whether your graph has 1,000 nodes or 1 billion, traversing from one node to its neighbor takes the same time.
+  </p>
+
+  <p>
+    AstraeaDB takes this further with <strong>pointer swizzling</strong>: when a subgraph is "hot" (frequently accessed), the storage engine promotes 64-bit disk page IDs into direct memory pointers. This eliminates even the page-table indirection, achieving nanosecond-level traversal for active working sets.
+  </p>
+
+  <h3>Depth vs. time: a comparison</h3>
+  <p>
+    The following table illustrates how traversal time scales with depth for a graph of 10 million nodes, assuming an average degree of 50 neighbors per node:
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Traversal Depth</th>
+        <th>Nodes Visited</th>
+        <th>SQL (B-tree JOINs)</th>
+        <th>Graph (pointer chasing)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1 hop</td>
+        <td>50</td>
+        <td>~0.5 ms (50 index lookups)</td>
+        <td>~0.005 ms (50 pointer follows)</td>
+      </tr>
+      <tr>
+        <td>2 hops</td>
+        <td>2,500</td>
+        <td>~25 ms (2,500 index lookups)</td>
+        <td>~0.25 ms</td>
+      </tr>
+      <tr>
+        <td>3 hops</td>
+        <td>125,000</td>
+        <td>~1.25 sec</td>
+        <td>~12.5 ms</td>
+      </tr>
+      <tr>
+        <td>4 hops</td>
+        <td>6,250,000</td>
+        <td>~62 sec</td>
+        <td>~625 ms</td>
+      </tr>
+      <tr>
+        <td>5 hops</td>
+        <td>Exceeds table size</td>
+        <td>Minutes+ (often times out)</td>
+        <td>~31 sec (with deduplication)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box warn">
+    <strong>These numbers are illustrative</strong>
+    Real-world performance depends on many factors: hardware, caching, query complexity, and graph topology. The key insight is the <em>scaling pattern</em>: SQL's per-hop cost grows with the table size (log N), while graph traversal cost grows only with the local neighborhood size (k). The gap widens as depth increases and as the dataset grows.
+  </div>
+
+  <h3>The implication</h3>
+  <p>
+    Graphs do not "replace" relational databases. If your workload is primarily analytical aggregation over flat records (sums, averages, group-by), a relational database or columnar store remains the best tool. But when your workload is dominated by <strong>path traversal</strong>, <strong>pattern matching</strong>, or <strong>neighborhood exploration</strong>&mdash;finding fraud rings, tracing network intrusions, recommending connections, answering multi-hop knowledge questions&mdash;a graph database provides an order-of-magnitude advantage.
+  </p>
+
+  <!-- Section 1.4 -->
+  <h2>1.4 Real-World Use Cases</h2>
+
+  <p>
+    Graph databases are not an academic curiosity. They power critical systems across industries. Here are the domains where AstraeaDB's combination of graph traversal, vector search, and AI integration delivers the most value:
+  </p>
+
+  <div class="concept-grid">
+    <div class="concept-card">
+      <h4>Social Networks</h4>
+      <p>
+        Model users as nodes and relationships as edges. Friend-of-friend recommendations become simple 2-hop traversals. Influence analysis uses PageRank. Community detection finds interest clusters. AstraeaDB's vector embeddings add semantic similarity&mdash;recommend connections who are both structurally close <em>and</em> share similar interests.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Fraud Detection</h4>
+      <p>
+        Fraudsters hide in the connections between accounts, not in the accounts themselves. A single suspicious account looks normal in a table. But when you traverse outward and find it shares a phone number with three other accounts that share a device ID with ten more&mdash;all created within 48 hours&mdash;the fraud ring becomes visible. Multi-hop traversal with temporal filtering is the core technique.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Cybersecurity</h4>
+      <p>
+        Model your network as a graph: hosts, services, firewall rules, user accounts. When an intrusion is detected, trace the attacker's lateral movement by following <code>CONNECTS_TO</code> and <code>AUTHENTICATED_AS</code> edges. Identify which critical assets are reachable from a compromised host. Shortest-path algorithms reveal the most dangerous attack vectors.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Knowledge Graphs</h4>
+      <p>
+        Connect facts, entities, and concepts into a web of knowledge. "Albert Einstein" is connected to "General Relativity" via a <code>DISCOVERED</code> edge, which connects to "Gravitational Waves" via <code>PREDICTED</code>. Combined with vector embeddings, this enables GraphRAG: retrieve structurally relevant context and feed it to an LLM for precise, grounded answers.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Recommendation Engines</h4>
+      <p>
+        "People who bought X also bought Y" is a graph query: find nodes co-connected to the same purchase nodes. Collaborative filtering becomes a traversal problem. AstraeaDB's hybrid search blends structural co-occurrence with vector similarity to produce recommendations that are both popular and personally relevant.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Life Sciences</h4>
+      <p>
+        Protein interaction networks, gene regulatory pathways, and drug-target relationships are naturally graph-shaped. Researchers use graph algorithms to identify key proteins (centrality), functional modules (community detection), and potential drug targets (shortest path to disease-associated genes). AstraeaDB's GNN support enables learning directly on molecular graphs.
+      </p>
+    </div>
+    <div class="concept-card">
+      <h4>Supply Chain</h4>
+      <p>
+        Model suppliers, manufacturers, distributors, and retailers as nodes connected by <code>SUPPLIES</code> edges. When a disruption occurs (a factory goes offline, a shipping route is blocked), traverse the graph to instantly identify all downstream impacts. Temporal edges track how supply relationships change over time.
+      </p>
+    </div>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Which use case fits you?</strong>
+    If your data has a high "relationship-to-entity" ratio&mdash;that is, the connections between records are as important as the records themselves&mdash;a graph database is likely the right foundation. In the next chapter, we survey the graph database landscape and explain where AstraeaDB fits.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro.html">&larr; Table of Contents</a>
+    <a href="gentle-intro-ch02.html">Chapter 2: The Graph Database Landscape &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 11: GraphRAG - AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<aside class="sidebar">
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">1. Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">2. The Graph Database Landscape</a>
+  <div class="sep"></div>
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">3. Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">4. Your First Graph</a>
+  <div class="sep"></div>
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">5. GQL</a>
+  <a href="gentle-intro-ch06.html">6. Traversals</a>
+  <a href="gentle-intro-ch07.html">7. Transport</a>
+  <div class="sep"></div>
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">8. Vector Search</a>
+  <a href="gentle-intro-ch09.html">9. Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">10. Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html" class="active">11. GraphRAG</a>
+  <a href="gentle-intro-ch12.html">12. Graph Neural Networks</a>
+  <div class="sep"></div>
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">13. Security</a>
+  <a href="gentle-intro-ch14.html">14. Performance</a>
+  <a href="gentle-intro-ch15.html">15. Cybersecurity</a>
+  <div class="sep"></div>
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A. GQL Reference</a>
+  <a href="gentle-intro-appB.html">B. Configuration Options</a>
+  <a href="gentle-intro-appC.html">C. Troubleshooting</a>
+</aside>
+
+<div class="main">
+
+  <h1>Chapter 11: GraphRAG</h1>
+  <p class="subtitle">Combine the structural richness of graph traversals with the semantic power of large language models. AstraeaDB's GraphRAG pipeline retrieves context-aware subgraphs and feeds them to an LLM in a single atomic operation.</p>
+
+  <!-- 11.1 What Is GraphRAG? -->
+  <h2>11.1 What Is GraphRAG?</h2>
+
+  <h3>RAG: The Foundation</h3>
+  <p><strong>Retrieval-Augmented Generation (RAG)</strong> is a technique that improves LLM answers by feeding relevant context into the prompt before asking the model to respond. Instead of relying solely on the model's training data, RAG retrieves up-to-date, domain-specific information at query time.</p>
+
+  <h3>Traditional RAG vs. GraphRAG</h3>
+  <p><strong>Traditional RAG</strong> performs vector search over a flat collection of document chunks. It finds the most semantically similar passages to the user's question and includes them in the LLM prompt. This works well for simple lookups, but it has a fundamental limitation: it treats each document chunk as an isolated unit, with no awareness of how facts relate to one another.</p>
+
+  <p><strong>GraphRAG</strong> replaces the flat document store with a graph. Instead of retrieving isolated passages, it retrieves <em>connected subgraphs</em> -- networks of facts with explicit relationships between them. This enables the LLM to reason about:</p>
+
+  <ul>
+    <li><strong>Relationships:</strong> "Alice manages Bob, who works on the Matrix project" -- not just "Alice" and "Matrix" appearing in the same document.</li>
+    <li><strong>Causality:</strong> "Event A triggered Event B, which led to Outcome C" -- with explicit causal edges.</li>
+    <li><strong>Multi-hop reasoning:</strong> "What is the connection between Alice and the Matrix project?" requires traversing through intermediate nodes (Alice -> manages -> Bob -> works_on -> Matrix).</li>
+  </ul>
+
+  <h3>The GraphRAG Pipeline</h3>
+  <p>AstraeaDB implements the full GraphRAG pipeline as a single server-side operation. Here is the flow:</p>
+
+  <pre><span class="cm">Question</span>
+    <span class="kw">|</span>
+    v
+<span class="cm">Vector Search</span> -----> Find the most relevant <span class="str">"anchor node"</span>
+    <span class="kw">|</span>
+    v
+<span class="cm">Graph Traversal</span> ---> BFS from the anchor, collecting <span class="num">N</span> hops of context
+    <span class="kw">|</span>
+    v
+<span class="cm">Subgraph</span> -----------> A local neighborhood of connected facts
+    <span class="kw">|</span>
+    v
+<span class="cm">Linearization</span> ------> Convert the subgraph into text (structured, prose, triples, or JSON)
+    <span class="kw">|</span>
+    v
+<span class="cm">LLM Prompt</span> ---------> Context + Question sent to the language model
+    <span class="kw">|</span>
+    v
+<span class="cm">Answer</span> -------------> Grounded, context-aware response</pre>
+
+  <p>The key advantage is that steps 1 through 4 happen <em>inside</em> the database, minimizing round-trip overhead and ensuring the LLM receives a coherent, connected context rather than a bag of unrelated snippets.</p>
+
+  <!-- 11.2 Subgraph Extraction -->
+  <h2>11.2 Subgraph Extraction</h2>
+
+  <p>The first step in GraphRAG is extracting the relevant subgraph around a center node. AstraeaDB uses breadth-first search (BFS) to collect the local neighborhood.</p>
+
+  <h3>Parameters</h3>
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>center</code></td><td>Node ID</td><td>The anchor node from which to start the traversal.</td></tr>
+      <tr><td><code>hops</code></td><td>Integer</td><td>Number of BFS hops from the center. More hops = broader context, but more tokens.</td></tr>
+      <tr><td><code>max_nodes</code></td><td>Integer</td><td>Maximum number of nodes to include. Caps the output to fit within LLM context window limits.</td></tr>
+      <tr><td><code>format</code></td><td>String</td><td>Linearization format: <code>"structured"</code>, <code>"prose"</code>, <code>"triples"</code>, or <code>"json"</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example: Extracting a Subgraph</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-sg')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-sg')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-sg')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-sg')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-sg">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Extract the 2-hop neighborhood around a node</span>
+    subgraph = client.<span class="fn">extract_subgraph</span>(
+        center=alice_id,
+        hops=<span class="num">2</span>,
+        max_nodes=<span class="num">50</span>,
+        format=<span class="str">"structured"</span>
+    )
+
+    <span class="fn">print</span>(<span class="str">f"Center: </span>{subgraph[<span class="str">'center'</span>]}<span class="str">"</span>)
+    <span class="fn">print</span>(<span class="str">f"Nodes:  </span>{subgraph[<span class="str">'node_count'</span>]}<span class="str">"</span>)
+    <span class="fn">print</span>(<span class="str">f"Edges:  </span>{subgraph[<span class="str">'edge_count'</span>]}<span class="str">"</span>)
+    <span class="fn">print</span>(<span class="str">f"Text:\n</span>{subgraph[<span class="str">'text'</span>]}<span class="str">"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-sg">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Extract the 2-hop neighborhood</span>
+subgraph <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">extract_subgraph</span>(
+  center = alice_id,
+  hops = <span class="num">2</span>,
+  max_nodes = <span class="num">50</span>,
+  format = <span class="str">"structured"</span>
+)
+
+<span class="fn">cat</span>(<span class="str">"Center:"</span>, subgraph<span class="kw">$</span>center, <span class="str">"\n"</span>)
+<span class="fn">cat</span>(<span class="str">"Nodes:"</span>, subgraph<span class="kw">$</span>node_count, <span class="str">"\n"</span>)
+<span class="fn">cat</span>(<span class="str">"Edges:"</span>, subgraph<span class="kw">$</span>edge_count, <span class="str">"\n"</span>)
+<span class="fn">cat</span>(<span class="str">"Text:\n"</span>, subgraph<span class="kw">$</span>text, <span class="str">"\n"</span>)
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-sg">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    subgraph, _ <span class="kw">:=</span> client.<span class="fn">ExtractSubgraph</span>(ctx, &amp;astraeadb.<span class="ty">SubgraphConfig</span>{
+        Center:   aliceID,
+        Hops:     <span class="num">2</span>,
+        MaxNodes: <span class="num">50</span>,
+        Format:   <span class="str">"structured"</span>,
+    })
+
+    fmt.<span class="fn">Printf</span>(<span class="str">"Center: %s\n"</span>, subgraph.Center)
+    fmt.<span class="fn">Printf</span>(<span class="str">"Nodes:  %d\n"</span>, subgraph.NodeCount)
+    fmt.<span class="fn">Printf</span>(<span class="str">"Edges:  %d\n"</span>, subgraph.EdgeCount)
+    fmt.<span class="fn">Printf</span>(<span class="str">"Text:\n%s\n"</span>, subgraph.Text)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-sg">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="kw">var</span> subgraph = client.<span class="fn">extractSubgraph</span>(
+        aliceId,       <span class="cm">// center node</span>
+        <span class="num">2</span>,              <span class="cm">// hops</span>
+        <span class="num">50</span>,             <span class="cm">// max nodes</span>
+        <span class="str">"structured"</span>    <span class="cm">// format</span>
+    );
+
+    System.out.<span class="fn">println</span>(<span class="str">"Center: "</span> + subgraph.<span class="fn">getCenter</span>());
+    System.out.<span class="fn">println</span>(<span class="str">"Nodes:  "</span> + subgraph.<span class="fn">getNodeCount</span>());
+    System.out.<span class="fn">println</span>(<span class="str">"Edges:  "</span> + subgraph.<span class="fn">getEdgeCount</span>());
+    System.out.<span class="fn">println</span>(<span class="str">"Text:\n"</span> + subgraph.<span class="fn">getText</span>());
+}</pre>
+  </div>
+
+  <!-- 11.3 Linearization Formats -->
+  <h2>11.3 Linearization Formats</h2>
+
+  <p>Once a subgraph is extracted, it must be converted into text that an LLM can process. AstraeaDB supports four linearization formats, each with different trade-offs between readability and token efficiency.</p>
+
+  <p>Consider a small graph: Alice (Person) --MANAGES--> Bob (Person) --WORKS_ON--> Matrix (Project), where Matrix has a property <code>status: "active"</code>.</p>
+
+  <h3>Structured Format</h3>
+  <p>An indented tree with arrows. The most readable format and recommended for most LLM interactions.</p>
+<pre><span class="cm">Subgraph centered on Alice (Person):</span>
+
+<span class="ty">Alice</span> [Person] {name: <span class="str">"Alice"</span>, role: <span class="str">"Director"</span>}
+  --MANAGES--> <span class="ty">Bob</span> [Person] {name: <span class="str">"Bob"</span>, role: <span class="str">"Engineer"</span>}
+    --WORKS_ON--> <span class="ty">Matrix</span> [Project] {name: <span class="str">"Matrix"</span>, status: <span class="str">"active"</span>}</pre>
+
+  <h3>Prose Format</h3>
+  <p>Natural language paragraphs. Good for LLMs that perform better with conversational context.</p>
+<pre><span class="cm">The following describes the neighborhood of Alice.</span>
+
+Alice is a Person with role "Director". Alice manages Bob, who is a Person
+with role "Engineer". Bob works on the Matrix project, which is currently
+active.</pre>
+
+  <h3>Triples Format</h3>
+  <p>Subject-predicate-object triples. Compact and token-efficient, ideal for contexts with strict token limits.</p>
+<pre>(Alice, type, Person)
+(Alice, role, <span class="str">"Director"</span>)
+(Alice, MANAGES, Bob)
+(Bob, type, Person)
+(Bob, role, <span class="str">"Engineer"</span>)
+(Bob, WORKS_ON, Matrix)
+(Matrix, type, Project)
+(Matrix, status, <span class="str">"active"</span>)</pre>
+
+  <h3>JSON Format</h3>
+  <p>Machine-readable structured format. Useful when the LLM output will be parsed programmatically or when you need exact property values.</p>
+<pre>{
+  <span class="str">"center"</span>: <span class="str">"Alice"</span>,
+  <span class="str">"nodes"</span>: [
+    {<span class="str">"id"</span>: <span class="str">"nd-1"</span>, <span class="str">"labels"</span>: [<span class="str">"Person"</span>], <span class="str">"props"</span>: {<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"role"</span>: <span class="str">"Director"</span>}},
+    {<span class="str">"id"</span>: <span class="str">"nd-2"</span>, <span class="str">"labels"</span>: [<span class="str">"Person"</span>], <span class="str">"props"</span>: {<span class="str">"name"</span>: <span class="str">"Bob"</span>, <span class="str">"role"</span>: <span class="str">"Engineer"</span>}},
+    {<span class="str">"id"</span>: <span class="str">"nd-3"</span>, <span class="str">"labels"</span>: [<span class="str">"Project"</span>], <span class="str">"props"</span>: {<span class="str">"name"</span>: <span class="str">"Matrix"</span>, <span class="str">"status"</span>: <span class="str">"active"</span>}}
+  ],
+  <span class="str">"edges"</span>: [
+    {<span class="str">"from"</span>: <span class="str">"nd-1"</span>, <span class="str">"to"</span>: <span class="str">"nd-2"</span>, <span class="str">"type"</span>: <span class="str">"MANAGES"</span>},
+    {<span class="str">"from"</span>: <span class="str">"nd-2"</span>, <span class="str">"to"</span>: <span class="str">"nd-3"</span>, <span class="str">"type"</span>: <span class="str">"WORKS_ON"</span>}
+  ]
+}</pre>
+
+  <h3>Choosing a Format</h3>
+  <table>
+    <thead>
+      <tr><th>Format</th><th>Token Efficiency</th><th>Readability</th><th>Best For</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Structured</strong></td><td>Medium</td><td>High</td><td>General-purpose LLM queries. Recommended default.</td></tr>
+      <tr><td><strong>Prose</strong></td><td>Low</td><td>Very High</td><td>Conversational LLMs, user-facing explanations.</td></tr>
+      <tr><td><strong>Triples</strong></td><td>High</td><td>Medium</td><td>Token-limited contexts, large subgraphs.</td></tr>
+      <tr><td><strong>JSON</strong></td><td>Low</td><td>Medium</td><td>Programmatic parsing, structured output tasks.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>Recommendation</strong>
+    Use <code>"structured"</code> for most LLM interactions. It strikes the best balance between readability and token count. Switch to <code>"triples"</code> when you need to fit a large subgraph into a limited context window.
+  </div>
+
+  <!-- 11.4 LLM Integration -->
+  <h2>11.4 LLM Integration</h2>
+
+  <h3>Built-In Providers</h3>
+  <p>AstraeaDB includes built-in support for several LLM providers, configurable via the server configuration file or environment variables:</p>
+
+  <table>
+    <thead>
+      <tr><th>Provider</th><th>Models</th><th>Configuration</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>OpenAI</strong></td><td>GPT-4o, GPT-4, GPT-3.5-turbo</td><td><code>OPENAI_API_KEY</code> environment variable</td></tr>
+      <tr><td><strong>Anthropic</strong></td><td>Claude 4 Opus, Claude 4 Sonnet</td><td><code>ANTHROPIC_API_KEY</code> environment variable</td></tr>
+      <tr><td><strong>Ollama</strong></td><td>Llama 3, Mistral, any local model</td><td><code>OLLAMA_HOST</code> (default: <code>http://localhost:11434</code>)</td></tr>
+      <tr><td><strong>Mock</strong></td><td>Echo provider for testing</td><td>No configuration required</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Server Configuration</h3>
+  <p>Add the LLM provider to your <code>astraeadb.toml</code>:</p>
+<pre><span class="cm"># astraeadb.toml</span>
+[<span class="kw">llm</span>]
+provider = <span class="str">"anthropic"</span>       <span class="cm"># "openai", "anthropic", "ollama", "mock"</span>
+model    = <span class="str">"claude-sonnet-4-20250514"</span>
+max_tokens = <span class="num">2048</span>
+
+<span class="cm"># For Ollama (local models)</span>
+<span class="cm"># provider = "ollama"</span>
+<span class="cm"># model    = "llama3"</span>
+<span class="cm"># ollama_host = "http://localhost:11434"</span></pre>
+
+  <h3>The graph_rag Endpoint</h3>
+  <p>The <code>graph_rag</code> method handles the entire pipeline -- vector search, subgraph extraction, linearization, and LLM invocation -- in a single call:</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-rag')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-rag')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-rag')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-rag')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-rag">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    result = client.<span class="fn">graph_rag</span>(
+        question=<span class="str">"What is Alice's relationship to the Matrix project?"</span>,
+        anchor=alice_id,
+        hops=<span class="num">2</span>,
+        max_nodes=<span class="num">50</span>,
+        format=<span class="str">"structured"</span>
+    )
+
+    <span class="fn">print</span>(result[<span class="str">"answer"</span>])
+    <span class="fn">print</span>(<span class="str">f"Context included </span>{result[<span class="str">'nodes_in_context'</span>]}<span class="str"> nodes"</span>)
+    <span class="fn">print</span>(<span class="str">f"Estimated </span>{result[<span class="str">'estimated_tokens'</span>]}<span class="str"> tokens"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-rag">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">graph_rag</span>(
+  question = <span class="str">"What is Alice's relationship to the Matrix project?"</span>,
+  anchor = alice_id,
+  hops = <span class="num">2</span>,
+  max_nodes = <span class="num">50</span>,
+  format = <span class="str">"structured"</span>
+)
+
+<span class="fn">cat</span>(result<span class="kw">$</span>answer, <span class="str">"\n"</span>)
+<span class="fn">cat</span>(<span class="str">"Context included"</span>, result<span class="kw">$</span>nodes_in_context, <span class="str">"nodes\n"</span>)
+<span class="fn">cat</span>(<span class="str">"Estimated"</span>, result<span class="kw">$</span>estimated_tokens, <span class="str">"tokens\n"</span>)
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-rag">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    result, _ <span class="kw">:=</span> client.<span class="fn">GraphRAG</span>(ctx, &amp;astraeadb.<span class="ty">GraphRAGConfig</span>{
+        Question: <span class="str">"What is Alice's relationship to the Matrix project?"</span>,
+        Anchor:   aliceID,
+        Hops:     <span class="num">2</span>,
+        MaxNodes: <span class="num">50</span>,
+        Format:   <span class="str">"structured"</span>,
+    })
+
+    fmt.<span class="fn">Println</span>(result.Answer)
+    fmt.<span class="fn">Printf</span>(<span class="str">"Context included %d nodes\n"</span>, result.NodesInContext)
+    fmt.<span class="fn">Printf</span>(<span class="str">"Estimated %d tokens\n"</span>, result.EstimatedTokens)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-rag">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="kw">var</span> result = client.<span class="fn">graphRag</span>(
+        <span class="str">"What is Alice's relationship to the Matrix project?"</span>,
+        aliceId,        <span class="cm">// anchor node</span>
+        <span class="num">2</span>,               <span class="cm">// hops</span>
+        <span class="num">50</span>,              <span class="cm">// max nodes</span>
+        <span class="str">"structured"</span>     <span class="cm">// format</span>
+    );
+
+    System.out.<span class="fn">println</span>(result.<span class="fn">getAnswer</span>());
+    System.out.<span class="fn">printf</span>(<span class="str">"Context included %d nodes%n"</span>, result.<span class="fn">getNodesInContext</span>());
+    System.out.<span class="fn">printf</span>(<span class="str">"Estimated %d tokens%n"</span>, result.<span class="fn">getEstimatedTokens</span>());
+}</pre>
+  </div>
+
+  <div class="info-box info">
+    <strong>Note: Mock Provider for Testing</strong>
+    During development and testing, use the <code>"mock"</code> provider. It echoes back the context it receives, allowing you to verify that the correct subgraph is being extracted and linearized without incurring LLM API costs.
+  </div>
+
+  <!-- 11.5 End-to-End Example -->
+  <h2>11.5 End-to-End Example</h2>
+
+  <p>Let us walk through a complete GraphRAG pipeline. We will build a small knowledge graph about tech companies, store embeddings for semantic search, and then ask a question that requires multi-hop reasoning.</p>
+
+  <h3>Step 1: Build the Knowledge Graph</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-e2e')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-e2e')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-e2e')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-e2e')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-e2e">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># --- Step 1: Create nodes with embeddings ---</span>
+    acme = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"Company"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Acme Corp"</span>, <span class="str">"industry"</span>: <span class="str">"AI"</span>},
+        embedding=[<span class="num">0.1</span>, <span class="num">0.8</span>, <span class="num">0.3</span>, <span class="num">0.5</span>]  <span class="cm"># simplified 4D embedding</span>
+    )
+
+    phoenix = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"Product"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Phoenix Engine"</span>, <span class="str">"type"</span>: <span class="str">"ML Platform"</span>},
+        embedding=[<span class="num">0.2</span>, <span class="num">0.9</span>, <span class="num">0.4</span>, <span class="num">0.6</span>]
+    )
+
+    alice = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"Person"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Alice Chen"</span>, <span class="str">"role"</span>: <span class="str">"CTO"</span>},
+        embedding=[<span class="num">0.3</span>, <span class="num">0.7</span>, <span class="num">0.2</span>, <span class="num">0.4</span>]
+    )
+
+    bob = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"Person"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Bob Smith"</span>, <span class="str">"role"</span>: <span class="str">"Lead Engineer"</span>},
+        embedding=[<span class="num">0.25</span>, <span class="num">0.75</span>, <span class="num">0.35</span>, <span class="num">0.45</span>]
+    )
+
+    nova = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"Company"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Nova Labs"</span>, <span class="str">"industry"</span>: <span class="str">"Cloud"</span>},
+        embedding=[<span class="num">0.15</span>, <span class="num">0.6</span>, <span class="num">0.5</span>, <span class="num">0.7</span>]
+    )
+
+    <span class="cm"># --- Step 2: Create relationships ---</span>
+    client.<span class="fn">create_edge</span>(alice[<span class="str">"node_id"</span>], acme[<span class="str">"node_id"</span>], <span class="str">"WORKS_AT"</span>,
+                       {<span class="str">"since"</span>: <span class="num">2019</span>})
+    client.<span class="fn">create_edge</span>(bob[<span class="str">"node_id"</span>], acme[<span class="str">"node_id"</span>], <span class="str">"WORKS_AT"</span>,
+                       {<span class="str">"since"</span>: <span class="num">2021</span>})
+    client.<span class="fn">create_edge</span>(alice[<span class="str">"node_id"</span>], bob[<span class="str">"node_id"</span>], <span class="str">"MANAGES"</span>)
+    client.<span class="fn">create_edge</span>(acme[<span class="str">"node_id"</span>], phoenix[<span class="str">"node_id"</span>], <span class="str">"DEVELOPS"</span>)
+    client.<span class="fn">create_edge</span>(bob[<span class="str">"node_id"</span>], phoenix[<span class="str">"node_id"</span>], <span class="str">"LEADS"</span>)
+    client.<span class="fn">create_edge</span>(acme[<span class="str">"node_id"</span>], nova[<span class="str">"node_id"</span>], <span class="str">"PARTNERS_WITH"</span>)
+
+    <span class="cm"># --- Step 3: Ask a multi-hop question via GraphRAG ---</span>
+    result = client.<span class="fn">graph_rag</span>(
+        question=<span class="str">"Who leads the development of Acme Corp's ML platform?"</span>,
+        anchor=acme[<span class="str">"node_id"</span>],
+        hops=<span class="num">2</span>,
+        max_nodes=<span class="num">50</span>,
+        format=<span class="str">"structured"</span>
+    )
+
+    <span class="fn">print</span>(<span class="str">"=== GraphRAG Answer ==="</span>)
+    <span class="fn">print</span>(result[<span class="str">"answer"</span>])
+    <span class="fn">print</span>(<span class="str">f"\nContext: </span>{result[<span class="str">'nodes_in_context'</span>]}<span class="str"> nodes, ~</span>{result[<span class="str">'estimated_tokens'</span>]}<span class="str"> tokens"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-e2e">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Step 1: Create nodes with embeddings</span>
+acme <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"Company"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"Acme Corp"</span>, industry = <span class="str">"AI"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.1</span>, <span class="num">0.8</span>, <span class="num">0.3</span>, <span class="num">0.5</span>)
+)
+
+phoenix <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"Product"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"Phoenix Engine"</span>, type = <span class="str">"ML Platform"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.2</span>, <span class="num">0.9</span>, <span class="num">0.4</span>, <span class="num">0.6</span>)
+)
+
+alice <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"Person"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"Alice Chen"</span>, role = <span class="str">"CTO"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.3</span>, <span class="num">0.7</span>, <span class="num">0.2</span>, <span class="num">0.4</span>)
+)
+
+bob <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"Person"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"Bob Smith"</span>, role = <span class="str">"Lead Engineer"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.25</span>, <span class="num">0.75</span>, <span class="num">0.35</span>, <span class="num">0.45</span>)
+)
+
+nova <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"Company"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"Nova Labs"</span>, industry = <span class="str">"Cloud"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.15</span>, <span class="num">0.6</span>, <span class="num">0.5</span>, <span class="num">0.7</span>)
+)
+
+<span class="cm"># Step 2: Create relationships</span>
+client<span class="kw">$</span><span class="fn">create_edge</span>(alice<span class="kw">$</span>node_id, acme<span class="kw">$</span>node_id, <span class="str">"WORKS_AT"</span>, <span class="fn">list</span>(since = <span class="num">2019</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(bob<span class="kw">$</span>node_id, acme<span class="kw">$</span>node_id, <span class="str">"WORKS_AT"</span>, <span class="fn">list</span>(since = <span class="num">2021</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(alice<span class="kw">$</span>node_id, bob<span class="kw">$</span>node_id, <span class="str">"MANAGES"</span>)
+client<span class="kw">$</span><span class="fn">create_edge</span>(acme<span class="kw">$</span>node_id, phoenix<span class="kw">$</span>node_id, <span class="str">"DEVELOPS"</span>)
+client<span class="kw">$</span><span class="fn">create_edge</span>(bob<span class="kw">$</span>node_id, phoenix<span class="kw">$</span>node_id, <span class="str">"LEADS"</span>)
+client<span class="kw">$</span><span class="fn">create_edge</span>(acme<span class="kw">$</span>node_id, nova<span class="kw">$</span>node_id, <span class="str">"PARTNERS_WITH"</span>)
+
+<span class="cm"># Step 3: GraphRAG query</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">graph_rag</span>(
+  question = <span class="str">"Who leads the development of Acme Corp's ML platform?"</span>,
+  anchor = acme<span class="kw">$</span>node_id,
+  hops = <span class="num">2</span>,
+  max_nodes = <span class="num">50</span>,
+  format = <span class="str">"structured"</span>
+)
+
+<span class="fn">cat</span>(<span class="str">"=== GraphRAG Answer ===\n"</span>)
+<span class="fn">cat</span>(result<span class="kw">$</span>answer, <span class="str">"\n"</span>)
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-e2e">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Step 1: Create nodes</span>
+    acme, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Company"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"Acme Corp"</span>, <span class="str">"industry"</span>: <span class="str">"AI"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.1</span>, <span class="num">0.8</span>, <span class="num">0.3</span>, <span class="num">0.5</span>})
+
+    phoenix, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Product"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"Phoenix Engine"</span>, <span class="str">"type"</span>: <span class="str">"ML Platform"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.2</span>, <span class="num">0.9</span>, <span class="num">0.4</span>, <span class="num">0.6</span>})
+
+    alice, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Person"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"Alice Chen"</span>, <span class="str">"role"</span>: <span class="str">"CTO"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.3</span>, <span class="num">0.7</span>, <span class="num">0.2</span>, <span class="num">0.4</span>})
+
+    bob, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Person"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"Bob Smith"</span>, <span class="str">"role"</span>: <span class="str">"Lead Engineer"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.25</span>, <span class="num">0.75</span>, <span class="num">0.35</span>, <span class="num">0.45</span>})
+
+    nova, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Company"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"Nova Labs"</span>, <span class="str">"industry"</span>: <span class="str">"Cloud"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.15</span>, <span class="num">0.6</span>, <span class="num">0.5</span>, <span class="num">0.7</span>})
+
+    <span class="cm">// Step 2: Create relationships</span>
+    client.<span class="fn">CreateEdge</span>(ctx, alice.NodeID, acme.NodeID, <span class="str">"WORKS_AT"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"since"</span>: <span class="num">2019</span>})
+    client.<span class="fn">CreateEdge</span>(ctx, bob.NodeID, acme.NodeID, <span class="str">"WORKS_AT"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"since"</span>: <span class="num">2021</span>})
+    client.<span class="fn">CreateEdge</span>(ctx, alice.NodeID, bob.NodeID, <span class="str">"MANAGES"</span>, <span class="kw">nil</span>)
+    client.<span class="fn">CreateEdge</span>(ctx, acme.NodeID, phoenix.NodeID, <span class="str">"DEVELOPS"</span>, <span class="kw">nil</span>)
+    client.<span class="fn">CreateEdge</span>(ctx, bob.NodeID, phoenix.NodeID, <span class="str">"LEADS"</span>, <span class="kw">nil</span>)
+    client.<span class="fn">CreateEdge</span>(ctx, acme.NodeID, nova.NodeID, <span class="str">"PARTNERS_WITH"</span>, <span class="kw">nil</span>)
+
+    <span class="cm">// Step 3: GraphRAG query</span>
+    result, _ <span class="kw">:=</span> client.<span class="fn">GraphRAG</span>(ctx, &amp;astraeadb.<span class="ty">GraphRAGConfig</span>{
+        Question: <span class="str">"Who leads the development of Acme Corp's ML platform?"</span>,
+        Anchor:   acme.NodeID,
+        Hops:     <span class="num">2</span>,
+        MaxNodes: <span class="num">50</span>,
+        Format:   <span class="str">"structured"</span>,
+    })
+
+    fmt.<span class="fn">Println</span>(<span class="str">"=== GraphRAG Answer ==="</span>)
+    fmt.<span class="fn">Println</span>(result.Answer)
+    _ = nova <span class="cm">// used above</span>
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-e2e">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+<span class="kw">import</span> java.util.List;
+<span class="kw">import</span> java.util.Map;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Step 1: Create nodes with embeddings</span>
+    <span class="kw">var</span> acme = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Company"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Acme Corp"</span>, <span class="str">"industry"</span>, <span class="str">"AI"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.1f</span>, <span class="num">0.8f</span>, <span class="num">0.3f</span>, <span class="num">0.5f</span>});
+
+    <span class="kw">var</span> phoenix = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Product"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Phoenix Engine"</span>, <span class="str">"type"</span>, <span class="str">"ML Platform"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.2f</span>, <span class="num">0.9f</span>, <span class="num">0.4f</span>, <span class="num">0.6f</span>});
+
+    <span class="kw">var</span> alice = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Person"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Alice Chen"</span>, <span class="str">"role"</span>, <span class="str">"CTO"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.3f</span>, <span class="num">0.7f</span>, <span class="num">0.2f</span>, <span class="num">0.4f</span>});
+
+    <span class="kw">var</span> bob = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Person"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Bob Smith"</span>, <span class="str">"role"</span>, <span class="str">"Lead Engineer"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.25f</span>, <span class="num">0.75f</span>, <span class="num">0.35f</span>, <span class="num">0.45f</span>});
+
+    <span class="kw">var</span> nova = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Company"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Nova Labs"</span>, <span class="str">"industry"</span>, <span class="str">"Cloud"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.15f</span>, <span class="num">0.6f</span>, <span class="num">0.5f</span>, <span class="num">0.7f</span>});
+
+    <span class="cm">// Step 2: Create relationships</span>
+    client.<span class="fn">createEdge</span>(alice.<span class="fn">getNodeId</span>(), acme.<span class="fn">getNodeId</span>(), <span class="str">"WORKS_AT"</span>,
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"since"</span>, <span class="num">2019</span>));
+    client.<span class="fn">createEdge</span>(bob.<span class="fn">getNodeId</span>(), acme.<span class="fn">getNodeId</span>(), <span class="str">"WORKS_AT"</span>,
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"since"</span>, <span class="num">2021</span>));
+    client.<span class="fn">createEdge</span>(alice.<span class="fn">getNodeId</span>(), bob.<span class="fn">getNodeId</span>(), <span class="str">"MANAGES"</span>, <span class="ty">Map</span>.<span class="fn">of</span>());
+    client.<span class="fn">createEdge</span>(acme.<span class="fn">getNodeId</span>(), phoenix.<span class="fn">getNodeId</span>(), <span class="str">"DEVELOPS"</span>, <span class="ty">Map</span>.<span class="fn">of</span>());
+    client.<span class="fn">createEdge</span>(bob.<span class="fn">getNodeId</span>(), phoenix.<span class="fn">getNodeId</span>(), <span class="str">"LEADS"</span>, <span class="ty">Map</span>.<span class="fn">of</span>());
+    client.<span class="fn">createEdge</span>(acme.<span class="fn">getNodeId</span>(), nova.<span class="fn">getNodeId</span>(), <span class="str">"PARTNERS_WITH"</span>, <span class="ty">Map</span>.<span class="fn">of</span>());
+
+    <span class="cm">// Step 3: GraphRAG query</span>
+    <span class="kw">var</span> result = client.<span class="fn">graphRag</span>(
+        <span class="str">"Who leads the development of Acme Corp's ML platform?"</span>,
+        acme.<span class="fn">getNodeId</span>(), <span class="num">2</span>, <span class="num">50</span>, <span class="str">"structured"</span>);
+
+    System.out.<span class="fn">println</span>(<span class="str">"=== GraphRAG Answer ==="</span>);
+    System.out.<span class="fn">println</span>(result.<span class="fn">getAnswer</span>());
+}</pre>
+  </div>
+
+  <h3>Step 2: What Happens Inside</h3>
+  <p>When the <code>graph_rag</code> call executes, AstraeaDB performs these steps internally:</p>
+  <ol>
+    <li><strong>Subgraph extraction:</strong> Starting from the Acme Corp node, BFS traverses 2 hops, collecting Alice, Bob, Phoenix Engine, and Nova Labs.</li>
+    <li><strong>Linearization:</strong> The subgraph is converted to structured text:
+<pre><span class="ty">Acme Corp</span> [Company] {name: <span class="str">"Acme Corp"</span>, industry: <span class="str">"AI"</span>}
+  --DEVELOPS--> <span class="ty">Phoenix Engine</span> [Product] {name: <span class="str">"Phoenix Engine"</span>, type: <span class="str">"ML Platform"</span>}
+  --PARTNERS_WITH--> <span class="ty">Nova Labs</span> [Company] {name: <span class="str">"Nova Labs"</span>, industry: <span class="str">"Cloud"</span>}
+  &lt;--WORKS_AT-- <span class="ty">Alice Chen</span> [Person] {name: <span class="str">"Alice Chen"</span>, role: <span class="str">"CTO"</span>}
+    --MANAGES--> <span class="ty">Bob Smith</span> [Person] {name: <span class="str">"Bob Smith"</span>, role: <span class="str">"Lead Engineer"</span>}
+      --LEADS--> <span class="ty">Phoenix Engine</span> [Product]</pre>
+    </li>
+    <li><strong>LLM prompt:</strong> The linearized text is combined with the user's question and sent to the configured LLM.</li>
+    <li><strong>Answer:</strong> The LLM responds with a grounded answer like: <em>"Bob Smith, a Lead Engineer at Acme Corp, leads the Phoenix Engine, which is Acme's ML Platform. He is managed by Alice Chen, the CTO."</em></li>
+  </ol>
+
+  <h3>Step 3: Why GraphRAG Beats Simple Vector Search</h3>
+  <p>A traditional vector search for "Acme Corp's ML platform" would return the Phoenix Engine node (most similar embedding). But it would <em>not</em> tell you who leads it -- that information lives in the <strong>graph edges</strong>, not in any single node's properties. GraphRAG captures these multi-hop connections automatically.</p>
+
+  <table>
+    <thead>
+      <tr><th>Approach</th><th>Context Retrieved</th><th>Can Answer "Who leads it?"</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Simple Vector Search</td><td>Phoenix Engine node only</td><td>No -- no relationship context</td></tr>
+      <tr><td>GraphRAG (2 hops)</td><td>Phoenix + Bob + Alice + Acme + Nova</td><td>Yes -- LEADS edge connects Bob to Phoenix</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>Tip: Tuning Hops and Max Nodes</strong>
+    Start with <code>hops=2</code> and <code>max_nodes=50</code>. If the LLM's answers lack context, increase hops. If responses are slow or token costs are high, reduce max_nodes or switch to <code>"triples"</code> format. The goal is to include enough context for accurate answers without overwhelming the LLM's context window.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch10.html">&larr; Chapter 10: Graph Algorithms</a>
+    <span class="spacer"></span>
+    <a href="gentle-intro-ch12.html">Chapter 12: Graph Neural Networks &rarr;</a>
+  </div>
+</div>
+
+<footer>
+  &copy; 2026 AstraeaDB Project. Released under the MIT License.
+  <a href="https://github.com/jimeharrisjr/graph-astraeadb">GitHub</a>
+</footer>
+
+<script>
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

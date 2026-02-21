@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A Gentle Introduction to AstraeaDB</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html" class="active">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <!-- Hero / Introduction Area -->
+  <h1>A Gentle Introduction to AstraeaDB</h1>
+  <p class="subtitle">
+    A progressive learning path that takes you from "What is a graph?" all the way to running Graph Neural Networks, building GraphRAG pipelines, and deploying production-grade security&mdash;one chapter at a time.
+  </p>
+
+  <div class="info-box info">
+    <strong>How to use this guide</strong>
+    Each chapter builds on the previous one. If you are new to graph databases, start with Part I. If you already have experience, feel free to jump directly to the topic you need. Every chapter includes working code examples that you can run against a live AstraeaDB instance.
+  </div>
+
+  <!-- Part I -->
+  <h2>Part I: Foundations</h2>
+  <p>Understand why graph databases exist, how they differ from relational tables, and where AstraeaDB fits in the broader landscape.</p>
+  <div class="concept-grid">
+    <a href="gentle-intro-ch01.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 1: Why Graphs?</h4>
+      <p>Discover the limits of relational tables when modeling connected data. Learn the fundamentals of nodes, edges, and properties, and see why graph traversals outperform SQL JOINs for relationship-heavy queries.</p>
+    </a>
+    <a href="gentle-intro-ch02.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 2: The Graph Database Landscape</h4>
+      <p>Survey the major graph data models (Property Graph vs. RDF), query languages (Cypher, Gremlin, SPARQL, GQL), and see how AstraeaDB's Vector-Property Graph and Rust foundation set it apart from Neo4j, TigerGraph, and others.</p>
+    </a>
+  </div>
+
+  <!-- Part II -->
+  <h2>Part II: Getting Started</h2>
+  <p>Get AstraeaDB running on your machine and build your first graph in minutes.</p>
+  <div class="concept-grid">
+    <a href="gentle-intro-ch03.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 3: Installation and Setup</h4>
+      <p>Clone the repository, build from source with Cargo, start the server, and connect using the interactive shell. Covers all three transport protocols: JSON-TCP, gRPC, and Arrow Flight.</p>
+    </a>
+    <a href="gentle-intro-ch04.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 4: Your First Graph</h4>
+      <p>Create nodes and edges, attach properties and labels, query with MATCH/RETURN, and visualize results. A hands-on walkthrough using a small social network as a running example.</p>
+    </a>
+  </div>
+
+  <!-- Part III -->
+  <h2>Part III: Intermediate</h2>
+  <p>Master the query language, explore traversal algorithms, and understand the network protocols that power AstraeaDB clients.</p>
+  <div class="concept-grid">
+    <a href="gentle-intro-ch05.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 5: The GQL Query Language</h4>
+      <p>Deep dive into AstraeaDB's GQL implementation: pattern matching with MATCH, filtering with WHERE, creating and deleting data, aggregation functions, ORDER BY, LIMIT, and more.</p>
+    </a>
+    <a href="gentle-intro-ch06.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 6: Graph Traversals</h4>
+      <p>Understand BFS and DFS traversals, shortest-path algorithms, neighbor expansion, and how index-free adjacency makes multi-hop queries efficient at any depth.</p>
+    </a>
+    <a href="gentle-intro-ch07.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 7: Transport Protocols</h4>
+      <p>Compare JSON-TCP (simple, zero-dependency), gRPC (strongly typed, streaming), and Apache Arrow Flight (zero-copy, DataFrame-native). Learn when to use each and how to configure clients.</p>
+    </a>
+  </div>
+
+  <!-- Part IV -->
+  <h2>Part IV: Advanced</h2>
+  <p>Unlock the AI-first capabilities that make AstraeaDB unique: vector search, temporal queries, graph algorithms, RAG pipelines, and neural network training.</p>
+  <div class="concept-grid">
+    <a href="gentle-intro-ch08.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 8: Vector Search and Semantic Queries</h4>
+      <p>Store embeddings on nodes, run approximate nearest-neighbor search with HNSW, blend vector similarity with graph proximity using hybrid search, and perform semantic walks.</p>
+    </a>
+    <a href="gentle-intro-ch09.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 9: Temporal Graphs</h4>
+      <p>Model time-varying relationships with validity intervals. Query the graph as it existed at any point in time using neighbors_at(), bfs_at(), and shortest_path_at().</p>
+    </a>
+    <a href="gentle-intro-ch10.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 10: Graph Algorithms</h4>
+      <p>Run PageRank, Louvain community detection, betweenness centrality, and connected components. Understand the CSR matrix representation and optional GPU acceleration.</p>
+    </a>
+    <a href="gentle-intro-ch11.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 11: GraphRAG</h4>
+      <p>Build Retrieval-Augmented Generation pipelines: anchor on a node via vector search, extract a subgraph with BFS, linearize it to text, and feed it to an LLM&mdash;all in one atomic operation.</p>
+    </a>
+    <a href="gentle-intro-ch12.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 12: Graph Neural Networks</h4>
+      <p>Train GNNs inside the database. Create differentiable tensors, define message-passing layers, run forward passes, compute loss, and backpropagate&mdash;without exporting data to an external framework.</p>
+    </a>
+  </div>
+
+  <!-- Part V -->
+  <h2>Part V: Production</h2>
+  <p>Harden your deployment with authentication, encryption, performance tuning, and real-world scenario planning.</p>
+  <div class="concept-grid">
+    <a href="gentle-intro-ch13.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 13: Security</h4>
+      <p>Configure RBAC authentication, enable mutual TLS, and explore homomorphic encryption for server-side label matching on encrypted data&mdash;the server never sees plaintext node labels.</p>
+    </a>
+    <a href="gentle-intro-ch14.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 14: Performance and Scaling</h4>
+      <p>Tune the buffer pool, configure pointer swizzling thresholds, understand MVCC and WAL, set up hash/range partitioning, and monitor with built-in metrics.</p>
+    </a>
+    <a href="gentle-intro-ch15.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Chapter 15: Cybersecurity Scenario</h4>
+      <p>A complete end-to-end walkthrough: model a corporate network as a graph, ingest firewall logs, detect lateral movement with traversals, and identify attack paths using graph algorithms.</p>
+    </a>
+  </div>
+
+  <!-- Appendices -->
+  <h2>Appendices</h2>
+  <p>Quick references and cheat sheets for everyday use.</p>
+  <div class="concept-grid">
+    <a href="gentle-intro-appA.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Appendix A: GQL Quick Reference</h4>
+      <p>A compact reference card covering all supported GQL clauses, functions, operators, and patterns with short examples for each.</p>
+    </a>
+    <a href="gentle-intro-appB.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Appendix B: Client API Reference</h4>
+      <p>Method-by-method documentation for the Python, R, Go, Java, and Rust client libraries, including every operation, parameter, and return type.</p>
+    </a>
+    <a href="gentle-intro-appC.html" class="concept-card" style="text-decoration:none; color:inherit;">
+      <h4>Appendix C: Configuration Reference</h4>
+      <p>All server configuration options: ports, buffer pool size, WAL settings, TLS paths, authentication mode, GPU backend selection, and cluster coordination parameters.</p>
+    </a>
+  </div>
+
+  <!-- Bottom navigation -->
+  <div class="chapter-nav">
+    <span></span>
+    <a href="gentle-intro-ch01.html">Chapter 1: Why Graphs? &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

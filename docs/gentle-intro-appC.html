@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Appendix C: Configuration Reference &mdash; A Gentle Introduction to AstraeaDB</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html" class="active">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Appendix C: Configuration Reference</h1>
+  <p class="subtitle">
+    Complete reference for configuring the AstraeaDB server, including the TOML configuration file, command-line flags, environment variables, and the JSON import format.
+  </p>
+
+  <!-- C.1 Server Configuration -->
+  <h2>C.1 Server Configuration (TOML)</h2>
+
+  <p>
+    AstraeaDB reads its configuration from a TOML file. By default, the server looks for <code>astraeadb.toml</code> in the current working directory. You can specify a different path with the <code>--config</code> flag or the <code>ASTRAEA_CONFIG</code> environment variable.
+  </p>
+
+  <p>Below is a complete configuration file with all available options and their default values:</p>
+
+<pre>
+<span class="cm"># =============================================================================</span>
+<span class="cm"># AstraeaDB Server Configuration</span>
+<span class="cm"># =============================================================================</span>
+
+<span class="cm"># ---------------------------------------------------------------------------</span>
+<span class="cm"># [server] — Network binding and protocol ports</span>
+<span class="cm"># ---------------------------------------------------------------------------</span>
+[server]
+bind = <span class="str">"0.0.0.0"</span>           <span class="cm"># IP address to listen on (0.0.0.0 = all interfaces)</span>
+port = <span class="num">7687</span>                 <span class="cm"># JSON-TCP protocol port</span>
+grpc_port = <span class="num">7688</span>            <span class="cm"># gRPC protocol port</span>
+flight_port = <span class="num">7689</span>          <span class="cm"># Apache Arrow Flight protocol port</span>
+
+<span class="cm"># ---------------------------------------------------------------------------</span>
+<span class="cm"># [storage] — Data persistence and buffer management</span>
+<span class="cm"># ---------------------------------------------------------------------------</span>
+[storage]
+data_dir = <span class="str">"/var/lib/astraeadb/data"</span>   <span class="cm"># Directory for graph data files</span>
+wal_dir = <span class="str">"/var/lib/astraeadb/wal"</span>     <span class="cm"># Directory for write-ahead log</span>
+page_size = <span class="num">8192</span>                       <span class="cm"># Page size in bytes (4096, 8192, or 16384)</span>
+buffer_pool_pages = <span class="num">10000</span>              <span class="cm"># Number of pages in the buffer pool</span>
+
+<span class="cm"># ---------------------------------------------------------------------------</span>
+<span class="cm"># [tls] — Transport Layer Security</span>
+<span class="cm"># ---------------------------------------------------------------------------</span>
+[tls]
+enabled = <span class="num">false</span>                            <span class="cm"># Enable TLS for all protocols</span>
+cert_path = <span class="str">"/etc/astraeadb/server.crt"</span>    <span class="cm"># Path to server certificate (PEM)</span>
+key_path = <span class="str">"/etc/astraeadb/server.key"</span>     <span class="cm"># Path to server private key (PEM)</span>
+ca_cert_path = <span class="str">"/etc/astraeadb/ca.crt"</span>    <span class="cm"># Path to CA certificate for mutual TLS</span>
+
+<span class="cm"># ---------------------------------------------------------------------------</span>
+<span class="cm"># [auth] — Authentication</span>
+<span class="cm"># ---------------------------------------------------------------------------</span>
+[auth]
+enabled = <span class="num">false</span>             <span class="cm"># Enable token-based authentication</span>
+<span class="cm"># Tokens are configured via the admin API at runtime.</span>
+<span class="cm"># When enabled, all client requests must include a valid</span>
+<span class="cm"># Bearer token in the connection handshake.</span>
+
+<span class="cm"># ---------------------------------------------------------------------------</span>
+<span class="cm"># [vector] — HNSW vector index parameters</span>
+<span class="cm"># ---------------------------------------------------------------------------</span>
+[vector]
+dimensions = <span class="num">128</span>           <span class="cm"># Dimensionality of embedding vectors</span>
+m = <span class="num">16</span>                      <span class="cm"># HNSW: max connections per layer</span>
+ef_construction = <span class="num">200</span>      <span class="cm"># HNSW: beam width during index build</span>
+ef_search = <span class="num">50</span>             <span class="cm"># HNSW: beam width during search</span>
+distance_metric = <span class="str">"cosine"</span> <span class="cm"># Distance metric: cosine, euclidean, dot_product</span>
+
+<span class="cm"># ---------------------------------------------------------------------------</span>
+<span class="cm"># [connection] — Connection pool and timeout settings</span>
+<span class="cm"># ---------------------------------------------------------------------------</span>
+[connection]
+max_connections = <span class="num">1024</span>             <span class="cm"># Maximum simultaneous client connections</span>
+max_concurrent_requests = <span class="num">256</span>     <span class="cm"># Maximum in-flight requests across all connections</span>
+idle_timeout_seconds = <span class="num">300</span>        <span class="cm"># Close idle connections after this many seconds</span>
+request_timeout_seconds = <span class="num">30</span>     <span class="cm"># Maximum time for a single request to complete</span>
+</pre>
+
+  <!-- C.1.1 Section Explanations -->
+  <h3>Section-by-section explanation</h3>
+
+  <h4>[server]</h4>
+  <p>
+    Controls which network interfaces and ports the server binds to. AstraeaDB exposes three ports, one for each supported transport protocol. Set <code>bind</code> to <code>"127.0.0.1"</code> if you only want to accept local connections, or <code>"0.0.0.0"</code> to listen on all interfaces.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>bind</code></td><td>String</td><td><code>"0.0.0.0"</code></td><td>IP address to listen on. Use <code>"127.0.0.1"</code> for local-only access.</td></tr>
+      <tr><td><code>port</code></td><td>Integer</td><td><code>7687</code></td><td>Port for the JSON-TCP protocol (the default client protocol).</td></tr>
+      <tr><td><code>grpc_port</code></td><td>Integer</td><td><code>7688</code></td><td>Port for gRPC connections (Go and Java clients).</td></tr>
+      <tr><td><code>flight_port</code></td><td>Integer</td><td><code>7689</code></td><td>Port for Apache Arrow Flight connections (Python, R, Java clients).</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[storage]</h4>
+  <p>
+    Configures where data is persisted and how the buffer pool manages in-memory pages. The write-ahead log (WAL) ensures durability: every mutation is written to the WAL before being applied to the data files.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>data_dir</code></td><td>String</td><td><code>"/var/lib/astraeadb/data"</code></td><td>Directory for graph data files (nodes, edges, indexes).</td></tr>
+      <tr><td><code>wal_dir</code></td><td>String</td><td><code>"/var/lib/astraeadb/wal"</code></td><td>Directory for write-ahead log segments. For best performance, place on a separate disk from <code>data_dir</code>.</td></tr>
+      <tr><td><code>page_size</code></td><td>Integer</td><td><code>8192</code></td><td>Size of each page in bytes. Valid values: 4096, 8192, 16384. Larger pages reduce I/O operations but increase memory usage per page.</td></tr>
+      <tr><td><code>buffer_pool_pages</code></td><td>Integer</td><td><code>10000</code></td><td>Number of pages in the buffer pool. Total buffer memory = <code>page_size * buffer_pool_pages</code>. For the default values, this is ~78 MB.</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[tls]</h4>
+  <p>
+    Enables encrypted communication between clients and the server. When enabled, all three protocol ports (JSON-TCP, gRPC, Arrow Flight) require TLS. If <code>ca_cert_path</code> is set, mutual TLS (mTLS) is enforced: clients must present a certificate signed by the specified CA.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>enabled</code></td><td>Boolean</td><td><code>false</code></td><td>Set to <code>true</code> to require TLS on all connections.</td></tr>
+      <tr><td><code>cert_path</code></td><td>String</td><td><code>""</code></td><td>Path to the PEM-encoded server certificate.</td></tr>
+      <tr><td><code>key_path</code></td><td>String</td><td><code>""</code></td><td>Path to the PEM-encoded server private key.</td></tr>
+      <tr><td><code>ca_cert_path</code></td><td>String</td><td><code>""</code></td><td>Path to a CA certificate for verifying client certificates (enables mTLS).</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[auth]</h4>
+  <p>
+    Controls token-based authentication. When enabled, clients must present a valid Bearer token during the connection handshake. Tokens are managed through the admin API (not in the config file) and can be created, revoked, and rotated at runtime.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>enabled</code></td><td>Boolean</td><td><code>false</code></td><td>Set to <code>true</code> to require authentication on all client connections.</td></tr>
+    </tbody>
+  </table>
+
+  <h4>[vector]</h4>
+  <p>
+    Configures the HNSW (Hierarchical Navigable Small World) index used for vector search. These parameters directly affect the trade-off between index build time, search accuracy, and memory usage.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>dimensions</code></td><td>Integer</td><td><code>128</code></td><td>Dimensionality of stored embedding vectors. Must match the output dimension of your embedding model (e.g., 384 for MiniLM, 1536 for OpenAI text-embedding-3-small).</td></tr>
+      <tr><td><code>m</code></td><td>Integer</td><td><code>16</code></td><td>Maximum number of connections per node per HNSW layer. Higher values improve recall but increase memory usage and build time. Typical range: 8&ndash;64.</td></tr>
+      <tr><td><code>ef_construction</code></td><td>Integer</td><td><code>200</code></td><td>Beam width during index construction. Higher values produce a more accurate index but take longer to build. Must be &ge; <code>m</code>.</td></tr>
+      <tr><td><code>ef_search</code></td><td>Integer</td><td><code>50</code></td><td>Beam width during search. Higher values improve recall at the cost of latency. Can be tuned per query in the client API.</td></tr>
+      <tr><td><code>distance_metric</code></td><td>String</td><td><code>"cosine"</code></td><td>Distance function for comparing vectors. Options: <code>"cosine"</code> (angular similarity), <code>"euclidean"</code> (L2 distance), <code>"dot_product"</code> (inner product).</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>Tuning HNSW parameters</strong>
+    For most use cases, the defaults work well. If you need higher recall (fewer missed results), increase <code>ef_search</code> and <code>ef_construction</code>. If you need to reduce memory usage, decrease <code>m</code>. Always benchmark with your actual data to find the right balance.
+  </div>
+
+  <h4>[connection]</h4>
+  <p>
+    Controls connection pooling, concurrency limits, and timeouts. These settings protect the server from being overwhelmed by too many simultaneous clients or long-running queries.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>max_connections</code></td><td>Integer</td><td><code>1024</code></td><td>Maximum number of simultaneous client connections. Additional connections are rejected with an error.</td></tr>
+      <tr><td><code>max_concurrent_requests</code></td><td>Integer</td><td><code>256</code></td><td>Maximum number of requests being processed at any given time across all connections.</td></tr>
+      <tr><td><code>idle_timeout_seconds</code></td><td>Integer</td><td><code>300</code></td><td>Seconds of inactivity before a client connection is automatically closed.</td></tr>
+      <tr><td><code>request_timeout_seconds</code></td><td>Integer</td><td><code>30</code></td><td>Maximum seconds allowed for a single request to complete before it is cancelled.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- C.2 CLI Flags -->
+  <h2>C.2 Command-Line Flags</h2>
+
+  <p>
+    Command-line flags override values from the configuration file. They are useful for quick testing or container deployments where you want to set a single option without modifying a file.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Flag</th>
+        <th>Description</th>
+        <th>Default</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>--bind &lt;address&gt;</code></td>
+        <td>Override the bind address from the config file</td>
+        <td><code>127.0.0.1</code></td>
+      </tr>
+      <tr>
+        <td><code>--port &lt;number&gt;</code></td>
+        <td>Override the JSON-TCP port from the config file</td>
+        <td><code>7687</code></td>
+      </tr>
+      <tr>
+        <td><code>--config &lt;path&gt;</code></td>
+        <td>Path to a TOML configuration file</td>
+        <td>None (uses <code>astraeadb.toml</code> in the current directory if present)</td>
+      </tr>
+      <tr>
+        <td><code>--data-dir &lt;path&gt;</code></td>
+        <td>Override the data directory</td>
+        <td>Value from config file</td>
+      </tr>
+      <tr>
+        <td><code>--log-level &lt;level&gt;</code></td>
+        <td>Set logging verbosity: <code>error</code>, <code>warn</code>, <code>info</code>, <code>debug</code>, <code>trace</code></td>
+        <td><code>info</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- C.3 CLI Commands -->
+  <h2>C.3 CLI Commands</h2>
+
+  <p>
+    The <code>astraeadb</code> binary supports several subcommands for managing the server and data.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Command</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>serve</code></td>
+        <td>Start the AstraeaDB server. This is the primary command for running the database.</td>
+        <td><code>astraeadb serve --config /etc/astraeadb.toml</code></td>
+      </tr>
+      <tr>
+        <td><code>shell</code></td>
+        <td>Launch an interactive GQL REPL connected to a running server. Useful for ad-hoc queries and exploration.</td>
+        <td><code>astraeadb shell --port 7687</code></td>
+      </tr>
+      <tr>
+        <td><code>import &lt;file&gt;</code></td>
+        <td>Bulk import nodes and edges from a JSON file (see Section C.6 for the expected format).</td>
+        <td><code>astraeadb import data.json</code></td>
+      </tr>
+      <tr>
+        <td><code>export &lt;file&gt;</code></td>
+        <td>Export the entire graph to a JSON file. The output format matches the import format.</td>
+        <td><code>astraeadb export backup.json</code></td>
+      </tr>
+      <tr>
+        <td><code>status</code></td>
+        <td>Check the health of a running server. Returns node/edge counts, uptime, and memory usage.</td>
+        <td><code>astraeadb status --port 7687</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- C.4 Environment Variables -->
+  <h2>C.4 Environment Variables</h2>
+
+  <p>
+    Environment variables provide a third layer of configuration, with the highest precedence. The priority order is: <strong>environment variable &gt; CLI flag &gt; config file &gt; built-in default</strong>.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Variable</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ASTRAEA_CONFIG</code></td>
+        <td>Path to the TOML configuration file. Equivalent to <code>--config</code>.</td>
+        <td><code>ASTRAEA_CONFIG=/etc/astraeadb.toml</code></td>
+      </tr>
+      <tr>
+        <td><code>ASTRAEA_BIND</code></td>
+        <td>Override the server bind address. Equivalent to <code>--bind</code>.</td>
+        <td><code>ASTRAEA_BIND=0.0.0.0</code></td>
+      </tr>
+      <tr>
+        <td><code>ASTRAEA_PORT</code></td>
+        <td>Override the JSON-TCP port. Equivalent to <code>--port</code>.</td>
+        <td><code>ASTRAEA_PORT=7687</code></td>
+      </tr>
+      <tr>
+        <td><code>ASTRAEA_DATA_DIR</code></td>
+        <td>Override the data directory path.</td>
+        <td><code>ASTRAEA_DATA_DIR=/mnt/ssd/astraeadb</code></td>
+      </tr>
+      <tr>
+        <td><code>ASTRAEA_LOG_LEVEL</code></td>
+        <td>Override the log level (<code>error</code>, <code>warn</code>, <code>info</code>, <code>debug</code>, <code>trace</code>).</td>
+        <td><code>ASTRAEA_LOG_LEVEL=debug</code></td>
+      </tr>
+      <tr>
+        <td><code>OPENAI_API_KEY</code></td>
+        <td>API key for OpenAI. Required when using GraphRAG with OpenAI models for embedding generation and LLM responses.</td>
+        <td><code>OPENAI_API_KEY=sk-...</code></td>
+      </tr>
+      <tr>
+        <td><code>ANTHROPIC_API_KEY</code></td>
+        <td>API key for Anthropic. Required when using GraphRAG with Claude models for LLM responses.</td>
+        <td><code>ANTHROPIC_API_KEY=sk-ant-...</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box warn">
+    <strong>Security note</strong>
+    Never hard-code API keys in configuration files or command-line arguments. Use environment variables or a secrets manager (e.g., AWS Secrets Manager, HashiCorp Vault) to inject credentials at runtime. Environment variables set in shell profiles are visible in <code>/proc</code> on Linux; prefer injecting them via container orchestration secrets.
+  </div>
+
+  <!-- C.5 Configuration Precedence -->
+  <h2>C.5 Configuration Precedence</h2>
+
+  <p>
+    When the same setting is specified in multiple places, AstraeaDB resolves it using the following priority order (highest to lowest):
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Priority</th>
+        <th>Source</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1 (highest)</td>
+        <td>Environment variable</td>
+        <td><code>ASTRAEA_PORT=9000</code></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Command-line flag</td>
+        <td><code>--port 8000</code></td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>TOML config file</td>
+        <td><code>port = 7687</code> in <code>[server]</code></td>
+      </tr>
+      <tr>
+        <td>4 (lowest)</td>
+        <td>Built-in default</td>
+        <td><code>7687</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- C.6 JSON Import Format -->
+  <h2>C.6 JSON Import Format</h2>
+
+  <p>
+    The <code>astraeadb import</code> command expects a JSON file with the following structure. Node references in the <code>edges</code> array use zero-based indices into the <code>nodes</code> array.
+  </p>
+
+<pre>
+{
+  <span class="str">"nodes"</span>: [
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Person"</span>],
+      <span class="str">"properties"</span>: {
+        <span class="str">"name"</span>: <span class="str">"Alice"</span>,
+        <span class="str">"age"</span>: <span class="num">30</span>
+      }
+    },
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Person"</span>],
+      <span class="str">"properties"</span>: {
+        <span class="str">"name"</span>: <span class="str">"Bob"</span>,
+        <span class="str">"age"</span>: <span class="num">25</span>
+      }
+    },
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Company"</span>],
+      <span class="str">"properties"</span>: {
+        <span class="str">"name"</span>: <span class="str">"Acme Corp"</span>,
+        <span class="str">"industry"</span>: <span class="str">"Technology"</span>
+      }
+    }
+  ],
+  <span class="str">"edges"</span>: [
+    {
+      <span class="str">"source"</span>: <span class="num">0</span>,
+      <span class="str">"target"</span>: <span class="num">1</span>,
+      <span class="str">"edge_type"</span>: <span class="str">"KNOWS"</span>,
+      <span class="str">"properties"</span>: {
+        <span class="str">"since"</span>: <span class="num">2020</span>
+      }
+    },
+    {
+      <span class="str">"source"</span>: <span class="num">0</span>,
+      <span class="str">"target"</span>: <span class="num">2</span>,
+      <span class="str">"edge_type"</span>: <span class="str">"WORKS_AT"</span>,
+      <span class="str">"properties"</span>: {
+        <span class="str">"role"</span>: <span class="str">"Engineer"</span>,
+        <span class="str">"start_date"</span>: <span class="str">"2021-03-15"</span>
+      }
+    }
+  ]
+}
+</pre>
+
+  <h3>Field reference</h3>
+
+  <h4>Node fields</h4>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>labels</code></td><td>Array of strings</td><td>Yes</td><td>One or more labels classifying the node (e.g., <code>["Person"]</code>, <code>["Person", "Employee"]</code>).</td></tr>
+      <tr><td><code>properties</code></td><td>Object</td><td>No</td><td>Key-value pairs of node properties. Values can be strings, numbers, booleans, arrays, or nested objects.</td></tr>
+      <tr><td><code>embedding</code></td><td>Array of floats</td><td>No</td><td>A float32 vector for vector search. Length must match the <code>dimensions</code> setting in <code>[vector]</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Edge fields</h4>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>source</code></td><td>Integer</td><td>Yes</td><td>Zero-based index into the <code>nodes</code> array identifying the source node.</td></tr>
+      <tr><td><code>target</code></td><td>Integer</td><td>Yes</td><td>Zero-based index into the <code>nodes</code> array identifying the target node.</td></tr>
+      <tr><td><code>edge_type</code></td><td>String</td><td>Yes</td><td>The relationship type (e.g., <code>"KNOWS"</code>, <code>"WORKS_AT"</code>).</td></tr>
+      <tr><td><code>properties</code></td><td>Object</td><td>No</td><td>Key-value pairs of edge properties.</td></tr>
+      <tr><td><code>weight</code></td><td>Float</td><td>No</td><td>Numeric weight for weighted graph algorithms. Defaults to <code>1.0</code>.</td></tr>
+      <tr><td><code>valid_from</code></td><td>String (ISO 8601)</td><td>No</td><td>Start of the edge validity interval for temporal graphs.</td></tr>
+      <tr><td><code>valid_to</code></td><td>String (ISO 8601)</td><td>No</td><td>End of the edge validity interval (exclusive) for temporal graphs.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Large imports</strong>
+    For datasets larger than a few hundred thousand nodes, consider using the batch client API (<code>create_nodes</code> / <code>create_edges</code>) over Arrow Flight for better performance. The JSON import command is best suited for initial data loading and smaller datasets.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-appB.html">&larr; Appendix B: Client API Reference</a>
+    <a href="gentle-intro.html">Back to Table of Contents &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

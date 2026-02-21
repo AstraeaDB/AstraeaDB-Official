@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 12: Graph Neural Networks - AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<aside class="sidebar">
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">1. Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">2. The Graph Database Landscape</a>
+  <div class="sep"></div>
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">3. Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">4. Your First Graph</a>
+  <div class="sep"></div>
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">5. GQL</a>
+  <a href="gentle-intro-ch06.html">6. Traversals</a>
+  <a href="gentle-intro-ch07.html">7. Transport</a>
+  <div class="sep"></div>
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">8. Vector Search</a>
+  <a href="gentle-intro-ch09.html">9. Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">10. Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">11. GraphRAG</a>
+  <a href="gentle-intro-ch12.html" class="active">12. Graph Neural Networks</a>
+  <div class="sep"></div>
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">13. Security</a>
+  <a href="gentle-intro-ch14.html">14. Performance</a>
+  <a href="gentle-intro-ch15.html">15. Cybersecurity</a>
+  <div class="sep"></div>
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A. GQL Reference</a>
+  <a href="gentle-intro-appB.html">B. Configuration Options</a>
+  <a href="gentle-intro-appC.html">C. Troubleshooting</a>
+</aside>
+
+<div class="main">
+
+  <h1>Chapter 12: Graph Neural Networks</h1>
+  <p class="subtitle">Train neural networks directly on graph structure inside AstraeaDB. Learn how message passing, differentiable edge weights, and in-database training eliminate the need to export data to external ML frameworks.</p>
+
+  <div class="info-box tip">
+    <strong>Who Is This Chapter For?</strong>
+    GNN training is an advanced feature. For most users, the combination of vector search + graph traversals + GraphRAG (Chapters 8, 6, and 11) will be sufficient. GNN training is for users who want to <strong>learn relationship patterns directly from labeled data</strong> -- for example, predicting fraud, classifying documents, or discovering hidden communities based on structural features.
+  </div>
+
+  <!-- 12.1 What Are GNNs? -->
+  <h2>12.1 What Are GNNs?</h2>
+
+  <h3>Neural Networks on Graphs</h3>
+  <p>Traditional neural networks operate on fixed-size inputs: images have a grid of pixels, text has a sequence of tokens. But graphs have no fixed structure -- each node can have a different number of neighbors, and the topology varies throughout the graph. <strong>Graph Neural Networks (GNNs)</strong> are a family of neural network architectures designed specifically for this irregular, relational data.</p>
+
+  <h3>The Key Idea: Message Passing</h3>
+  <p>GNNs work through a process called <strong>message passing</strong>. In each layer of the network, every node:</p>
+  <ol>
+    <li><strong>Gathers</strong> feature vectors from its neighbors (and their edge weights).</li>
+    <li><strong>Aggregates</strong> those features into a single summary (e.g., sum, mean, or max).</li>
+    <li><strong>Updates</strong> its own feature vector based on the aggregated neighborhood information.</li>
+  </ol>
+
+  <p>After multiple rounds of message passing, each node's feature vector encodes information not just about itself, but about its entire local neighborhood. A node that is 3 message-passing layers deep effectively "sees" all nodes within 3 hops.</p>
+
+  <h3>Message Passing Illustrated</h3>
+  <p>Consider a simple graph where we want to classify node <strong>C</strong>:</p>
+
+<pre><span class="cm">Round 0 (initial features):</span>
+  A [<span class="num">0.1, 0.9</span>]    B [<span class="num">0.8, 0.2</span>]    C [<span class="num">0.5, 0.5</span>]    D [<span class="num">0.3, 0.7</span>]
+       \              |              |              /
+        \             |              |             /
+         ---------- edges -----------+------------
+
+<span class="cm">Round 1 (after 1 layer of message passing):</span>
+  C gathers from neighbors: A, B, D
+  C aggregates: <span class="fn">mean</span>([<span class="num">0.1, 0.9</span>], [<span class="num">0.8, 0.2</span>], [<span class="num">0.3, 0.7</span>]) = [<span class="num">0.4, 0.6</span>]
+  C updates:    <span class="fn">combine</span>([<span class="num">0.5, 0.5</span>], [<span class="num">0.4, 0.6</span>]) = [<span class="num">0.45, 0.55</span>] <span class="cm">(new features)</span>
+
+<span class="cm">Round 2 (after 2 layers):</span>
+  C now incorporates 2-hop neighborhood information
+  Its features encode the structure of the local graph</pre>
+
+  <h3>Node Classification</h3>
+  <p>The most common GNN task is <strong>node classification</strong>: predict a label for each node based on its features <em>and</em> its neighborhood structure. Examples include:</p>
+  <ul>
+    <li><strong>Fraud detection:</strong> Predict whether a user account is fraudulent based on its transaction patterns and the accounts it connects to.</li>
+    <li><strong>Document categorization:</strong> Classify papers in a citation network by their topic, using both the paper's content and what it cites.</li>
+    <li><strong>Social role prediction:</strong> Predict a user's role or interests based on their connections.</li>
+  </ul>
+
+  <!-- 12.2 Setting Up Training Data -->
+  <h2>12.2 Setting Up Training Data</h2>
+
+  <p>To train a GNN in AstraeaDB, your nodes need two things:</p>
+  <ul>
+    <li><strong>Feature vectors (embeddings):</strong> Numeric representations of each node's attributes. These are the same embeddings used for vector search (Chapter 8).</li>
+    <li><strong>Ground truth labels:</strong> Known classifications for a subset of nodes. The GNN learns to predict labels for the remaining unlabeled nodes.</li>
+  </ul>
+
+  <h3>Creating Labeled Nodes</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-setup')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-setup')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-setup')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-setup')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-setup">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Create nodes with embeddings and known labels</span>
+    alice = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"User"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"label"</span>: <span class="str">"legitimate"</span>},
+        embedding=[<span class="num">0.1</span>, <span class="num">0.2</span>, <span class="num">0.05</span>, <span class="num">0.3</span>, <span class="num">0.15</span>, <span class="num">0.1</span>, <span class="num">0.25</span>, <span class="num">0.08</span>]
+    )
+
+    bob = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"User"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Bob"</span>, <span class="str">"label"</span>: <span class="str">"legitimate"</span>},
+        embedding=[<span class="num">0.12</span>, <span class="num">0.18</span>, <span class="num">0.07</span>, <span class="num">0.28</span>, <span class="num">0.14</span>, <span class="num">0.11</span>, <span class="num">0.22</span>, <span class="num">0.09</span>]
+    )
+
+    bad_bot = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"User"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"BadBot"</span>, <span class="str">"label"</span>: <span class="str">"fraudulent"</span>},
+        embedding=[<span class="num">0.9</span>, <span class="num">0.8</span>, <span class="num">0.85</span>, <span class="num">0.7</span>, <span class="num">0.95</span>, <span class="num">0.88</span>, <span class="num">0.75</span>, <span class="num">0.92</span>]
+    )
+
+    shill = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"User"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"Shill42"</span>, <span class="str">"label"</span>: <span class="str">"fraudulent"</span>},
+        embedding=[<span class="num">0.88</span>, <span class="num">0.82</span>, <span class="num">0.9</span>, <span class="num">0.72</span>, <span class="num">0.91</span>, <span class="num">0.85</span>, <span class="num">0.78</span>, <span class="num">0.89</span>]
+    )
+
+    <span class="cm"># A node with no label -- the GNN will predict this</span>
+    unknown = client.<span class="fn">create_node</span>(
+        labels=[<span class="str">"User"</span>],
+        properties={<span class="str">"name"</span>: <span class="str">"NewUser99"</span>},  <span class="cm"># no "label" property</span>
+        embedding=[<span class="num">0.7</span>, <span class="num">0.6</span>, <span class="num">0.75</span>, <span class="num">0.55</span>, <span class="num">0.8</span>, <span class="num">0.65</span>, <span class="num">0.58</span>, <span class="num">0.72</span>]
+    )
+
+    <span class="cm"># Create edges (transaction relationships)</span>
+    client.<span class="fn">create_edge</span>(alice[<span class="str">"node_id"</span>], bob[<span class="str">"node_id"</span>], <span class="str">"TRANSACTED"</span>,
+                       {<span class="str">"amount"</span>: <span class="num">50.0</span>})
+    client.<span class="fn">create_edge</span>(bad_bot[<span class="str">"node_id"</span>], shill[<span class="str">"node_id"</span>], <span class="str">"TRANSACTED"</span>,
+                       {<span class="str">"amount"</span>: <span class="num">10000.0</span>})
+    client.<span class="fn">create_edge</span>(shill[<span class="str">"node_id"</span>], bad_bot[<span class="str">"node_id"</span>], <span class="str">"TRANSACTED"</span>,
+                       {<span class="str">"amount"</span>: <span class="num">9500.0</span>})
+    client.<span class="fn">create_edge</span>(unknown[<span class="str">"node_id"</span>], bad_bot[<span class="str">"node_id"</span>], <span class="str">"TRANSACTED"</span>,
+                       {<span class="str">"amount"</span>: <span class="num">8000.0</span>})
+    client.<span class="fn">create_edge</span>(unknown[<span class="str">"node_id"</span>], shill[<span class="str">"node_id"</span>], <span class="str">"TRANSACTED"</span>,
+                       {<span class="str">"amount"</span>: <span class="num">7500.0</span>})</pre>
+  </div>
+  <div class="lang-panel" id="r-setup">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Create labeled nodes with embeddings</span>
+alice <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"User"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"Alice"</span>, label = <span class="str">"legitimate"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.1</span>, <span class="num">0.2</span>, <span class="num">0.05</span>, <span class="num">0.3</span>, <span class="num">0.15</span>, <span class="num">0.1</span>, <span class="num">0.25</span>, <span class="num">0.08</span>)
+)
+
+bob <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"User"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"Bob"</span>, label = <span class="str">"legitimate"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.12</span>, <span class="num">0.18</span>, <span class="num">0.07</span>, <span class="num">0.28</span>, <span class="num">0.14</span>, <span class="num">0.11</span>, <span class="num">0.22</span>, <span class="num">0.09</span>)
+)
+
+bad_bot <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"User"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"BadBot"</span>, label = <span class="str">"fraudulent"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.9</span>, <span class="num">0.8</span>, <span class="num">0.85</span>, <span class="num">0.7</span>, <span class="num">0.95</span>, <span class="num">0.88</span>, <span class="num">0.75</span>, <span class="num">0.92</span>)
+)
+
+shill <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"User"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"Shill42"</span>, label = <span class="str">"fraudulent"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.88</span>, <span class="num">0.82</span>, <span class="num">0.9</span>, <span class="num">0.72</span>, <span class="num">0.91</span>, <span class="num">0.85</span>, <span class="num">0.78</span>, <span class="num">0.89</span>)
+)
+
+<span class="cm"># Unlabeled node for prediction</span>
+unknown <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+  labels = <span class="fn">list</span>(<span class="str">"User"</span>),
+  properties = <span class="fn">list</span>(name = <span class="str">"NewUser99"</span>),
+  embedding = <span class="fn">c</span>(<span class="num">0.7</span>, <span class="num">0.6</span>, <span class="num">0.75</span>, <span class="num">0.55</span>, <span class="num">0.8</span>, <span class="num">0.65</span>, <span class="num">0.58</span>, <span class="num">0.72</span>)
+)
+
+<span class="cm"># Create edges</span>
+client<span class="kw">$</span><span class="fn">create_edge</span>(alice<span class="kw">$</span>node_id, bob<span class="kw">$</span>node_id, <span class="str">"TRANSACTED"</span>,
+  <span class="fn">list</span>(amount = <span class="num">50.0</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(bad_bot<span class="kw">$</span>node_id, shill<span class="kw">$</span>node_id, <span class="str">"TRANSACTED"</span>,
+  <span class="fn">list</span>(amount = <span class="num">10000.0</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(shill<span class="kw">$</span>node_id, bad_bot<span class="kw">$</span>node_id, <span class="str">"TRANSACTED"</span>,
+  <span class="fn">list</span>(amount = <span class="num">9500.0</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(unknown<span class="kw">$</span>node_id, bad_bot<span class="kw">$</span>node_id, <span class="str">"TRANSACTED"</span>,
+  <span class="fn">list</span>(amount = <span class="num">8000.0</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(unknown<span class="kw">$</span>node_id, shill<span class="kw">$</span>node_id, <span class="str">"TRANSACTED"</span>,
+  <span class="fn">list</span>(amount = <span class="num">7500.0</span>))
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-setup">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Create labeled nodes</span>
+    alice, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"User"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"label"</span>: <span class="str">"legitimate"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.1</span>, <span class="num">0.2</span>, <span class="num">0.05</span>, <span class="num">0.3</span>, <span class="num">0.15</span>, <span class="num">0.1</span>, <span class="num">0.25</span>, <span class="num">0.08</span>})
+
+    bob, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"User"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"Bob"</span>, <span class="str">"label"</span>: <span class="str">"legitimate"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.12</span>, <span class="num">0.18</span>, <span class="num">0.07</span>, <span class="num">0.28</span>, <span class="num">0.14</span>, <span class="num">0.11</span>, <span class="num">0.22</span>, <span class="num">0.09</span>})
+
+    badBot, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"User"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"BadBot"</span>, <span class="str">"label"</span>: <span class="str">"fraudulent"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.9</span>, <span class="num">0.8</span>, <span class="num">0.85</span>, <span class="num">0.7</span>, <span class="num">0.95</span>, <span class="num">0.88</span>, <span class="num">0.75</span>, <span class="num">0.92</span>})
+
+    shill, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"User"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"Shill42"</span>, <span class="str">"label"</span>: <span class="str">"fraudulent"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.88</span>, <span class="num">0.82</span>, <span class="num">0.9</span>, <span class="num">0.72</span>, <span class="num">0.91</span>, <span class="num">0.85</span>, <span class="num">0.78</span>, <span class="num">0.89</span>})
+
+    unknown, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"User"</span>},
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"name"</span>: <span class="str">"NewUser99"</span>},
+        []<span class="ty">float32</span>{<span class="num">0.7</span>, <span class="num">0.6</span>, <span class="num">0.75</span>, <span class="num">0.55</span>, <span class="num">0.8</span>, <span class="num">0.65</span>, <span class="num">0.58</span>, <span class="num">0.72</span>})
+
+    <span class="cm">// Create edges</span>
+    client.<span class="fn">CreateEdge</span>(ctx, alice.NodeID, bob.NodeID, <span class="str">"TRANSACTED"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"amount"</span>: <span class="num">50.0</span>})
+    client.<span class="fn">CreateEdge</span>(ctx, badBot.NodeID, shill.NodeID, <span class="str">"TRANSACTED"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"amount"</span>: <span class="num">10000.0</span>})
+    client.<span class="fn">CreateEdge</span>(ctx, shill.NodeID, badBot.NodeID, <span class="str">"TRANSACTED"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"amount"</span>: <span class="num">9500.0</span>})
+    client.<span class="fn">CreateEdge</span>(ctx, unknown.NodeID, badBot.NodeID, <span class="str">"TRANSACTED"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"amount"</span>: <span class="num">8000.0</span>})
+    client.<span class="fn">CreateEdge</span>(ctx, unknown.NodeID, shill.NodeID, <span class="str">"TRANSACTED"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"amount"</span>: <span class="num">7500.0</span>})
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-setup">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+<span class="kw">import</span> java.util.List;
+<span class="kw">import</span> java.util.Map;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Create labeled nodes with embeddings</span>
+    <span class="kw">var</span> alice = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"User"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Alice"</span>, <span class="str">"label"</span>, <span class="str">"legitimate"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.1f</span>, <span class="num">0.2f</span>, <span class="num">0.05f</span>, <span class="num">0.3f</span>, <span class="num">0.15f</span>, <span class="num">0.1f</span>, <span class="num">0.25f</span>, <span class="num">0.08f</span>});
+
+    <span class="kw">var</span> bob = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"User"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Bob"</span>, <span class="str">"label"</span>, <span class="str">"legitimate"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.12f</span>, <span class="num">0.18f</span>, <span class="num">0.07f</span>, <span class="num">0.28f</span>, <span class="num">0.14f</span>, <span class="num">0.11f</span>, <span class="num">0.22f</span>, <span class="num">0.09f</span>});
+
+    <span class="kw">var</span> badBot = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"User"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"BadBot"</span>, <span class="str">"label"</span>, <span class="str">"fraudulent"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.9f</span>, <span class="num">0.8f</span>, <span class="num">0.85f</span>, <span class="num">0.7f</span>, <span class="num">0.95f</span>, <span class="num">0.88f</span>, <span class="num">0.75f</span>, <span class="num">0.92f</span>});
+
+    <span class="kw">var</span> shill = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"User"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Shill42"</span>, <span class="str">"label"</span>, <span class="str">"fraudulent"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.88f</span>, <span class="num">0.82f</span>, <span class="num">0.9f</span>, <span class="num">0.72f</span>, <span class="num">0.91f</span>, <span class="num">0.85f</span>, <span class="num">0.78f</span>, <span class="num">0.89f</span>});
+
+    <span class="kw">var</span> unknown = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"User"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"NewUser99"</span>),
+        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.7f</span>, <span class="num">0.6f</span>, <span class="num">0.75f</span>, <span class="num">0.55f</span>, <span class="num">0.8f</span>, <span class="num">0.65f</span>, <span class="num">0.58f</span>, <span class="num">0.72f</span>});
+
+    <span class="cm">// Create edges</span>
+    client.<span class="fn">createEdge</span>(alice.<span class="fn">getNodeId</span>(), bob.<span class="fn">getNodeId</span>(),
+        <span class="str">"TRANSACTED"</span>, <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"amount"</span>, <span class="num">50.0</span>));
+    client.<span class="fn">createEdge</span>(badBot.<span class="fn">getNodeId</span>(), shill.<span class="fn">getNodeId</span>(),
+        <span class="str">"TRANSACTED"</span>, <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"amount"</span>, <span class="num">10000.0</span>));
+    client.<span class="fn">createEdge</span>(shill.<span class="fn">getNodeId</span>(), badBot.<span class="fn">getNodeId</span>(),
+        <span class="str">"TRANSACTED"</span>, <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"amount"</span>, <span class="num">9500.0</span>));
+    client.<span class="fn">createEdge</span>(unknown.<span class="fn">getNodeId</span>(), badBot.<span class="fn">getNodeId</span>(),
+        <span class="str">"TRANSACTED"</span>, <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"amount"</span>, <span class="num">8000.0</span>));
+    client.<span class="fn">createEdge</span>(unknown.<span class="fn">getNodeId</span>(), shill.<span class="fn">getNodeId</span>(),
+        <span class="str">"TRANSACTED"</span>, <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"amount"</span>, <span class="num">7500.0</span>));
+}</pre>
+  </div>
+
+  <h3>Understanding the Data</h3>
+  <p>In this fraud detection scenario:</p>
+  <ul>
+    <li><strong>Alice</strong> and <strong>Bob</strong> are labeled as <code>"legitimate"</code>. They have a single small transaction between them.</li>
+    <li><strong>BadBot</strong> and <strong>Shill42</strong> are labeled as <code>"fraudulent"</code>. They have large, circular transactions (a classic fraud pattern).</li>
+    <li><strong>NewUser99</strong> has <em>no label</em>. It transacts heavily with both known fraudulent accounts. The GNN should predict this as "fraudulent" based on its neighborhood.</li>
+  </ul>
+
+  <h3>Message Passing Configuration</h3>
+  <p>AstraeaDB supports several aggregation functions and activation functions for the message passing layers:</p>
+
+  <table>
+    <thead>
+      <tr><th>Setting</th><th>Options</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Aggregation</strong></td><td><code>Sum</code>, <code>Mean</code>, <code>Max</code></td><td>How neighbor features are combined. <code>Sum</code> preserves magnitude; <code>Mean</code> normalizes by degree; <code>Max</code> takes the strongest signal.</td></tr>
+      <tr><td><strong>Activation</strong></td><td><code>ReLU</code>, <code>Sigmoid</code></td><td>Non-linearity applied after aggregation. <code>ReLU</code> is the default for hidden layers; <code>Sigmoid</code> is used for the output layer in binary classification.</td></tr>
+      <tr><td><strong>Layers</strong></td><td>1-5 (typical)</td><td>Number of message passing rounds. More layers = larger receptive field, but risk of over-smoothing.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Note: Over-Smoothing</strong>
+    With too many message passing layers, all node features converge to similar values -- a phenomenon called <strong>over-smoothing</strong>. For most graphs, 2-3 layers is optimal. Start with 2 and increase only if accuracy improves.
+  </div>
+
+  <!-- 12.3 Training a Model -->
+  <h2>12.3 Training a Model</h2>
+
+  <p>AstraeaDB's GNN training runs <strong>entirely inside the database</strong>. There is no need to export your graph to PyTorch Geometric, DGL, or any external framework. This eliminates the data engineering overhead of ETL pipelines and ensures the model always trains on the most current data.</p>
+
+  <h3>The Training Loop</h3>
+  <p>Each training epoch follows these four steps:</p>
+
+  <ol>
+    <li><strong>Forward pass (message passing):</strong> For each layer, every node aggregates its neighbors' features (weighted by edge weights), applies the activation function, and produces updated features. After all layers, each node's features encode its neighborhood structure.</li>
+    <li><strong>Loss computation:</strong> For nodes with known labels, the model's predictions are compared against the ground truth. AstraeaDB uses cross-entropy loss for classification tasks.</li>
+    <li><strong>Gradient estimation:</strong> AstraeaDB uses <strong>numerical gradients</strong> (finite differences) rather than automatic differentiation. For each trainable parameter, the loss is evaluated at <code>param + epsilon</code> and <code>param - epsilon</code>, and the gradient is approximated as <code>(loss+ - loss-) / (2 * epsilon)</code>.</li>
+    <li><strong>Weight update:</strong> All trainable parameters (edge weights, layer weights) are updated using gradient descent: <code>param = param - learning_rate * gradient</code>.</li>
+  </ol>
+
+  <h3>Conceptual Training Configuration</h3>
+  <p>GNN training is currently configured via the Rust API, with client wrapper support planned for future releases.</p>
+
+<pre><span class="kw">use</span> astraeadb::gnn::{<span class="ty">GnnConfig</span>, <span class="ty">Aggregation</span>, <span class="ty">Activation</span>};
+
+<span class="kw">let</span> config = <span class="ty">GnnConfig</span> {
+    <span class="cm">// Network architecture</span>
+    num_layers:    <span class="num">2</span>,
+    hidden_dim:    <span class="num">16</span>,
+    output_classes: <span class="num">2</span>,          <span class="cm">// "legitimate" vs "fraudulent"</span>
+    aggregation:   <span class="ty">Aggregation</span>::<span class="ty">Mean</span>,
+    activation:    <span class="ty">Activation</span>::<span class="ty">ReLU</span>,
+
+    <span class="cm">// Training parameters</span>
+    epochs:        <span class="num">50</span>,
+    learning_rate: <span class="num">0.01</span>,
+    label_key:     <span class="str">"label"</span>.<span class="fn">to_string</span>(),    <span class="cm">// property containing ground truth</span>
+
+    <span class="cm">// Label mapping</span>
+    label_map: <span class="fn">vec!</span>[
+        (<span class="str">"legitimate"</span>.<span class="fn">to_string</span>(), <span class="num">0</span>),
+        (<span class="str">"fraudulent"</span>.<span class="fn">to_string</span>(), <span class="num">1</span>),
+    ],
+
+    <span class="cm">// Gradient estimation</span>
+    epsilon: <span class="num">1e-5</span>,
+};
+
+<span class="cm">// Run training</span>
+<span class="kw">let</span> result = graph.<span class="fn">train_gnn</span>(config)?;
+
+<span class="cm">// Inspect training progress</span>
+<span class="kw">for</span> (epoch, loss) <span class="kw">in</span> result.epoch_losses.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+    <span class="fn">println!</span>(<span class="str">"Epoch {}: loss = {:.4}"</span>, epoch, loss);
+}
+<span class="fn">println!</span>(<span class="str">"Final accuracy: {:.1}%"</span>, result.accuracy * <span class="num">100.0</span>);</pre>
+
+  <h3>Expected Training Output</h3>
+  <p>During training, you will see the loss decreasing as the model learns:</p>
+
+<pre><span class="cm">Epoch  0: loss = 0.6931  (random initialization, ~coin flip)</span>
+<span class="cm">Epoch  5: loss = 0.5412</span>
+<span class="cm">Epoch 10: loss = 0.3876</span>
+<span class="cm">Epoch 20: loss = 0.1923</span>
+<span class="cm">Epoch 30: loss = 0.0847</span>
+<span class="cm">Epoch 50: loss = 0.0234</span>
+<span class="cm">Final accuracy: 100.0% (on labeled nodes)</span></pre>
+
+  <p>The loss starts near 0.693 (the natural log of 2, which is the maximum entropy for binary classification -- essentially random guessing). As training proceeds, the loss drops as the model learns to distinguish legitimate from fraudulent patterns.</p>
+
+  <h3>Making Predictions</h3>
+  <p>After training, use the trained model to classify unlabeled nodes:</p>
+
+<pre><span class="cm">// Get predictions for all unlabeled nodes</span>
+<span class="kw">let</span> predictions = graph.<span class="fn">predict_gnn</span>()?;
+
+<span class="kw">for</span> (node_id, prediction) <span class="kw">in</span> predictions {
+    <span class="kw">let</span> label = <span class="kw">if</span> prediction.class_id == <span class="num">0</span> { <span class="str">"legitimate"</span> } <span class="kw">else</span> { <span class="str">"fraudulent"</span> };
+    <span class="fn">println!</span>(<span class="str">"Node {}: {} (confidence: {:.1}%)"</span>,
+        node_id, label, prediction.confidence * <span class="num">100.0</span>);
+}
+
+<span class="cm">// Output:</span>
+<span class="cm">// Node nd-5 (NewUser99): fraudulent (confidence: 94.2%)</span></pre>
+
+  <div class="info-box warn">
+    <strong>Warning: Training Data Quality</strong>
+    GNN accuracy depends heavily on the quality and quantity of labeled data. A few mislabeled nodes can significantly degrade performance. Aim for at least 20-30 labeled examples per class for meaningful results. For production fraud detection, hundreds or thousands of labeled examples are recommended.
+  </div>
+
+  <!-- 12.4 Differentiable Edge Weights -->
+  <h2>12.4 Differentiable Edge Weights</h2>
+
+  <h3>AstraeaDB's Unique Innovation</h3>
+  <p>In most graph databases, edge weights are static values set at creation time. In AstraeaDB, edge weights are <strong>differentiable tensors</strong> -- they are trainable parameters that the GNN can update during the learning process.</p>
+
+  <p>This is a fundamental architectural decision rooted in AstraeaDB's "Vector-Property Graph" data model (described in the project architecture). Edges do not just carry metadata; they carry <strong>learnable parameters</strong> that encode the strength and nature of relationships.</p>
+
+  <h3>How It Works</h3>
+  <ol>
+    <li><strong>Initialization:</strong> All edges start with a uniform weight (typically 1.0). At this point, the GNN treats all connections equally.</li>
+    <li><strong>Training:</strong> During each epoch, the gradient of the loss function with respect to each edge weight is computed. Edges that contribute to correct predictions receive gradient updates that strengthen them; edges that contribute to incorrect predictions are weakened.</li>
+    <li><strong>After training:</strong> Edge weights encode learned relationship strengths. An edge with a high weight (e.g., 2.3) indicates a strong, predictive connection. An edge with a low weight (e.g., 0.1) indicates a weak or irrelevant connection.</li>
+  </ol>
+
+  <h3>What This Means in Practice</h3>
+  <p>Consider the fraud detection example. Before training, all TRANSACTED edges have a weight of 1.0. After training:</p>
+
+<pre><span class="cm">Edge weights after training:</span>
+Alice  --TRANSACTED--> Bob       weight: <span class="num">0.15</span>  <span class="cm">(low -- normal transaction, not predictive)</span>
+BadBot --TRANSACTED--> Shill42   weight: <span class="num">2.41</span>  <span class="cm">(high -- circular fraud pattern)</span>
+Shill42 --TRANSACTED--> BadBot   weight: <span class="num">2.38</span>  <span class="cm">(high -- circular fraud pattern)</span>
+NewUser99 --TRANSACTED--> BadBot weight: <span class="num">1.87</span>  <span class="cm">(high -- connected to known fraud)</span>
+NewUser99 --TRANSACTED--> Shill42 weight: <span class="num">1.92</span>  <span class="cm">(high -- connected to known fraud)</span></pre>
+
+  <p>The model has learned that:</p>
+  <ul>
+    <li><strong>Circular transactions</strong> between accounts are highly predictive of fraud (BadBot <-> Shill42 edges have the highest weights).</li>
+    <li><strong>Normal transactions</strong> between legitimate users are not predictive (Alice -> Bob has a low weight).</li>
+    <li><strong>Connections to known fraudulent accounts</strong> are suspicious (NewUser99's edges have elevated weights).</li>
+  </ul>
+
+  <h3>Querying Learned Weights</h3>
+  <p>After training, the learned edge weights persist in the graph and can be queried like any other edge property:</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-weights')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-weights')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-weights')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-weights')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-weights">
+<pre><span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    <span class="cm"># Query edges with high learned weights (suspicious connections)</span>
+    edges = client.<span class="fn">query</span>(<span class="str">"""
+        MATCH (a:User)-[t:TRANSACTED]->(b:User)
+        WHERE t.weight > 1.5
+        RETURN a.name, b.name, t.weight, t.amount
+        ORDER BY t.weight DESC
+    """</span>)
+
+    <span class="fn">print</span>(<span class="str">"High-weight edges (suspicious connections):"</span>)
+    <span class="kw">for</span> row <span class="kw">in</span> edges:
+        <span class="fn">print</span>(<span class="str">f"  </span>{row[<span class="str">'a.name'</span>]}<span class="str"> -> </span>{row[<span class="str">'b.name'</span>]}<span class="str">: "</span>
+              <span class="str">f"weight=</span>{row[<span class="str">'t.weight'</span>]:<span class="str">.2f}, amount=</span>{row[<span class="str">'t.amount'</span>]}<span class="str">"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-weights">
+<pre>edges <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">"
+  MATCH (a:User)-[t:TRANSACTED]->(b:User)
+  WHERE t.weight > 1.5
+  RETURN a.name, b.name, t.weight, t.amount
+  ORDER BY t.weight DESC
+"</span>)
+
+<span class="fn">cat</span>(<span class="str">"High-weight edges (suspicious connections):\n"</span>)
+<span class="kw">for</span> (row <span class="kw">in</span> edges) {
+  <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"  %s -> %s: weight=%.2f, amount=%s\n"</span>,
+    row<span class="kw">$</span><span class="str">"a.name"</span>, row<span class="kw">$</span><span class="str">"b.name"</span>, row<span class="kw">$</span><span class="str">"t.weight"</span>, row<span class="kw">$</span><span class="str">"t.amount"</span>))
+}</pre>
+  </div>
+  <div class="lang-panel" id="go-weights">
+<pre>edges, _ <span class="kw">:=</span> client.<span class="fn">Query</span>(ctx, <span class="str">`
+    MATCH (a:User)-[t:TRANSACTED]->(b:User)
+    WHERE t.weight > 1.5
+    RETURN a.name, b.name, t.weight, t.amount
+    ORDER BY t.weight DESC
+`</span>)
+
+fmt.<span class="fn">Println</span>(<span class="str">"High-weight edges (suspicious connections):"</span>)
+<span class="kw">for</span> _, row <span class="kw">:=</span> <span class="kw">range</span> edges {
+    fmt.<span class="fn">Printf</span>(<span class="str">"  %s -> %s: weight=%.2f, amount=%v\n"</span>,
+        row[<span class="str">"a.name"</span>], row[<span class="str">"b.name"</span>], row[<span class="str">"t.weight"</span>], row[<span class="str">"t.amount"</span>])
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-weights">
+<pre><span class="kw">var</span> edges = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH (a:User)-[t:TRANSACTED]->(b:User)
+    WHERE t.weight > 1.5
+    RETURN a.name, b.name, t.weight, t.amount
+    ORDER BY t.weight DESC
+"""</span>);
+
+System.out.<span class="fn">println</span>(<span class="str">"High-weight edges (suspicious connections):"</span>);
+<span class="kw">for</span> (<span class="kw">var</span> row : edges) {
+    System.out.<span class="fn">printf</span>(<span class="str">"  %s -> %s: weight=%.2f, amount=%s%n"</span>,
+        row.<span class="fn">get</span>(<span class="str">"a.name"</span>), row.<span class="fn">get</span>(<span class="str">"b.name"</span>),
+        row.<span class="fn">get</span>(<span class="str">"t.weight"</span>), row.<span class="fn">get</span>(<span class="str">"t.amount"</span>));
+}</pre>
+  </div>
+
+  <h3>Use Cases for Differentiable Edges</h3>
+  <table>
+    <thead>
+      <tr><th>Domain</th><th>Initial State</th><th>After Training</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Fraud Detection</strong></td>
+        <td>All transaction edges weight = 1.0</td>
+        <td>Suspicious circular transactions get high weights; normal transactions get low weights</td>
+      </tr>
+      <tr>
+        <td><strong>Recommendation</strong></td>
+        <td>All user-item edges weight = 1.0</td>
+        <td>Strong preferences amplified; weak or incidental interactions dampened</td>
+      </tr>
+      <tr>
+        <td><strong>Knowledge Graphs</strong></td>
+        <td>All "related_to" edges weight = 1.0</td>
+        <td>Causally important relationships get high weights; coincidental co-occurrences get low weights</td>
+      </tr>
+      <tr>
+        <td><strong>Network Security</strong></td>
+        <td>All connection edges weight = 1.0</td>
+        <td>Lateral movement paths get high weights; routine traffic gets low weights</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Note: Persistence</strong>
+    Learned edge weights are persisted to disk as part of the normal graph storage. They survive server restarts and can be used in subsequent queries, GraphRAG pipelines, or additional training rounds without re-training from scratch.
+  </div>
+
+  <h3>The Bigger Picture</h3>
+  <p>Differentiable edge weights transform AstraeaDB from a passive data store into an <strong>active learning system</strong>. The database does not just store your graph -- it <em>learns from it</em>. By running the training loop inside the database, you eliminate the traditional ML pipeline of "export data, train model, import predictions" and replace it with a single <code>train_gnn</code> call that updates the graph in place.</p>
+
+  <p>This is the realization of the "Differentiable Traversal" concept from AstraeaDB's architecture: the query execution plan itself is differentiable, and backpropagation updates edge weights directly inside the database.</p>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch11.html">&larr; Chapter 11: GraphRAG</a>
+    <span class="spacer"></span>
+    <a href="gentle-intro-ch13.html">Chapter 13: Security &rarr;</a>
+  </div>
+</div>
+
+<footer>
+  &copy; 2026 AstraeaDB Project. Released under the MIT License.
+  <a href="https://github.com/jimeharrisjr/graph-astraeadb">GitHub</a>
+</footer>
+
+<script>
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

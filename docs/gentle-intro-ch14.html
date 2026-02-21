@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 14: Performance and Scaling &mdash; A Gentle Introduction to AstraeaDB</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html" class="active">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 14: Performance and Scaling</h1>
+  <p class="subtitle">
+    AstraeaDB is engineered for performance at every layer&mdash;from the storage engine that eliminates garbage collection pauses to the GPU acceleration path for analytical workloads. This chapter explains the architecture that makes it fast, the knobs you can turn to make it faster, and the monitoring tools that tell you when something is wrong.
+  </p>
+
+  <!-- 14.1 Three-Tier Storage -->
+  <h2>14.1 The Three-Tier Storage Architecture</h2>
+
+  <p>
+    The fundamental challenge of a cloud-native graph database is that graph traversals require <strong>random access at nanosecond speeds</strong>, while cloud storage (S3, GCS) offers sequential throughput at millisecond latencies. AstraeaDB solves this with a three-tier storage architecture that automatically moves data between cost-optimized cold storage and speed-optimized hot memory.
+  </p>
+
+  <div class="diagram">
+    +---------------------------------------------------------------+
+    |                     AstraeaDB Storage Engine                  |
+    +---------------------------------------------------------------+
+    |                                                               |
+    |   Tier 3: HOT (RAM)                                          |
+    |   +-------------------------------------------------------+  |
+    |   |  Pointer-Swizzled Subgraphs                           |  |
+    |   |  64-bit disk page IDs --> direct memory pointers      |  |
+    |   |  O(1) neighbor access  |  Nanosecond traversal        |  |
+    |   +-------------------------------------------------------+  |
+    |        ^  promote (frequent access)  |  demote (LRU eviction) |
+    |        |                             v                        |
+    |   Tier 2: WARM (NVMe SSD)                                    |
+    |   +-------------------------------------------------------+  |
+    |   |  LRU Buffer Pool                                      |  |
+    |   |  8 KiB pages with pin/unpin reference counting        |  |
+    |   |  I/O backend: memmap2 (cross-platform)                |  |
+    |   |               io_uring (Linux async, kernel 5.10+)    |  |
+    |   +-------------------------------------------------------+  |
+    |        ^  cache (on first read)  |  evict (capacity pressure) |
+    |        |                         v                            |
+    |   Tier 1: COLD (Object Storage)                               |
+    |   +-------------------------------------------------------+  |
+    |   |  S3 / GCS / Azure Blob / Local Filesystem             |  |
+    |   |  Apache Parquet format (columnar, open, compressible) |  |
+    |   |  Cheapest storage tier  |  Data at rest               |  |
+    |   +-------------------------------------------------------+  |
+    |                                                               |
+    +---------------------------------------------------------------+
+  </div>
+
+  <h3>Tier 1: Cold Storage (Object Storage)</h3>
+  <p>
+    Data at rest lives in <strong>Apache Parquet</strong> files on object storage (Amazon S3, Google Cloud Storage, Azure Blob Storage) or a local filesystem. Parquet is a columnar format that compresses well and is readable by virtually every data tool in the ecosystem (Spark, DuckDB, Polars, Pandas). This means your graph data is never locked into a proprietary format.
+  </p>
+
+  <h3>Tier 2: Warm Cache (NVMe SSD)</h3>
+  <p>
+    When data is first accessed, it is loaded from cold storage into the <strong>LRU (Least Recently Used) buffer pool</strong> on the local NVMe SSD. The buffer pool manages data in <strong>8 KiB pages</strong> with reference counting (pin/unpin) to prevent eviction of pages that are actively being read.
+  </p>
+
+  <p>AstraeaDB supports two I/O backends for the warm tier:</p>
+  <table>
+    <thead>
+      <tr><th>Backend</th><th>Platform</th><th>Characteristics</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>memmap2</code></td>
+        <td>All platforms (Linux, macOS, WSL2)</td>
+        <td>Memory-mapped files. The OS kernel manages page caching. Simple, reliable, good default.</td>
+      </tr>
+      <tr>
+        <td><code>io_uring</code></td>
+        <td>Linux (kernel 5.10+)</td>
+        <td>Asynchronous I/O with zero system call overhead for batched operations. Higher throughput under heavy concurrent load.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Tier 3: Hot Memory (Pointer Swizzling)</h3>
+  <p>
+    The most frequently accessed subgraphs are promoted to the <strong>hot tier</strong>, where AstraeaDB performs <strong>pointer swizzling</strong>: 64-bit disk page IDs are replaced with direct memory pointers. This eliminates all indirection&mdash;traversing from one node to its neighbor is a single pointer dereference, achieving <strong>nanosecond-level traversal</strong> for active working sets.
+  </p>
+
+  <div class="info-box info">
+    <strong>How data moves between tiers</strong>
+    Promotion and demotion are driven by access frequency. When a page is accessed, it moves up: cold to warm on first read, warm to hot after repeated access. When memory pressure increases, the LRU policy evicts the least recently used pages back down. This happens transparently&mdash;the query engine does not need to know which tier holds the data.
+  </div>
+
+  <h3>MVCC and the Write-Ahead Log</h3>
+  <p>
+    AstraeaDB uses <strong>MVCC (Multi-Version Concurrency Control)</strong> to allow concurrent readers and writers without locking. Each transaction sees a consistent snapshot of the graph, even while other transactions are writing.
+  </p>
+  <p>
+    Durability is guaranteed by the <strong>Write-Ahead Log (WAL)</strong>. Every mutation is written to the WAL before being applied to the data pages. If the server crashes, it replays the WAL on startup to recover any committed transactions that had not yet been flushed to the data files.
+  </p>
+
+<pre><span class="cm"># astraeadb.toml - Storage Configuration</span>
+
+[<span class="kw">storage</span>]
+data_dir = <span class="str">"/var/lib/astraeadb/data"</span>
+wal_dir  = <span class="str">"/var/lib/astraeadb/wal"</span>
+
+[<span class="kw">storage.tiering</span>]
+hot_cache_mb  = <span class="num">4096</span>       <span class="cm"># RAM budget for pointer-swizzled subgraphs</span>
+warm_cache_mb = <span class="num">16384</span>      <span class="cm"># NVMe buffer pool size</span>
+cold_backend  = <span class="str">"s3"</span>       <span class="cm"># "local", "s3", or "gcs"</span>
+io_backend    = <span class="str">"io_uring"</span>  <span class="cm"># "memmap2" or "io_uring" (Linux only)</span>
+
+[<span class="kw">storage.s3</span>]
+bucket = <span class="str">"my-astraeadb-data"</span>
+region = <span class="str">"us-east-1"</span>
+prefix = <span class="str">"production/v1"</span></pre>
+
+  <!-- 14.2 Connection Management -->
+  <h2>14.2 Connection Management</h2>
+
+  <p>
+    Under heavy load, connection management becomes critical. AstraeaDB provides several mechanisms to prevent resource exhaustion and maintain responsiveness.
+  </p>
+
+  <h3>Configuration Parameters</h3>
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>max_connections</code></td>
+        <td><code>1024</code></td>
+        <td>Maximum number of concurrent TCP connections. New connections beyond this limit are rejected with a clear error message.</td>
+      </tr>
+      <tr>
+        <td><code>max_concurrent_requests</code></td>
+        <td><code>256</code></td>
+        <td>Maximum number of requests being processed simultaneously. Provides backpressure to prevent the server from being overwhelmed by a burst of queries.</td>
+      </tr>
+      <tr>
+        <td><code>idle_timeout_secs</code></td>
+        <td><code>300</code> (5 min)</td>
+        <td>Connections that send no requests for this duration are automatically closed, freeing resources for active clients.</td>
+      </tr>
+      <tr>
+        <td><code>request_timeout_secs</code></td>
+        <td><code>30</code></td>
+        <td>Maximum time a single request can run before being cancelled. Prevents runaway queries from consuming resources indefinitely.</td>
+      </tr>
+    </tbody>
+  </table>
+
+<pre><span class="cm"># astraeadb.toml - Connection Management</span>
+
+[<span class="kw">server</span>]
+max_connections          = <span class="num">2048</span>
+max_concurrent_requests  = <span class="num">512</span>
+idle_timeout_secs        = <span class="num">300</span>
+request_timeout_secs     = <span class="num">60</span></pre>
+
+  <h3>ConnectionGuard (RAII Pattern)</h3>
+  <p>
+    Internally, AstraeaDB uses a Rust <strong>RAII (Resource Acquisition Is Initialization)</strong> pattern called <code>ConnectionGuard</code>. When a connection is accepted, a guard object is created that increments the active connection counter. When the guard is dropped (whether due to normal disconnection, timeout, or error), the counter is automatically decremented and all associated resources are cleaned up. This makes resource leaks structurally impossible&mdash;a guarantee provided by Rust's ownership model.
+  </p>
+
+  <div class="info-box tip">
+    <strong>Tuning for your workload</strong>
+    For applications with many short-lived connections (e.g., serverless functions), increase <code>max_connections</code> and decrease <code>idle_timeout_secs</code>. For applications with fewer long-lived connections running complex queries (e.g., analytics dashboards), increase <code>request_timeout_secs</code> and <code>max_concurrent_requests</code>.
+  </div>
+
+  <!-- 14.3 Monitoring -->
+  <h2>14.3 Monitoring with Prometheus</h2>
+
+  <p>
+    AstraeaDB exposes a <strong>Prometheus-compatible metrics endpoint</strong> that allows you to monitor the health and performance of your database in real time.
+  </p>
+
+  <h3>Key Metrics</h3>
+  <table>
+    <thead>
+      <tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>astraea_requests_total</code></td>
+        <td>Counter</td>
+        <td>Total number of requests processed, labeled by operation type (<code>create_node</code>, <code>query</code>, <code>bfs</code>, etc.)</td>
+      </tr>
+      <tr>
+        <td><code>astraea_errors_total</code></td>
+        <td>Counter</td>
+        <td>Total number of errors, labeled by error type (<code>auth_failed</code>, <code>timeout</code>, <code>internal</code>)</td>
+      </tr>
+      <tr>
+        <td><code>astraea_request_duration_seconds</code></td>
+        <td>Histogram</td>
+        <td>Request latency distribution. Exposes percentiles: p50, p90, p99. Essential for SLA monitoring.</td>
+      </tr>
+      <tr>
+        <td><code>astraea_connections_active</code></td>
+        <td>Gauge</td>
+        <td>Current number of active connections. Alerts if approaching <code>max_connections</code>.</td>
+      </tr>
+      <tr>
+        <td><code>astraea_buffer_pool_hit_ratio</code></td>
+        <td>Gauge</td>
+        <td>Percentage of page reads served from the warm buffer pool (vs. cold storage). Should be above 95% for good performance.</td>
+      </tr>
+      <tr>
+        <td><code>astraea_hot_tier_nodes</code></td>
+        <td>Gauge</td>
+        <td>Number of nodes currently in the hot tier (pointer-swizzled in RAM).</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Enabling the Metrics Endpoint</h3>
+<pre><span class="cm"># astraeadb.toml - Prometheus Metrics</span>
+
+[<span class="kw">monitoring</span>]
+prometheus_enabled = <span class="num">true</span>
+metrics_port       = <span class="num">9090</span>      <span class="cm"># Separate port for metrics scraping</span>
+health_check_path  = <span class="str">"/health"</span> <span class="cm"># Returns 200 OK if the server is healthy</span></pre>
+
+  <h3>Scraping with Prometheus</h3>
+  <p>Add AstraeaDB as a target in your Prometheus configuration:</p>
+
+<pre><span class="cm"># prometheus.yml</span>
+<span class="kw">scrape_configs</span>:
+  - <span class="kw">job_name</span>: <span class="str">"astraeadb"</span>
+    <span class="kw">static_configs</span>:
+      - <span class="kw">targets</span>: [<span class="str">"astraeadb-host:9090"</span>]
+    <span class="kw">scrape_interval</span>: <span class="str">15s</span></pre>
+
+  <h3>Visualizing in Grafana</h3>
+  <p>
+    Once Prometheus is scraping AstraeaDB, connect Grafana to your Prometheus data source and build dashboards. Recommended panels include:
+  </p>
+  <ul>
+    <li><strong>Request rate</strong> &mdash; <code>rate(astraea_requests_total[5m])</code> by operation type</li>
+    <li><strong>Error rate</strong> &mdash; <code>rate(astraea_errors_total[5m])</code> as a percentage of total requests</li>
+    <li><strong>Latency percentiles</strong> &mdash; <code>histogram_quantile(0.99, astraea_request_duration_seconds_bucket)</code></li>
+    <li><strong>Connection utilization</strong> &mdash; <code>astraea_connections_active / max_connections</code></li>
+    <li><strong>Buffer pool hit ratio</strong> &mdash; <code>astraea_buffer_pool_hit_ratio</code> (alert if below 90%)</li>
+  </ul>
+
+  <div class="info-box info">
+    <strong>Health Check for Load Balancers</strong>
+    The <code>/health</code> endpoint returns a <code>200 OK</code> response when the server is accepting connections and the storage engine is operational. Use this as the health check target for load balancers (ALB, Nginx, HAProxy) to automatically remove unhealthy instances from the pool.
+  </div>
+
+  <!-- 14.4 GPU Acceleration -->
+  <h2>14.4 GPU Acceleration</h2>
+
+  <p>
+    Many graph algorithms&mdash;PageRank, BFS, single-source shortest path&mdash;are fundamentally <strong>matrix operations</strong> disguised as traversals. The adjacency matrix of a graph can be represented as a sparse matrix, and operations like "visit all neighbors" become sparse matrix-vector multiplications (SpMV). This makes them natural candidates for GPU acceleration.
+  </p>
+
+  <h3>CSR Matrix Representation</h3>
+  <p>
+    AstraeaDB represents the graph's adjacency structure in <strong>CSR (Compressed Sparse Row)</strong> format for algorithmic workloads. CSR stores only the non-zero entries of the adjacency matrix, using three arrays:
+  </p>
+  <ul>
+    <li><code>row_ptr</code> &mdash; for each node, the starting index in the <code>col_idx</code> array</li>
+    <li><code>col_idx</code> &mdash; the neighbor node IDs, sorted by source node</li>
+    <li><code>values</code> &mdash; edge weights (optional, for weighted algorithms)</li>
+  </ul>
+
+  <div class="diagram">
+    Example: 4-node graph
+
+    Node 0 --> Node 1 (weight 0.5)
+    Node 0 --> Node 2 (weight 0.3)
+    Node 1 --> Node 3 (weight 0.8)
+    Node 2 --> Node 3 (weight 0.2)
+
+    CSR representation:
+    row_ptr = [0, 2, 3, 4, 4]
+    col_idx = [1, 2, 3, 3]
+    values  = [0.5, 0.3, 0.8, 0.2]
+  </div>
+
+  <h3>Compute Backends</h3>
+  <table>
+    <thead>
+      <tr><th>Backend</th><th>Status</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CpuBackend</code></td>
+        <td>Production-ready</td>
+        <td>SIMD-optimized sparse matrix-vector multiplication. Uses CPU vector instructions (SSE4.2, AVX2) for parallel computation. The default backend on all platforms.</td>
+      </tr>
+      <tr>
+        <td><code>GpuBackend</code></td>
+        <td>Framework ready</td>
+        <td>Architecture in place for CUDA/cuGraph integration. Transfers the CSR matrix to GPU memory and executes kernels for massive parallelism. Targeted at million+ node analytical workloads.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Supported Algorithms</h3>
+  <table>
+    <thead>
+      <tr><th>Algorithm</th><th>Description</th><th>Complexity</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>PageRank</strong></td>
+        <td>Iterative importance ranking. Converges via repeated SpMV until scores stabilize (tolerance threshold).</td>
+        <td>O(V + E) per iteration</td>
+      </tr>
+      <tr>
+        <td><strong>BFS</strong></td>
+        <td>Breadth-first search from a source node. Level-synchronous: each "frontier" is a SpMV operation.</td>
+        <td>O(V + E)</td>
+      </tr>
+      <tr>
+        <td><strong>SSSP (Bellman-Ford)</strong></td>
+        <td>Single-source shortest path supporting negative edge weights. Iterates V-1 times over all edges.</td>
+        <td>O(V * E)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>When to use GPU acceleration</strong>
+    GPU acceleration shines for <strong>analytical, batch workloads</strong> on large graphs: computing PageRank over a million-node social network, running BFS from hundreds of source nodes simultaneously, or training Graph Neural Networks (Chapter 12). For transactional workloads (single-node lookups, small traversals), the CPU backend is faster due to lower data transfer overhead.
+  </div>
+
+  <!-- 14.5 Sharding -->
+  <h2>14.5 Sharding and Distributed Processing</h2>
+
+  <p>
+    When your graph outgrows a single machine&mdash;either in storage capacity or query throughput&mdash;AstraeaDB supports <strong>partitioning the graph across multiple shards</strong>.
+  </p>
+
+  <h3>Partitioning Strategies</h3>
+  <table>
+    <thead>
+      <tr><th>Strategy</th><th>How It Works</th><th>Best For</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Hash Partitioning</strong></td>
+        <td>Applies a consistent hash function to node IDs to distribute them evenly across shards. Adding or removing a shard only requires moving a fraction of the data (consistent hashing minimizes reshuffling).</td>
+        <td>Uniform access patterns, general-purpose workloads</td>
+      </tr>
+      <tr>
+        <td><strong>Range Partitioning</strong></td>
+        <td>Assigns contiguous ranges of node IDs to specific shards. Nodes with adjacent IDs (often created together) are co-located.</td>
+        <td>Temporal data ingestion, locality-sensitive workloads</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Architecture Components</h3>
+
+  <h4>ShardMap</h4>
+  <p>
+    The <code>ShardMap</code> is a routing table that maps node ID ranges to shard locations. When a query arrives, the query engine consults the ShardMap to determine which shard(s) hold the relevant data, then routes the request accordingly.
+  </p>
+
+  <h4>ClusterCoordinator</h4>
+  <p>
+    The <code>ClusterCoordinator</code> manages shard assignment, health monitoring, and rebalancing. It tracks which shards are online, handles failover when a shard becomes unavailable, and coordinates data migration when shards are added or removed.
+  </p>
+
+  <div class="diagram">
+    +-------------------+
+    | ClusterCoordinator|
+    | (Shard Management)|
+    +--------+----------+
+             |
+    +--------+----------+
+    |     ShardMap       |
+    | (Routing Table)    |
+    +--------+----------+
+             |
+    +--------+--------+--------+
+    |        |        |        |
+    v        v        v        v
+  Shard 0  Shard 1  Shard 2  Shard 3
+  [0-249]  [250-499][500-749][750-999]
+  </div>
+
+<pre><span class="cm"># astraeadb.toml - Sharding Configuration</span>
+
+[<span class="kw">cluster</span>]
+enabled           = <span class="num">true</span>
+partition_strategy = <span class="str">"hash"</span>       <span class="cm"># "hash" or "range"</span>
+shard_count        = <span class="num">4</span>
+
+[<span class="kw">cluster.shards</span>]
+<span class="cm"># Shard assignments (for range partitioning)</span>
+<span class="num">0</span> = { host = <span class="str">"shard-0.astraea.internal"</span>, port = <span class="num">7687</span> }
+<span class="num">1</span> = { host = <span class="str">"shard-1.astraea.internal"</span>, port = <span class="num">7687</span> }
+<span class="num">2</span> = { host = <span class="str">"shard-2.astraea.internal"</span>, port = <span class="num">7687</span> }
+<span class="num">3</span> = { host = <span class="str">"shard-3.astraea.internal"</span>, port = <span class="num">7687</span> }</pre>
+
+  <div class="info-box warn">
+    <strong>Current Status</strong>
+    AstraeaDB's sharding layer includes a fully implemented local <code>ClusterCoordinator</code> and <code>ShardMap</code> for single-machine multi-shard configurations. Distributed coordination across multiple physical machines (using a consensus protocol like Raft) is on the roadmap and is planned for a future release. For production deployments requiring horizontal scaling today, use the local coordinator with separate AstraeaDB instances behind a routing proxy.
+  </div>
+
+  <h3>Performance Summary</h3>
+  <p>
+    The following table summarizes AstraeaDB's performance characteristics across different deployment configurations:
+  </p>
+  <table>
+    <thead>
+      <tr><th>Configuration</th><th>Graph Size</th><th>Traversal Latency</th><th>Analytical Throughput</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Single node, hot tier</td>
+        <td>Up to ~100M nodes</td>
+        <td>Nanoseconds (pointer swizzling)</td>
+        <td>CPU-bound SpMV</td>
+      </tr>
+      <tr>
+        <td>Single node, warm tier</td>
+        <td>Up to ~1B nodes</td>
+        <td>Microseconds (NVMe page reads)</td>
+        <td>I/O-bound, benefits from io_uring</td>
+      </tr>
+      <tr>
+        <td>Single node + GPU</td>
+        <td>Up to ~1B nodes</td>
+        <td>Microseconds (traversal), GPU-accelerated analytics</td>
+        <td>10-100x SpMV speedup for large matrices</td>
+      </tr>
+      <tr>
+        <td>Multi-shard cluster</td>
+        <td>Multi-billion nodes</td>
+        <td>Milliseconds (network hop between shards)</td>
+        <td>Linear scale-out with shard count</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch13.html">&larr; Chapter 13: Security</a>
+    <span class="spacer"></span>
+    <a href="gentle-intro-ch15.html">Chapter 15: Cybersecurity Scenario &rarr;</a>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 2: The Graph Database Landscape &mdash; A Gentle Introduction to AstraeaDB</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html" class="active">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 2: The Graph Database Landscape</h1>
+  <p class="subtitle">
+    Not all graph databases are alike. They differ in their data models, query languages, storage architectures, and intended workloads. This chapter surveys the landscape so you can make informed decisions&mdash;and understand exactly where AstraeaDB fits.
+  </p>
+
+  <!-- Section 2.1 -->
+  <h2>2.1 Property Graphs vs. RDF</h2>
+
+  <p>
+    The graph database world is divided into two major data model families. Understanding the difference is important because it shapes the query language, the API, and the kinds of problems each model handles naturally.
+  </p>
+
+  <h3>The Property Graph model</h3>
+  <p>
+    In a Property Graph, <strong>nodes</strong> carry labels and key-value properties, and <strong>edges</strong> are directed, typed, and can also carry properties. This is the model used by Neo4j, Memgraph, TigerGraph, and AstraeaDB. It is the dominant model in the industry for transactional and analytical graph workloads.
+  </p>
+
+  <p>A Property Graph representation of "Alice knows Bob since 2019":</p>
+
+<pre>
+<span class="cm">// Two nodes with labels and properties</span>
+(alice:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>, <span class="str">age</span>: <span class="num">30</span>})
+(bob:<span class="ty">Person</span>   {<span class="str">name</span>: <span class="str">"Bob"</span>,   <span class="str">age</span>: <span class="num">32</span>})
+
+<span class="cm">// One directed edge with a type and properties</span>
+(alice)-[:<span class="ty">KNOWS</span> {<span class="str">since</span>: <span class="num">2019</span>}]-&gt;(bob)
+</pre>
+
+  <p>Key characteristics:</p>
+  <ul>
+    <li>Nodes and edges are first-class citizens with their own identity</li>
+    <li>Properties are native key-value pairs&mdash;no need for reification or blank nodes</li>
+    <li>Edge properties allow rich metadata (weight, timestamp, confidence score) directly on relationships</li>
+    <li>Intuitive for application developers&mdash;maps naturally to objects and references in code</li>
+  </ul>
+
+  <h3>The RDF model</h3>
+  <p>
+    RDF (Resource Description Framework) represents everything as <strong>subject-predicate-object triples</strong>. Each element is identified by a URI. Relationships do not carry properties directly; you must use <em>reification</em> (creating a node to represent the relationship itself) to attach metadata.
+  </p>
+
+  <p>The same "Alice knows Bob since 2019" in RDF (Turtle syntax):</p>
+
+<pre>
+<span class="cm"># Prefix declarations</span>
+<span class="kw">@prefix</span> ex: &lt;http://example.org/&gt; .
+<span class="kw">@prefix</span> foaf: &lt;http://xmlns.com/foaf/0.1/&gt; .
+<span class="kw">@prefix</span> xsd: &lt;http://www.w3.org/2001/XMLSchema#&gt; .
+
+<span class="cm"># Basic triple: Alice knows Bob</span>
+ex:alice foaf:knows ex:bob .
+
+<span class="cm"># Node properties require separate triples</span>
+ex:alice foaf:name <span class="str">"Alice"</span> .
+ex:alice ex:age <span class="str">"30"</span>^^xsd:integer .
+ex:bob   foaf:name <span class="str">"Bob"</span> .
+ex:bob   ex:age <span class="str">"32"</span>^^xsd:integer .
+
+<span class="cm"># Edge properties require reification (a new node for the relationship)</span>
+ex:friendship1 a rdf:Statement ;
+    rdf:subject   ex:alice ;
+    rdf:predicate foaf:knows ;
+    rdf:object    ex:bob ;
+    ex:since      <span class="str">"2019"</span>^^xsd:integer .
+</pre>
+
+  <p>Key characteristics:</p>
+  <ul>
+    <li>Universal: everything is a URI, enabling global data interchange across organizations</li>
+    <li>Standardized: W3C standards (RDF, RDFS, OWL) provide formal semantics and reasoning</li>
+    <li>Verbose: simple relationships require multiple triples; edge properties need reification</li>
+    <li>Strongest in academic, governmental, and linked data/semantic web applications</li>
+  </ul>
+
+  <h3>Comparison</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Aspect</th>
+        <th>Property Graph</th>
+        <th>RDF</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Node identity</td>
+        <td>Internal ID + labels</td>
+        <td>URI (globally unique)</td>
+      </tr>
+      <tr>
+        <td>Edge properties</td>
+        <td>Native key-value pairs</td>
+        <td>Requires reification</td>
+      </tr>
+      <tr>
+        <td>Schema</td>
+        <td>Optional (schema-free or enforced)</td>
+        <td>RDFS/OWL ontologies</td>
+      </tr>
+      <tr>
+        <td>Query language</td>
+        <td>Cypher, GQL, Gremlin</td>
+        <td>SPARQL</td>
+      </tr>
+      <tr>
+        <td>Reasoning</td>
+        <td>Not built-in</td>
+        <td>OWL inference, entailment</td>
+      </tr>
+      <tr>
+        <td>Developer ergonomics</td>
+        <td>Intuitive for app developers</td>
+        <td>Steeper learning curve</td>
+      </tr>
+      <tr>
+        <td>Data interchange</td>
+        <td>Vendor-specific formats</td>
+        <td>Universal (URIs, standards)</td>
+      </tr>
+      <tr>
+        <td>Primary audience</td>
+        <td>Application development, analytics</td>
+        <td>Linked data, semantic web, research</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>AstraeaDB's choice</strong>
+    AstraeaDB uses the <strong>Property Graph</strong> model. This decision reflects its primary design goals: developer ergonomics, performance for deep traversals, and seamless integration with AI/ML workflows. The Property Graph model maps naturally to JSON documents, making it straightforward to attach rich metadata to both nodes and edges without reification overhead.
+  </div>
+
+  <!-- Section 2.2 -->
+  <h2>2.2 Query Languages</h2>
+
+  <p>
+    The query language you use determines how you express graph patterns, traversals, and mutations. Here are the four major graph query languages and how they compare:
+  </p>
+
+  <h3>Cypher (Neo4j)</h3>
+  <p>
+    Cypher pioneered <strong>ASCII art pattern matching</strong>: you draw the graph pattern you want to find using parentheses for nodes and arrows for edges. It is declarative&mdash;you describe <em>what</em> you want, not <em>how</em> to get it.
+  </p>
+
+<pre>
+<span class="cm">// Find Alice's friends who are older than 25</span>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})-[:<span class="ty">KNOWS</span>]-&gt;(friend:<span class="ty">Person</span>)
+<span class="kw">WHERE</span> friend.age &gt; <span class="num">25</span>
+<span class="kw">RETURN</span> friend.name, friend.age
+<span class="kw">ORDER BY</span> friend.age <span class="kw">DESC</span>
+</pre>
+
+  <p>
+    Cypher is the most widely adopted graph query language. Its pattern syntax is intuitive and readable, even for developers new to graph databases. However, it was developed by Neo4j and, until recently, lacked formal standardization.
+  </p>
+
+  <h3>Gremlin (Apache TinkerPop)</h3>
+  <p>
+    Gremlin takes an <strong>imperative, step-based approach</strong>. You compose a traversal by chaining steps that describe how to walk the graph. It runs on the JVM and is the standard for the Apache TinkerPop framework.
+  </p>
+
+<pre>
+<span class="cm">// Same query in Gremlin</span>
+g.<span class="fn">V</span>().<span class="fn">has</span>(<span class="str">'Person'</span>, <span class="str">'name'</span>, <span class="str">'Alice'</span>)
+ .<span class="fn">out</span>(<span class="str">'KNOWS'</span>)
+ .<span class="fn">hasLabel</span>(<span class="str">'Person'</span>)
+ .<span class="fn">has</span>(<span class="str">'age'</span>, <span class="fn">gt</span>(<span class="num">25</span>))
+ .<span class="fn">order</span>().<span class="fn">by</span>(<span class="str">'age'</span>, <span class="fn">desc</span>)
+ .<span class="fn">valueMap</span>(<span class="str">'name'</span>, <span class="str">'age'</span>)
+</pre>
+
+  <p>
+    Gremlin's imperative style gives fine-grained control over traversal execution and is well-suited for procedural graph algorithms. However, complex patterns are harder to read than Cypher's visual syntax, and performance depends on step ordering.
+  </p>
+
+  <h3>SPARQL (W3C)</h3>
+  <p>
+    SPARQL is the W3C standard for querying RDF data. It uses <strong>triple pattern matching</strong> with a SQL-like SELECT syntax.
+  </p>
+
+<pre>
+<span class="cm"># Same query in SPARQL (RDF world)</span>
+<span class="kw">PREFIX</span> ex: &lt;http://example.org/&gt;
+<span class="kw">PREFIX</span> foaf: &lt;http://xmlns.com/foaf/0.1/&gt;
+
+<span class="kw">SELECT</span> ?friendName ?friendAge
+<span class="kw">WHERE</span> {
+    ex:alice foaf:knows ?friend .
+    ?friend  foaf:name  ?friendName .
+    ?friend  ex:age     ?friendAge .
+    <span class="kw">FILTER</span>(?friendAge &gt; <span class="num">25</span>)
+}
+<span class="kw">ORDER BY DESC</span>(?friendAge)
+</pre>
+
+  <p>
+    SPARQL excels in federated queries across distributed RDF endpoints and in environments with formal ontologies. It is the standard in academic, governmental, and linked open data communities, but it is rarely used for application-level graph databases.
+  </p>
+
+  <h3>GQL (ISO 9075 &mdash; The New Standard)</h3>
+  <p>
+    GQL (Graph Query Language) is the <strong>new ISO standard</strong>, officially published in 2024. It unifies the best ideas from Cypher's pattern matching syntax and SQL's clause structure into a vendor-neutral specification. Key design goals include:
+  </p>
+  <ul>
+    <li>Declarative pattern matching with ASCII art syntax (inherited from Cypher)</li>
+    <li>Composable graph queries that can be chained like SQL subqueries</li>
+    <li>First-class path expressions for variable-length traversals</li>
+    <li>Integration with SQL for hybrid relational/graph queries</li>
+    <li>Prevention of vendor lock-in through formal standardization</li>
+  </ul>
+
+<pre>
+<span class="cm">// GQL syntax (AstraeaDB implements this)</span>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})-[:<span class="ty">KNOWS</span>]-&gt;(friend:<span class="ty">Person</span>)
+<span class="kw">WHERE</span> friend.age &gt; <span class="num">25</span>
+<span class="kw">RETURN</span> friend.name, friend.age
+<span class="kw">ORDER BY</span> friend.age <span class="kw">DESC</span>
+</pre>
+
+  <p>
+    If you know Cypher, GQL will look immediately familiar. The core pattern matching syntax is compatible, while the standard adds formal grammar rules, composability features, and a path toward SQL integration.
+  </p>
+
+  <h3>Language comparison at a glance</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Language</th>
+        <th>Paradigm</th>
+        <th>Data Model</th>
+        <th>Standardized</th>
+        <th>Primary Ecosystem</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Cypher</td>
+        <td>Declarative, pattern-based</td>
+        <td>Property Graph</td>
+        <td>openCypher (community)</td>
+        <td>Neo4j, Memgraph, RedisGraph</td>
+      </tr>
+      <tr>
+        <td>Gremlin</td>
+        <td>Imperative, step-based</td>
+        <td>Property Graph</td>
+        <td>Apache TinkerPop</td>
+        <td>JanusGraph, Amazon Neptune, CosmosDB</td>
+      </tr>
+      <tr>
+        <td>SPARQL</td>
+        <td>Declarative, triple-pattern</td>
+        <td>RDF</td>
+        <td>W3C Standard</td>
+        <td>Blazegraph, GraphDB, Stardog</td>
+      </tr>
+      <tr>
+        <td>GQL</td>
+        <td>Declarative, pattern-based</td>
+        <td>Property Graph</td>
+        <td>ISO Standard (2024)</td>
+        <td>AstraeaDB, emerging adoption</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>AstraeaDB's query language</strong>
+    AstraeaDB implements a <strong>GQL/Cypher-compatible syntax</strong> through a hand-written recursive-descent parser. The full execution pipeline supports: <code>MATCH</code> with node and edge pattern matching, <code>WHERE</code> filtering with boolean expressions, <code>CREATE</code> and <code>DELETE</code> for mutations, <code>RETURN</code> with expressions, <code>ORDER BY</code>, <code>LIMIT</code>, and aggregation functions (<code>count()</code>, <code>sum()</code>, <code>avg()</code>, <code>min()</code>, <code>max()</code>). Chapter 5 covers the query language in detail.
+  </div>
+
+  <!-- Section 2.3 -->
+  <h2>2.3 What Makes AstraeaDB Different</h2>
+
+  <p>
+    AstraeaDB is not another Neo4j clone. It was designed from scratch to address the shortcomings of existing graph databases, especially in the areas of AI integration, cloud-native storage, and performance. Here are the key differentiators:
+  </p>
+
+  <h3>The Vector-Property Graph</h3>
+  <p>
+    Most graph databases treat vector search as a bolt-on feature&mdash;an afterthought added to an existing architecture. In AstraeaDB, embeddings are <strong>first-class citizens</strong>. Every node can carry a float32 embedding vector alongside its labels and JSON properties. The HNSW (Hierarchical Navigable Small World) vector index is integrated directly into the graph structure: the navigation links in the vector index <em>are</em> graph edges. This unified architecture enables:
+  </p>
+  <ul>
+    <li><strong>Hybrid search:</strong> blend graph proximity (structural distance) with vector similarity (semantic distance) using a configurable alpha parameter</li>
+    <li><strong>Semantic traversal:</strong> walk the graph greedily toward a target concept embedding, combining structural and semantic intelligence at each hop</li>
+    <li><strong>Zero-overhead embeddings:</strong> no separate vector database, no ETL pipeline, no synchronization headaches</li>
+  </ul>
+
+  <h3>AI-First Architecture</h3>
+  <p>
+    AstraeaDB is built for the AI era. Beyond vector search, it includes:
+  </p>
+  <ul>
+    <li><strong>GraphRAG:</strong> a built-in Retrieval-Augmented Generation engine that finds an anchor node via vector search, extracts a subgraph with BFS, linearizes it to text, and feeds it to an LLM&mdash;all in one atomic operation</li>
+    <li><strong>GNN training:</strong> differentiable tensors and message-passing layers built directly into the database, enabling node classification training without exporting data</li>
+    <li><strong>Semantic walk:</strong> a traversal primitive that combines vector similarity with edge traversal, letting you explore the graph in the direction of a concept</li>
+  </ul>
+
+  <h3>Rust Performance</h3>
+  <p>
+    AstraeaDB is written entirely in <strong>Rust</strong>, delivering:
+  </p>
+  <ul>
+    <li><strong>Zero garbage collection pauses:</strong> unlike Java-based graph databases (Neo4j, JanusGraph), Rust's ownership model eliminates GC stop-the-world events</li>
+    <li><strong>Memory safety without overhead:</strong> Rust's borrow checker prevents use-after-free, double-free, and data race bugs at compile time&mdash;critical for a database that manages memory-mapped pages and concurrent traversals</li>
+    <li><strong>Fearless concurrency:</strong> Rust's type system guarantees thread safety, enabling the storage engine, query executor, and network server to share data structures without mutex contention where possible</li>
+    <li><strong>Predictable latency:</strong> no GC pauses, no JIT warmup, no interpreted overhead&mdash;consistent sub-millisecond response times for hot-path queries</li>
+  </ul>
+
+  <h3>Three-Tier Storage</h3>
+  <p>
+    AstraeaDB solves the "Memory Wall" problem&mdash;the tension between needing random-access speed for traversals and wanting cloud-native separation of compute and storage:
+  </p>
+  <ul>
+    <li><strong>Tier 1 &mdash; Cold (Object Storage):</strong> data persists in JSON, Apache Parquet, or cloud object stores (S3, GCS, Azure). Open formats ensure long-term interoperability.</li>
+    <li><strong>Tier 2 &mdash; Warm (NVMe Buffer Pool):</strong> an LRU buffer pool caches 8 KiB pages from disk with pin/unpin semantics. Pluggable I/O backends support memmap2 (cross-platform) and io_uring (Linux async I/O).</li>
+    <li><strong>Tier 3 &mdash; Hot (Pointer Swizzling):</strong> frequently accessed subgraphs are promoted into RAM. 64-bit disk page IDs are replaced with direct memory pointers for nanosecond-level traversal. The HNSW vector index lives entirely in this tier.</li>
+  </ul>
+
+  <h3>Three Transport Protocols</h3>
+  <p>
+    No single protocol fits every use case. AstraeaDB offers three:
+  </p>
+  <ul>
+    <li><strong>JSON-TCP (port 7687):</strong> simple, human-readable, zero-dependency. Ideal for getting started, scripting, and lightweight clients.</li>
+    <li><strong>gRPC (port 7688):</strong> strongly typed, protobuf-serialized, bidirectional streaming. Best for production microservices that need schema enforcement and code generation.</li>
+    <li><strong>Apache Arrow Flight (port 7689):</strong> zero-copy columnar data transfer. Stream query results directly into Pandas or Polars DataFrames without serialization overhead. The natural choice for data science and ML workflows.</li>
+  </ul>
+
+  <h3>Full comparison: AstraeaDB vs. the field</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Capability</th>
+        <th>AstraeaDB</th>
+        <th>Neo4j</th>
+        <th>TigerGraph</th>
+        <th>ArangoDB</th>
+        <th>Memgraph</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Language</td>
+        <td>Rust</td>
+        <td>Java</td>
+        <td>C++</td>
+        <td>C++</td>
+        <td>C++</td>
+      </tr>
+      <tr>
+        <td>Data model</td>
+        <td>Vector-Property Graph</td>
+        <td>Property Graph</td>
+        <td>Property Graph</td>
+        <td>Multi-model (Doc+Graph)</td>
+        <td>Property Graph</td>
+      </tr>
+      <tr>
+        <td>Query language</td>
+        <td>GQL / Cypher</td>
+        <td>Cypher</td>
+        <td>GSQL</td>
+        <td>AQL</td>
+        <td>Cypher</td>
+      </tr>
+      <tr>
+        <td>Vector search</td>
+        <td>Built-in HNSW (first-class)</td>
+        <td>Vector index (added 2023)</td>
+        <td>No</td>
+        <td>No</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td>GraphRAG</td>
+        <td>Built-in engine</td>
+        <td>Plugin (LangChain)</td>
+        <td>No</td>
+        <td>No</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td>GNN training</td>
+        <td>Built-in tensors + message passing</td>
+        <td>Export to PyTorch Geometric</td>
+        <td>Export to DGL</td>
+        <td>No</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td>Temporal graphs</td>
+        <td>Native validity intervals</td>
+        <td>Manual (property-based)</td>
+        <td>Manual</td>
+        <td>Manual</td>
+        <td>Manual</td>
+      </tr>
+      <tr>
+        <td>Storage tiers</td>
+        <td>Cold / Warm / Hot with pointer swizzling</td>
+        <td>Page cache</td>
+        <td>Distributed in-memory</td>
+        <td>RocksDB</td>
+        <td>In-memory only</td>
+      </tr>
+      <tr>
+        <td>Transport protocols</td>
+        <td>JSON-TCP + gRPC + Arrow Flight</td>
+        <td>Bolt</td>
+        <td>REST</td>
+        <td>HTTP / VelocyStream</td>
+        <td>Bolt</td>
+      </tr>
+      <tr>
+        <td>Encryption</td>
+        <td>Homomorphic (FHE on labels)</td>
+        <td>TLS + at-rest</td>
+        <td>TLS + at-rest</td>
+        <td>TLS + at-rest</td>
+        <td>TLS</td>
+      </tr>
+      <tr>
+        <td>GC pauses</td>
+        <td>None (Rust)</td>
+        <td>JVM GC pauses</td>
+        <td>None (C++)</td>
+        <td>None (C++)</td>
+        <td>None (C++)</td>
+      </tr>
+      <tr>
+        <td>Graph algorithms</td>
+        <td>PageRank, Louvain, Centrality, Components</td>
+        <td>GDS library (paid)</td>
+        <td>Built-in (extensive)</td>
+        <td>Pregel-based</td>
+        <td>MAGE library</td>
+      </tr>
+      <tr>
+        <td>License</td>
+        <td>MIT (open source)</td>
+        <td>GPL / Commercial</td>
+        <td>Commercial</td>
+        <td>Apache 2.0</td>
+        <td>BSL / Commercial</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>The unified advantage</strong>
+    The defining characteristic of AstraeaDB is <em>unification</em>. Rather than bolting vector search onto a graph engine, or exporting graph data to a separate ML framework, AstraeaDB treats graph traversal, vector similarity, temporal queries, and neural network training as facets of a single system. This eliminates data movement, reduces operational complexity, and enables novel operations like semantic traversal and in-database GNN training that are impossible when these capabilities live in separate systems.
+  </div>
+
+  <h3>When to choose AstraeaDB</h3>
+  <p>AstraeaDB is the strongest fit when your workload requires two or more of the following:</p>
+  <ul>
+    <li>Deep graph traversals (3+ hops) with low latency</li>
+    <li>Vector similarity search integrated with graph structure</li>
+    <li>LLM-powered question answering grounded in graph knowledge (GraphRAG)</li>
+    <li>Time-varying relationships that need historical queries</li>
+    <li>GNN model training without data export</li>
+    <li>Predictable latency without GC pauses</li>
+    <li>An open-source, MIT-licensed foundation with no enterprise-gated features</li>
+  </ul>
+
+  <p>
+    If your workload is purely document-oriented (no meaningful relationships), a document database like MongoDB is a better fit. If your focus is RDF and ontology reasoning, a triple store like Stardog or GraphDB is more appropriate. AstraeaDB excels specifically where <strong>connections, semantics, and computation</strong> converge.
+  </p>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch01.html">&larr; Chapter 1: Why Graphs?</a>
+    <a href="gentle-intro-ch03.html">Chapter 3: Installation and Setup &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Appendix A: GQL Quick Reference &mdash; A Gentle Introduction to AstraeaDB</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html" class="active">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Appendix A: GQL Quick Reference</h1>
+  <p class="subtitle">
+    A comprehensive cheat sheet of GQL syntax supported by AstraeaDB. This appendix is designed as a desk reference&mdash;keep it open while writing queries. All examples follow the ISO GQL standard as implemented by AstraeaDB.
+  </p>
+
+  <!-- A.1 Pattern Matching -->
+  <h2>A.1 Pattern Matching</h2>
+
+  <p>
+    GQL queries are built around <strong>graph patterns</strong>&mdash;ASCII-art descriptions of the nodes and edges you want to find. The database matches these patterns against the stored graph and returns all matching subgraphs.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Pattern</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>(n)</code></td>
+        <td>Any node, bound to variable <code>n</code></td>
+        <td><code>MATCH (n) RETURN n</code></td>
+      </tr>
+      <tr>
+        <td><code>(n:Person)</code></td>
+        <td>Node with label <code>Person</code></td>
+        <td><code>MATCH (n:Person) RETURN n.name</code></td>
+      </tr>
+      <tr>
+        <td><code>(n:Person {name: "Alice"})</code></td>
+        <td>Node with label and inline property filter</td>
+        <td><code>MATCH (n:Person {name: "Alice"}) RETURN n</code></td>
+      </tr>
+      <tr>
+        <td><code>-[e]-&gt;</code></td>
+        <td>Outgoing directed edge</td>
+        <td><code>MATCH (a)-[e]-&gt;(b) RETURN a, e, b</code></td>
+      </tr>
+      <tr>
+        <td><code>&lt;-[e]-</code></td>
+        <td>Incoming directed edge</td>
+        <td><code>MATCH (a)&lt;-[e]-(b) RETURN a, b</code></td>
+      </tr>
+      <tr>
+        <td><code>-[e]-</code></td>
+        <td>Edge in either direction (undirected match)</td>
+        <td><code>MATCH (a)-[e]-(b) RETURN a, b</code></td>
+      </tr>
+      <tr>
+        <td><code>-[:KNOWS]-&gt;</code></td>
+        <td>Edge with a specific relationship type</td>
+        <td><code>MATCH (a)-[:KNOWS]-&gt;(b) RETURN b.name</code></td>
+      </tr>
+      <tr>
+        <td><code>-[e:KNOWS {since: 2020}]-&gt;</code></td>
+        <td>Edge with type and inline property filter</td>
+        <td><code>MATCH (a)-[e:KNOWS {since: 2020}]-&gt;(b) RETURN a.name, b.name</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box tip">
+    <strong>Variable binding</strong>
+    The letters inside parentheses and brackets (like <code>n</code>, <code>a</code>, <code>e</code>) are <em>variable names</em>. You can use any valid identifier. If you do not need to reference the element later, you can omit the variable: <code>()</code> matches any node anonymously, and <code>-[]-&gt;</code> matches any outgoing edge.
+  </div>
+
+  <!-- A.2 Clauses -->
+  <h2>A.2 Clauses</h2>
+
+  <p>
+    Clauses are the building blocks of a GQL query. They are composed top-to-bottom in the order shown below.
+  </p>
+
+  <h3>MATCH</h3>
+  <p>Declares the graph pattern to search for. This is the most fundamental clause in GQL.</p>
+<pre>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span>)-[:<span class="ty">KNOWS</span>]-&gt;(b:<span class="ty">Person</span>)
+</pre>
+
+  <h3>WHERE</h3>
+  <p>Filters the matched results using boolean expressions. Supports property access, comparison operators, and logical connectives.</p>
+<pre>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span>)-[:<span class="ty">KNOWS</span>]-&gt;(b:<span class="ty">Person</span>)
+<span class="kw">WHERE</span> a.age &gt; <span class="num">25</span> <span class="kw">AND</span> b.name &lt;&gt; <span class="str">"Bob"</span>
+</pre>
+
+  <h3>RETURN</h3>
+  <p>Specifies which values to include in the query result. Supports property access, aliasing with <code>AS</code>, and aggregate functions.</p>
+<pre>
+<span class="kw">MATCH</span> (a:<span class="ty">Person</span>)-[:<span class="ty">KNOWS</span>]-&gt;(b:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> a.name, b.name <span class="kw">AS</span> friend
+</pre>
+
+  <h3>ORDER BY</h3>
+  <p>Sorts results by one or more expressions. Use <code>ASC</code> (default) or <code>DESC</code> for sort direction.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, n.age
+<span class="kw">ORDER BY</span> n.age <span class="kw">DESC</span>
+</pre>
+
+  <h3>SKIP and LIMIT</h3>
+  <p>Paginate results. <code>SKIP</code> discards the first N rows; <code>LIMIT</code> caps the total rows returned.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, n.age
+<span class="kw">ORDER BY</span> n.age <span class="kw">DESC</span>
+<span class="kw">SKIP</span> <span class="num">10</span> <span class="kw">LIMIT</span> <span class="num">5</span>
+</pre>
+
+  <h3>CREATE</h3>
+  <p>Inserts new nodes and edges into the graph.</p>
+<pre>
+<span class="kw">CREATE</span> (n:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>, <span class="str">age</span>: <span class="num">30</span>})
+</pre>
+
+  <h3>SET</h3>
+  <p>Updates properties on existing nodes or edges.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})
+<span class="kw">SET</span> n.age = <span class="num">31</span>
+</pre>
+
+  <h3>DELETE</h3>
+  <p>Removes matched nodes or edges from the graph. Nodes with remaining edges cannot be deleted unless you also delete those edges.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Bob"</span>})
+<span class="kw">DELETE</span> n
+</pre>
+
+  <h3>DISTINCT</h3>
+  <p>Eliminates duplicate rows from the result set. Used as a modifier on <code>RETURN</code>.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN DISTINCT</span> n.city
+</pre>
+
+  <!-- A.3 Operators -->
+  <h2>A.3 Operators</h2>
+
+  <h3>Comparison Operators</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Operator</th>
+        <th>Meaning</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>=</code></td>
+        <td>Equal to</td>
+        <td><code>WHERE n.name = "Alice"</code></td>
+      </tr>
+      <tr>
+        <td><code>&lt;&gt;</code></td>
+        <td>Not equal to</td>
+        <td><code>WHERE n.name &lt;&gt; "Bob"</code></td>
+      </tr>
+      <tr>
+        <td><code>&lt;</code></td>
+        <td>Less than</td>
+        <td><code>WHERE n.age &lt; 30</code></td>
+      </tr>
+      <tr>
+        <td><code>&gt;</code></td>
+        <td>Greater than</td>
+        <td><code>WHERE n.age &gt; 25</code></td>
+      </tr>
+      <tr>
+        <td><code>&lt;=</code></td>
+        <td>Less than or equal</td>
+        <td><code>WHERE n.age &lt;= 30</code></td>
+      </tr>
+      <tr>
+        <td><code>&gt;=</code></td>
+        <td>Greater than or equal</td>
+        <td><code>WHERE n.age &gt;= 18</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Logical Operators</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Operator</th>
+        <th>Meaning</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>AND</code></td>
+        <td>Both conditions must be true</td>
+        <td><code>WHERE n.age &gt; 25 AND n.city = "NYC"</code></td>
+      </tr>
+      <tr>
+        <td><code>OR</code></td>
+        <td>At least one condition must be true</td>
+        <td><code>WHERE n.age &lt; 20 OR n.age &gt; 60</code></td>
+      </tr>
+      <tr>
+        <td><code>NOT</code></td>
+        <td>Negates a condition</td>
+        <td><code>WHERE NOT n.active</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>String Operators</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Operator</th>
+        <th>Meaning</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>STARTS WITH</code></td>
+        <td>String prefix match</td>
+        <td><code>WHERE n.name STARTS WITH "Al"</code></td>
+      </tr>
+      <tr>
+        <td><code>ENDS WITH</code></td>
+        <td>String suffix match</td>
+        <td><code>WHERE n.email ENDS WITH "@example.com"</code></td>
+      </tr>
+      <tr>
+        <td><code>CONTAINS</code></td>
+        <td>Substring match</td>
+        <td><code>WHERE n.bio CONTAINS "engineer"</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- A.4 Functions -->
+  <h2>A.4 Functions</h2>
+
+  <h3>Element Functions</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Function</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>id(n)</code></td>
+        <td>Returns the internal unique ID of a node or edge</td>
+        <td><code>RETURN id(n)</code></td>
+      </tr>
+      <tr>
+        <td><code>labels(n)</code></td>
+        <td>Returns the list of labels on a node</td>
+        <td><code>RETURN labels(n)</code></td>
+      </tr>
+      <tr>
+        <td><code>type(e)</code></td>
+        <td>Returns the relationship type of an edge</td>
+        <td><code>RETURN type(e)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Aggregate Functions</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Function</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>count(n)</code></td>
+        <td>Count the number of matched results</td>
+        <td><code>RETURN count(n)</code></td>
+      </tr>
+      <tr>
+        <td><code>sum(n.x)</code></td>
+        <td>Sum numeric property values</td>
+        <td><code>RETURN sum(n.salary)</code></td>
+      </tr>
+      <tr>
+        <td><code>avg(n.x)</code></td>
+        <td>Calculate arithmetic mean</td>
+        <td><code>RETURN avg(n.age)</code></td>
+      </tr>
+      <tr>
+        <td><code>min(n.x)</code></td>
+        <td>Find the minimum value</td>
+        <td><code>RETURN min(n.age)</code></td>
+      </tr>
+      <tr>
+        <td><code>max(n.x)</code></td>
+        <td>Find the maximum value</td>
+        <td><code>RETURN max(n.age)</code></td>
+      </tr>
+      <tr>
+        <td><code>collect(n.x)</code></td>
+        <td>Aggregate values into a list</td>
+        <td><code>RETURN collect(n.name)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Conversion Functions</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Function</th>
+        <th>Description</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>toString(x)</code></td>
+        <td>Convert a value to its string representation</td>
+        <td><code>RETURN toString(n.age)</code></td>
+      </tr>
+      <tr>
+        <td><code>toInteger(x)</code></td>
+        <td>Convert a value to an integer</td>
+        <td><code>RETURN toInteger(n.score)</code></td>
+      </tr>
+      <tr>
+        <td><code>toFloat(x)</code></td>
+        <td>Convert a value to a floating-point number</td>
+        <td><code>RETURN toFloat(n.rating)</code></td>
+      </tr>
+      <tr>
+        <td><code>toBoolean(x)</code></td>
+        <td>Convert a value to a boolean</td>
+        <td><code>RETURN toBoolean(n.flag)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- A.5 Common Query Patterns -->
+  <h2>A.5 Common Query Patterns</h2>
+
+  <p>
+    The following examples demonstrate complete, ready-to-use GQL queries covering the most frequent operations you will encounter when working with AstraeaDB.
+  </p>
+
+  <h3>1. Find all nodes with a specific label</h3>
+  <p>Retrieve every <code>Person</code> node in the graph.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, n.age
+</pre>
+
+  <h3>2. Find nodes with specific properties</h3>
+  <p>Find all people older than 30 who live in New York.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">WHERE</span> n.age &gt; <span class="num">30</span> <span class="kw">AND</span> n.city = <span class="str">"New York"</span>
+<span class="kw">RETURN</span> n.name, n.age, n.city
+</pre>
+
+  <h3>3. Find directly connected nodes</h3>
+  <p>Find all people that Alice knows.</p>
+<pre>
+<span class="kw">MATCH</span> (alice:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})-[:<span class="ty">KNOWS</span>]-&gt;(friend:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> friend.name, friend.age
+</pre>
+
+  <h3>4. Multi-hop traversal</h3>
+  <p>Find friends-of-friends of Alice, excluding Alice herself and her direct friends.</p>
+<pre>
+<span class="kw">MATCH</span> (alice:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})
+      -[:<span class="ty">KNOWS</span>]-&gt;(friend)
+      -[:<span class="ty">KNOWS</span>]-&gt;(fof)
+<span class="kw">WHERE</span> fof &lt;&gt; alice
+  <span class="kw">AND NOT</span> (alice)-[:<span class="ty">KNOWS</span>]-&gt;(fof)
+<span class="kw">RETURN DISTINCT</span> fof.name
+</pre>
+
+  <h3>5. Aggregation with grouping</h3>
+  <p>Count the number of people in each city and compute the average age.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.city <span class="kw">AS</span> city,
+       count(n) <span class="kw">AS</span> population,
+       avg(n.age) <span class="kw">AS</span> avg_age
+<span class="kw">ORDER BY</span> population <span class="kw">DESC</span>
+</pre>
+
+  <h3>6. Sorted and paginated results</h3>
+  <p>Retrieve the third page (10 items per page) of people sorted by age descending.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> n.name, n.age
+<span class="kw">ORDER BY</span> n.age <span class="kw">DESC</span>
+<span class="kw">SKIP</span> <span class="num">20</span> <span class="kw">LIMIT</span> <span class="num">10</span>
+</pre>
+
+  <h3>7. Create a node with properties</h3>
+  <p>Insert a new person into the graph and return the generated ID.</p>
+<pre>
+<span class="kw">CREATE</span> (n:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Diana"</span>, <span class="str">age</span>: <span class="num">27</span>, <span class="str">city</span>: <span class="str">"London"</span>})
+<span class="kw">RETURN</span> id(n) <span class="kw">AS</span> new_id, n.name
+</pre>
+
+  <h3>8. Create a node and an edge in one query</h3>
+  <p>Create a new person and immediately connect them to an existing person.</p>
+<pre>
+<span class="kw">MATCH</span> (alice:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})
+<span class="kw">CREATE</span> (eve:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Eve"</span>, <span class="str">age</span>: <span class="num">29</span>})
+<span class="kw">CREATE</span> (alice)-[:<span class="ty">KNOWS</span> {<span class="str">since</span>: <span class="num">2024</span>}]-&gt;(eve)
+<span class="kw">RETURN</span> eve.name
+</pre>
+
+  <h3>9. Delete a node and its edges</h3>
+  <p>Remove a person and all edges connected to them.</p>
+<pre>
+<span class="kw">MATCH</span> (n:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Bob"</span>})-[e]-()
+<span class="kw">DELETE</span> e, n
+</pre>
+
+  <h3>10. Pattern with multiple relationship types</h3>
+  <p>Find people who Alice both KNOWS and WORKS_WITH.</p>
+<pre>
+<span class="kw">MATCH</span> (alice:<span class="ty">Person</span> {<span class="str">name</span>: <span class="str">"Alice"</span>})-[:<span class="ty">KNOWS</span>]-&gt;(p:<span class="ty">Person</span>)
+<span class="kw">MATCH</span> (alice)-[:<span class="ty">WORKS_WITH</span>]-&gt;(p)
+<span class="kw">RETURN</span> p.name <span class="kw">AS</span> colleague_and_friend
+</pre>
+
+  <!-- A.6 AstraeaDB Extensions -->
+  <h2>A.6 AstraeaDB Extensions to GQL</h2>
+
+  <p>
+    AstraeaDB extends the standard GQL syntax with several built-in procedures for vector search, temporal queries, and graph algorithms. These are invoked using the <code>CALL</code> syntax.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Procedure</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CALL db.index.vector.search(embedding, k)</code></td>
+        <td>Find the <em>k</em> nearest nodes by cosine similarity to the given embedding vector</td>
+      </tr>
+      <tr>
+        <td><code>CALL db.index.hybrid.search(anchor, embedding, hops, k, alpha)</code></td>
+        <td>Combine vector similarity with structural proximity from an anchor node</td>
+      </tr>
+      <tr>
+        <td><code>CALL db.algo.bfs(start, max_depth)</code></td>
+        <td>Breadth-first search from a starting node up to a maximum depth</td>
+      </tr>
+      <tr>
+        <td><code>CALL db.algo.shortest_path(source, target, weighted)</code></td>
+        <td>Find the shortest path between two nodes, optionally using edge weights</td>
+      </tr>
+      <tr>
+        <td><code>CALL db.algo.pagerank(iterations, damping)</code></td>
+        <td>Compute PageRank centrality scores for all nodes</td>
+      </tr>
+      <tr>
+        <td><code>CALL db.temporal.neighbors_at(node, direction, timestamp)</code></td>
+        <td>Find neighbors of a node as they existed at a specific point in time</td>
+      </tr>
+      <tr>
+        <td><code>CALL db.rag.query(question, anchor, hops, max_nodes)</code></td>
+        <td>Execute a GraphRAG pipeline: vector search, subgraph extraction, and LLM response</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Standard vs. Extension</strong>
+    All standard GQL clauses (<code>MATCH</code>, <code>WHERE</code>, <code>RETURN</code>, <code>CREATE</code>, <code>DELETE</code>, <code>SET</code>) work exactly as specified by ISO/IEC 39075. The <code>CALL</code> procedures listed above are AstraeaDB-specific extensions that provide access to features not yet covered by the GQL standard.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch15.html">&larr; Chapter 15: Cybersecurity Scenario</a>
+    <a href="gentle-intro-appB.html">Appendix B: Client API Reference &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

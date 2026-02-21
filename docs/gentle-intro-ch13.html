@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 13: Security &mdash; A Gentle Introduction to AstraeaDB</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html" class="active">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 13: Security</h1>
+  <p class="subtitle">
+    A production graph database must protect the data it holds. AstraeaDB provides layered security: token-based authentication with role-based access control, TLS encryption for data in transit, an experimental homomorphic encryption engine for privacy-sensitive workloads, and comprehensive audit logging. This chapter walks through each layer, from the simplest configuration to the most advanced.
+  </p>
+
+  <!-- 13.1 Authentication -->
+  <h2>13.1 Authentication (API Keys and RBAC)</h2>
+
+  <p>
+    AstraeaDB uses <strong>token-based authentication</strong> combined with <strong>Role-Based Access Control (RBAC)</strong>. Every client connection must present a valid authentication token, and the token determines what operations the client is allowed to perform.
+  </p>
+
+  <h3>The Three Roles</h3>
+  <p>
+    AstraeaDB defines three built-in roles, each a strict superset of the one below it:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Role</th><th>Permissions</th><th>Typical Use</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Reader</code></td>
+        <td>Query nodes and edges, run graph algorithms, execute vector searches, read properties</td>
+        <td>Dashboard applications, reporting services, read-only API endpoints</td>
+      </tr>
+      <tr>
+        <td><code>Writer</code></td>
+        <td>All Reader permissions <strong>plus</strong> create, update, and delete nodes and edges</td>
+        <td>Application backends, ETL pipelines, data ingestion services</td>
+      </tr>
+      <tr>
+        <td><code>Admin</code></td>
+        <td>All Writer permissions <strong>plus</strong> user management, configuration changes, audit log access, backup/restore</td>
+        <td>Operations teams, database administrators</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Connecting with Authentication</h3>
+  <p>
+    Pass your authentication token when creating the client connection. Here is how it looks in each supported language:
+  </p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-auth')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-auth')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-auth')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-auth')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-auth">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="cm"># Connect with a Writer token</span>
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>, auth_token=<span class="str">"my-secret-token"</span>) <span class="kw">as</span> client:
+    <span class="cm"># This succeeds with Writer or Admin role</span>
+    client.<span class="fn">create_node</span>([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Alice"</span>, <span class="str">"age"</span>: <span class="num">30</span>})
+
+    <span class="cm"># This succeeds with any role (Reader, Writer, or Admin)</span>
+    result = client.<span class="fn">query</span>(
+        <span class="str">'MATCH (p:Person) RETURN p.name'</span>
+    )
+    <span class="fn">print</span>(result)</pre>
+  </div>
+  <div class="lang-panel" id="r-auth">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>, auth_token = <span class="str">"my-secret-token"</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Create a node (requires Writer or Admin)</span>
+client<span class="kw">$</span><span class="fn">create_node</span>(<span class="fn">c</span>(<span class="str">"Person"</span>), <span class="fn">list</span>(name = <span class="str">"Alice"</span>, age = <span class="num">30</span>))
+
+<span class="cm"># Query (any role)</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">"MATCH (p:Person) RETURN p.name"</span>)
+<span class="fn">print</span>(result)
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-auth">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(
+        astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+        astraeadb.<span class="fn">WithAuthToken</span>(<span class="str">"my-secret-token"</span>),
+    )
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Create a node (requires Writer or Admin)</span>
+    client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Person"</span>}, <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{
+        <span class="str">"name"</span>: <span class="str">"Alice"</span>,
+        <span class="str">"age"</span>:  <span class="num">30</span>,
+    })
+
+    <span class="cm">// Query (any role)</span>
+    result, _ <span class="kw">:=</span> client.<span class="fn">Query</span>(ctx, <span class="str">"MATCH (p:Person) RETURN p.name"</span>)
+    fmt.<span class="fn">Println</span>(result)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-auth">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+<span class="kw">import</span> java.util.List;
+<span class="kw">import</span> java.util.Map;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>)
+        .<span class="fn">authToken</span>(<span class="str">"my-secret-token"</span>)
+        .<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Create a node (requires Writer or Admin)</span>
+    client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Person"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Alice"</span>, <span class="str">"age"</span>, <span class="num">30</span>)
+    );
+
+    <span class="cm">// Query (any role)</span>
+    <span class="kw">var</span> result = client.<span class="fn">query</span>(<span class="str">"MATCH (p:Person) RETURN p.name"</span>);
+    System.out.<span class="fn">println</span>(result);
+}</pre>
+  </div>
+
+  <h3>Permission Denied Errors</h3>
+  <p>
+    If a client attempts an operation that exceeds its role, AstraeaDB returns a clear error. For example, a <code>Reader</code> token attempting to create a node:
+  </p>
+
+<pre><span class="cm"># Python example: Reader trying to write</span>
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>, auth_token=<span class="str">"reader-only-token"</span>) <span class="kw">as</span> client:
+    <span class="kw">try</span>:
+        client.<span class="fn">create_node</span>([<span class="str">"Person"</span>], {<span class="str">"name"</span>: <span class="str">"Bob"</span>})
+    <span class="kw">except</span> <span class="ty">PermissionError</span> <span class="kw">as</span> e:
+        <span class="fn">print</span>(e)
+        <span class="cm"># PermissionError: role 'Reader' does not have 'write' permission</span></pre>
+
+  <div class="info-box warn">
+    <strong>Token Management</strong>
+    Store authentication tokens securely. Never hard-code tokens into application source code. Use environment variables, secret management systems (e.g., HashiCorp Vault, AWS Secrets Manager), or configuration files with restricted filesystem permissions.
+  </div>
+
+  <!-- 13.2 TLS and mTLS -->
+  <h2>13.2 TLS and Mutual TLS (mTLS)</h2>
+
+  <p>
+    By default, AstraeaDB communicates over unencrypted TCP. For production deployments, you should enable <strong>TLS</strong> (Transport Layer Security) to encrypt all traffic between clients and the server.
+  </p>
+
+  <h3>Standard TLS</h3>
+  <p>
+    Standard TLS encrypts the connection and verifies the server's identity. The client trusts the server based on its certificate, but the server accepts any client that connects.
+  </p>
+
+  <p>Configure TLS in your <code>astraeadb.toml</code>:</p>
+
+<pre><span class="cm"># astraeadb.toml - TLS Configuration</span>
+
+[<span class="kw">tls</span>]
+cert_path = <span class="str">"/path/to/server.crt"</span>    <span class="cm"># Server certificate (PEM format)</span>
+key_path  = <span class="str">"/path/to/server.key"</span>    <span class="cm"># Server private key (PEM format)</span></pre>
+
+  <p>With TLS enabled, the server only accepts encrypted connections. Clients must connect using TLS:</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-tls')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-tls')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-tls')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-tls')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-tls">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(
+    <span class="str">"db.example.com"</span>, <span class="num">7687</span>,
+    auth_token=<span class="str">"my-secret-token"</span>,
+    tls=<span class="num">True</span>,
+    ca_cert=<span class="str">"/path/to/ca.crt"</span>    <span class="cm"># CA that signed the server cert</span>
+) <span class="kw">as</span> client:
+    result = client.<span class="fn">ping</span>()
+    <span class="fn">print</span>(result)</pre>
+  </div>
+  <div class="lang-panel" id="r-tls">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(
+    <span class="str">"db.example.com"</span>, <span class="num">7687</span>,
+    auth_token = <span class="str">"my-secret-token"</span>,
+    tls = <span class="num">TRUE</span>,
+    ca_cert = <span class="str">"/path/to/ca.crt"</span>
+)
+client<span class="kw">$</span><span class="fn">connect</span>()
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">ping</span>()
+<span class="fn">print</span>(result)
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-tls">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(
+        astraeadb.<span class="fn">WithAddress</span>(<span class="str">"db.example.com"</span>, <span class="num">7687</span>),
+        astraeadb.<span class="fn">WithAuthToken</span>(<span class="str">"my-secret-token"</span>),
+        astraeadb.<span class="fn">WithTLS</span>(<span class="str">"/path/to/ca.crt"</span>),
+    )
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    result, _ <span class="kw">:=</span> client.<span class="fn">Ping</span>(ctx)
+    fmt.<span class="fn">Println</span>(result)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-tls">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"db.example.com"</span>).<span class="fn">port</span>(<span class="num">7687</span>)
+        .<span class="fn">authToken</span>(<span class="str">"my-secret-token"</span>)
+        .<span class="fn">tls</span>(<span class="num">true</span>)
+        .<span class="fn">caCert</span>(<span class="str">"/path/to/ca.crt"</span>)
+        .<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+    <span class="kw">var</span> result = client.<span class="fn">ping</span>();
+    System.out.<span class="fn">println</span>(result);
+}</pre>
+  </div>
+
+  <h3>Mutual TLS (mTLS)</h3>
+  <p>
+    Standard TLS verifies the server to the client. <strong>Mutual TLS</strong> goes further: both the client <em>and</em> the server present certificates. This provides two-way identity verification and is the gold standard for zero-trust network architectures.
+  </p>
+
+  <p>With mTLS, the client certificate's <strong>Common Name (CN)</strong> is mapped to an RBAC role. This eliminates the need for separate API tokens&mdash;the certificate itself is the credential.</p>
+
+  <h4>Server Configuration</h4>
+<pre><span class="cm"># astraeadb.toml - Mutual TLS Configuration</span>
+
+[<span class="kw">tls</span>]
+cert_path    = <span class="str">"/path/to/server.crt"</span>    <span class="cm"># Server certificate</span>
+key_path     = <span class="str">"/path/to/server.key"</span>    <span class="cm"># Server private key</span>
+ca_cert_path = <span class="str">"/path/to/ca.crt"</span>       <span class="cm"># CA cert to verify client certs</span>
+
+[<span class="kw">tls.client_role_mapping</span>]
+<span class="cm"># Map certificate CN to RBAC role</span>
+<span class="str">"analytics-service"</span> = <span class="str">"Reader"</span>
+<span class="str">"ingestion-pipeline"</span> = <span class="str">"Writer"</span>
+<span class="str">"ops-team"</span> = <span class="str">"Admin"</span></pre>
+
+  <h4>How mTLS Authentication Works</h4>
+  <ol>
+    <li>The client connects and presents its certificate (signed by the trusted CA).</li>
+    <li>The server verifies the client certificate against the CA certificate at <code>ca_cert_path</code>.</li>
+    <li>The server extracts the <strong>Common Name (CN)</strong> from the client certificate.</li>
+    <li>The CN is matched against the <code>client_role_mapping</code> to determine the RBAC role.</li>
+    <li>If the CN is not in the mapping, the connection is rejected.</li>
+  </ol>
+
+  <div class="info-box tip">
+    <strong>When to use mTLS</strong>
+    Use mTLS when your services run in a zero-trust network, when you need to authenticate services (not just users), or when your organization already has a PKI (Public Key Infrastructure) in place. mTLS is especially valuable for inter-service communication in microservice architectures where API tokens can be difficult to rotate securely.
+  </div>
+
+  <!-- 13.3 Homomorphic Encryption -->
+  <h2>13.3 Homomorphic Encryption</h2>
+
+  <p>
+    AstraeaDB includes an experimental <strong>homomorphic encryption engine</strong> for workloads where even the database server should not see the unencrypted data. This is a cutting-edge research feature designed for privacy-sensitive domains such as banking and healthcare.
+  </p>
+
+  <h3>The Concept</h3>
+  <p>
+    In a traditional database, the server must decrypt data to query it. This means anyone with access to the server (administrators, attackers who breach the perimeter) can read the data. Homomorphic encryption allows computations on encrypted data without ever decrypting it. The server stores encrypted values, performs matching on encrypted values, and returns encrypted results that only the client can decrypt.
+  </p>
+
+  <h3>How It Works in AstraeaDB</h3>
+  <p>
+    AstraeaDB supports <strong>deterministic encrypted label matching</strong>. The workflow is as follows:
+  </p>
+
+  <div class="diagram">
+    Client                                    Server
+    ------                                    ------
+    1. Encrypt node labels
+       with secret key
+                         --- store encrypted --->
+    2.                                        Store encrypted
+                                              labels on disk
+
+    3. Encrypt query labels
+       with same key
+                         --- encrypted query --->
+    4.                                        Match encrypted
+                                              query labels against
+                                              encrypted stored labels
+                                              (deterministic comparison)
+                         <--- encrypted results ---
+    5. Decrypt results
+       with secret key
+  </div>
+
+  <p>Because the encryption is deterministic (the same plaintext always produces the same ciphertext), the server can perform equality matching without ever knowing the underlying values.</p>
+
+  <h3>Use Cases</h3>
+  <table>
+    <thead>
+      <tr><th>Domain</th><th>Scenario</th><th>Benefit</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Banking</td>
+        <td>Query customer relationship graphs without exposing PII (names, account numbers)</td>
+        <td>Database administrators cannot see customer data even with full server access</td>
+      </tr>
+      <tr>
+        <td>Healthcare</td>
+        <td>Analyze patient interaction graphs while maintaining HIPAA compliance</td>
+        <td>Research teams can run graph queries without being exposed to protected health information</td>
+      </tr>
+      <tr>
+        <td>Government</td>
+        <td>Cross-agency intelligence sharing on classified graphs</td>
+        <td>Each agency can query shared infrastructure without revealing sensitive entity names</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box warn">
+    <strong>Research Feature</strong>
+    Homomorphic encryption in AstraeaDB currently supports basic label matching (equality comparisons on encrypted labels). Full query computation over encrypted data (range queries, aggregations, traversals over encrypted edge weights) is an active area of research and is not yet supported. Performance overhead is significant compared to plaintext operations. Use this feature only when the privacy requirements justify the cost.
+  </div>
+
+  <h3>Enabling Homomorphic Encryption</h3>
+<pre><span class="cm"># astraeadb.toml - Homomorphic Encryption</span>
+
+[<span class="kw">encryption</span>]
+homomorphic_enabled = <span class="num">true</span>
+<span class="cm"># The encryption keys are managed client-side.</span>
+<span class="cm"># The server never holds the decryption key.</span></pre>
+
+  <!-- 13.4 Audit Logging -->
+  <h2>13.4 Audit Logging</h2>
+
+  <p>
+    Every operation in AstraeaDB can be recorded in an <strong>audit log</strong>. This provides a tamper-evident record of who did what, when, and from where&mdash;essential for compliance, incident investigation, and security monitoring.
+  </p>
+
+  <h3>What Gets Logged</h3>
+  <p>Each audit log entry contains:</p>
+  <ul>
+    <li><strong>Timestamp</strong> &mdash; precise time of the operation (millisecond resolution)</li>
+    <li><strong>User / Token ID</strong> &mdash; which authenticated identity performed the action</li>
+    <li><strong>Operation Type</strong> &mdash; <code>CREATE_NODE</code>, <code>DELETE_EDGE</code>, <code>QUERY</code>, <code>ADMIN_CONFIG_CHANGE</code>, etc.</li>
+    <li><strong>Target</strong> &mdash; the node ID, edge ID, or query string involved</li>
+    <li><strong>Source IP</strong> &mdash; the client's network address</li>
+    <li><strong>Result</strong> &mdash; success or failure (with error code if applicable)</li>
+  </ul>
+
+  <h3>Storage and Retention</h3>
+  <p>
+    Audit logs are stored in a <strong>circular buffer</strong> that maintains recent operation history in memory for fast access. Older entries are flushed to disk. The buffer size is configurable:
+  </p>
+
+<pre><span class="cm"># astraeadb.toml - Audit Logging</span>
+
+[<span class="kw">audit</span>]
+enabled       = <span class="num">true</span>
+buffer_size   = <span class="num">100000</span>    <span class="cm"># Number of entries in the circular buffer</span>
+flush_to_disk = <span class="num">true</span>
+log_path      = <span class="str">"/var/log/astraeadb/audit.log"</span></pre>
+
+  <h3>Accessing the Audit Log</h3>
+  <p>
+    Admin-role users can query the audit log through the client API:
+  </p>
+
+<pre><span class="cm"># Python: retrieve recent audit entries</span>
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>, auth_token=<span class="str">"admin-token"</span>) <span class="kw">as</span> client:
+    entries = client.<span class="fn">audit_log</span>(limit=<span class="num">50</span>)
+    <span class="kw">for</span> entry <span class="kw">in</span> entries:
+        <span class="fn">print</span>(<span class="str">f"[</span>{entry[<span class="str">'timestamp'</span>]}<span class="str">] </span>"
+              <span class="str">f"</span>{entry[<span class="str">'user'</span>]}<span class="str"> </span>"
+              <span class="str">f"</span>{entry[<span class="str">'operation'</span>]}<span class="str"> </span>"
+              <span class="str">f"</span>{entry[<span class="str">'result'</span>]}<span class="str">"</span>)</pre>
+
+  <p>Example output:</p>
+<pre><span class="cm">[2026-02-21T14:30:01.123Z] writer-svc  CREATE_NODE  success
+[2026-02-21T14:30:01.456Z] reader-app  QUERY        success
+[2026-02-21T14:30:02.789Z] reader-app  CREATE_NODE  DENIED (insufficient permissions)
+[2026-02-21T14:30:03.012Z] admin-ops   CONFIG_CHANGE success</span></pre>
+
+  <div class="info-box tip">
+    <strong>Integration with SIEM</strong>
+    The audit log output is structured JSON, making it easy to ingest into Security Information and Event Management (SIEM) platforms like Splunk, Elastic Security, or Microsoft Sentinel. Forward the log file using your preferred log shipper (Filebeat, Fluentd, Vector) for centralized monitoring and alerting.
+  </div>
+
+  <h3>Security Summary</h3>
+  <p>
+    AstraeaDB's security model is designed in layers. Each layer addresses a different threat:
+  </p>
+  <table>
+    <thead>
+      <tr><th>Layer</th><th>Protects Against</th><th>Mechanism</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Authentication (RBAC)</td>
+        <td>Unauthorized access</td>
+        <td>Token-based identity with role-based permissions</td>
+      </tr>
+      <tr>
+        <td>TLS / mTLS</td>
+        <td>Eavesdropping, man-in-the-middle attacks</td>
+        <td>Encrypted transport with certificate-based identity</td>
+      </tr>
+      <tr>
+        <td>Homomorphic Encryption</td>
+        <td>Insider threats, server compromise</td>
+        <td>Encrypted-at-rest with server-side blind matching</td>
+      </tr>
+      <tr>
+        <td>Audit Logging</td>
+        <td>Undetected misuse, compliance gaps</td>
+        <td>Complete operation history with identity attribution</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch12.html">&larr; Chapter 12: Graph Neural Networks</a>
+    <span class="spacer"></span>
+    <a href="gentle-intro-ch14.html">Chapter 14: Performance and Scaling &rarr;</a>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

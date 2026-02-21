@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 3: Installation and Setup - AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<aside class="sidebar">
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">1. Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">2. The Graph Database Landscape</a>
+  <div class="sep"></div>
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html" class="active">3. Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">4. Your First Graph</a>
+  <div class="sep"></div>
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">5. Schema and Data Modeling</a>
+  <a href="gentle-intro-ch06.html">6. Querying in Depth</a>
+  <a href="gentle-intro-ch07.html">7. Indexing and Performance</a>
+  <div class="sep"></div>
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">8. Vector Embeddings</a>
+  <a href="gentle-intro-ch09.html">9. Graph Algorithms</a>
+  <a href="gentle-intro-ch10.html">10. Temporal Graphs</a>
+  <a href="gentle-intro-ch11.html">11. Graph Neural Networks</a>
+  <a href="gentle-intro-ch12.html">12. GraphRAG</a>
+  <div class="sep"></div>
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">13. Clustering and Sharding</a>
+  <a href="gentle-intro-ch14.html">14. Security and Encryption</a>
+  <a href="gentle-intro-ch15.html">15. Monitoring and Tuning</a>
+  <div class="sep"></div>
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A. GQL Reference</a>
+  <a href="gentle-intro-appB.html">B. Configuration Options</a>
+  <a href="gentle-intro-appC.html">C. Troubleshooting</a>
+</aside>
+
+<div class="main">
+
+  <h1>Chapter 3: Installation and Setup</h1>
+  <p class="subtitle">Everything you need to get AstraeaDB running on your machine, from building the Rust source to making your first client connection in Python, R, Go, or Java.</p>
+
+  <!-- 3.1 Prerequisites -->
+  <h2>3.1 Prerequisites</h2>
+
+  <p>Before installing AstraeaDB, make sure your development environment meets the following requirements.</p>
+
+  <h3>Rust Toolchain (Required)</h3>
+  <p>AstraeaDB is written in Rust. You will need the Rust toolchain installed via <a href="https://rustup.rs/">rustup</a>:</p>
+  <pre><span class="cm"># Install Rust (if you haven't already)</span>
+curl --proto <span class="str">'=https'</span> --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+<span class="cm"># Verify installation</span>
+rustc --version   <span class="cm"># should be 1.75+ recommended</span>
+cargo --version</pre>
+
+  <h3>Supported Platforms</h3>
+  <table>
+    <thead>
+      <tr><th>Platform</th><th>Version</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Linux (Ubuntu)</td><td>20.04+</td><td>Full support including <code>io_uring</code> for async I/O (kernel 5.10+)</td></tr>
+      <tr><td>Linux (Other)</td><td>Kernel 5.10+</td><td>Debian, Fedora, Arch tested; <code>io_uring</code> requires kernel support</td></tr>
+      <tr><td>macOS</td><td>12 (Monterey)+</td><td>Uses <code>kqueue</code> fallback instead of <code>io_uring</code></td></tr>
+      <tr><td>Windows (WSL2)</td><td>Ubuntu 20.04+</td><td>Supported via WSL2; native Windows not yet available</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Note: io_uring on Linux</strong>
+    AstraeaDB achieves peak I/O performance on Linux with <code>io_uring</code> support (kernel 5.10+). On macOS, the server falls back to <code>kqueue</code>, which is still performant but slightly slower for heavy workloads.
+  </div>
+
+  <h3>Optional: Client Language SDKs</h3>
+  <p>AstraeaDB ships official client libraries for four languages. Install whichever you plan to use:</p>
+  <table>
+    <thead>
+      <tr><th>Language</th><th>Minimum Version</th><th>Install Command</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Python</td><td>3.8+</td><td><code>pip install astraeadb</code></td></tr>
+      <tr><td>R</td><td>4.0+</td><td><code>source("r_client.R")</code> (bundled in repo)</td></tr>
+      <tr><td>Go</td><td>1.21+</td><td><code>go get github.com/jimeharrisjr/astraeadb-go</code></td></tr>
+      <tr><td>Java</td><td>17+</td><td>Maven/Gradle dependency (see below)</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Java Dependency (Maven)</h4>
+  <pre><span class="cm">&lt;!-- pom.xml --&gt;</span>
+&lt;<span class="kw">dependency</span>&gt;
+  &lt;<span class="kw">groupId</span>&gt;<span class="str">com.astraeadb</span>&lt;/<span class="kw">groupId</span>&gt;
+  &lt;<span class="kw">artifactId</span>&gt;<span class="str">astraeadb-unified-client</span>&lt;/<span class="kw">artifactId</span>&gt;
+  &lt;<span class="kw">version</span>&gt;<span class="str">0.1.0</span>&lt;/<span class="kw">version</span>&gt;
+&lt;/<span class="kw">dependency</span>&gt;</pre>
+
+  <h4>Java Dependency (Gradle)</h4>
+  <pre>implementation <span class="str">'com.astraeadb:astraeadb-unified-client:0.1.0'</span></pre>
+
+  <!-- 3.2 Building from Source -->
+  <h2>3.2 Building from Source</h2>
+
+  <p>Clone the repository and build the entire workspace in release mode:</p>
+
+  <pre><span class="cm"># Clone the repository</span>
+git clone https://github.com/jimeharrisjr/graph-astraeadb.git
+cd graph-astraeadb
+
+<span class="cm"># Build all crates in release mode</span>
+cargo build --workspace --release
+
+<span class="cm"># Run the full test suite</span>
+cargo test --workspace</pre>
+
+  <div class="info-box tip">
+    <strong>Tip: Build Times</strong>
+    The first build compiles all dependencies and may take 5-10 minutes. Subsequent builds are incremental and much faster. Adding <code>--release</code> enables compiler optimizations critical for production performance.
+  </div>
+
+  <p>After a successful build, the binaries are located in <code>target/release/</code>:</p>
+
+  <table>
+    <thead>
+      <tr><th>Binary</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>astraea-cli</code></td><td>Command-line tool for starting the server, running queries, importing/exporting data</td></tr>
+      <tr><td><code>astraea-server</code></td><td>The standalone database server process</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Verifying the Build</h3>
+  <p>Confirm everything is working:</p>
+  <pre><span class="cm"># Check the CLI version</span>
+./target/release/astraea-cli --version
+<span class="cm"># AstraeaDB CLI v0.1.0</span>
+
+<span class="cm"># Run a quick smoke test</span>
+cargo test --workspace -- --test-threads=<span class="num">1</span></pre>
+
+  <!-- 3.3 Starting the Server -->
+  <h2>3.3 Starting the Server</h2>
+
+  <h3>Basic Startup</h3>
+  <p>The simplest way to start AstraeaDB is through the CLI:</p>
+  <pre>cargo run -p astraea-cli -- serve</pre>
+  <p>This starts the server with default settings: binding to <code>127.0.0.1</code> on the standard ports.</p>
+
+  <h3>Custom Bind Address and Port</h3>
+  <p>To expose the server on all network interfaces (for remote connections), specify the bind address and port:</p>
+  <pre>cargo run -p astraea-cli -- serve --bind <span class="num">0.0.0.0</span> --port <span class="num">7687</span></pre>
+
+  <h3>Default Ports</h3>
+  <p>AstraeaDB listens on three ports, each serving a different protocol:</p>
+  <table>
+    <thead>
+      <tr><th>Port</th><th>Protocol</th><th>Use Case</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>7687</code></td><td>JSON-TCP</td><td>Primary client connections (Python, R, Go, Java SDKs)</td></tr>
+      <tr><td><code>7688</code></td><td>gRPC</td><td>High-performance RPC for microservice architectures</td></tr>
+      <tr><td><code>7689</code></td><td>Apache Arrow Flight</td><td>Zero-copy bulk data transfer for analytics (Polars, Pandas)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Configuration via TOML</h3>
+  <p>For production deployments, use a TOML configuration file instead of command-line flags. Create a file called <code>astraeadb.toml</code>:</p>
+
+  <pre><span class="cm"># astraeadb.toml - AstraeaDB Server Configuration</span>
+
+[<span class="kw">server</span>]
+bind     = <span class="str">"0.0.0.0"</span>
+port     = <span class="num">7687</span>
+grpc_port = <span class="num">7688</span>
+flight_port = <span class="num">7689</span>
+
+[<span class="kw">storage</span>]
+data_dir = <span class="str">"/var/lib/astraeadb/data"</span>
+wal_dir  = <span class="str">"/var/lib/astraeadb/wal"</span>
+
+[<span class="kw">storage.tiering</span>]
+hot_cache_mb  = <span class="num">4096</span>     <span class="cm"># RAM for pointer-swizzled subgraphs</span>
+warm_cache_mb = <span class="num">16384</span>    <span class="cm"># NVMe page cache</span>
+cold_backend  = <span class="str">"local"</span>  <span class="cm"># "local", "s3", or "gcs"</span>
+
+[<span class="kw">logging</span>]
+level = <span class="str">"info"</span>          <span class="cm"># "debug", "info", "warn", "error"</span>
+file  = <span class="str">"/var/log/astraeadb/server.log"</span></pre>
+
+  <p>Start the server with your configuration:</p>
+  <pre>cargo run -p astraea-cli -- serve --config astraeadb.toml</pre>
+
+  <div class="info-box warn">
+    <strong>Warning: Data Directory Permissions</strong>
+    Ensure the user running AstraeaDB has read/write access to both <code>data_dir</code> and <code>wal_dir</code>. The server will refuse to start if it cannot write to these directories.
+  </div>
+
+  <!-- 3.4 Your First Connection -->
+  <h2>3.4 Your First Connection</h2>
+
+  <p>With the server running, let us connect from each of the supported client languages. Each snippet opens a connection, sends a <code>ping</code> command to verify connectivity, and prints the server response.</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-ping')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-ping')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-ping')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-ping')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-ping">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>) <span class="kw">as</span> client:
+    result = client.<span class="fn">ping</span>()
+    <span class="fn">print</span>(<span class="str">f"Connected! Server says: </span>{result}<span class="str">"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-ping">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">ping</span>()
+<span class="fn">cat</span>(<span class="str">"Connected! Server says:"</span>, result, <span class="str">"\n"</span>)
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-ping">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+    result, _ <span class="kw">:=</span> client.<span class="fn">Ping</span>(ctx)
+    fmt.<span class="fn">Println</span>(<span class="str">"Connected!"</span>, result)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-ping">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+    <span class="kw">var</span> result = client.<span class="fn">ping</span>();
+    System.out.<span class="fn">println</span>(<span class="str">"Connected! "</span> + result);
+}</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Tip: Context Manager Pattern</strong>
+    The Python client uses a <code>with</code> statement (context manager) to ensure the connection is cleanly closed even if an exception occurs. The Java client similarly uses try-with-resources. In Go, use <code>defer client.Close()</code>. In R, always call <code>client$close()</code> when finished.
+  </div>
+
+  <p>If everything is working, you should see output like:</p>
+  <pre>Connected! Server says: PONG (AstraeaDB v0.1.0)</pre>
+
+  <!-- 3.5 The Interactive Shell -->
+  <h2>3.5 The Interactive Shell</h2>
+
+  <p>AstraeaDB includes a built-in interactive shell (REPL) for running queries directly from the terminal, without writing a separate client program.</p>
+
+  <h3>Launching the Shell</h3>
+  <pre>cargo run -p astraea-cli -- shell</pre>
+
+  <p>You will see a prompt like this:</p>
+  <pre><span class="cm">   _        _                        ____  ____
+  / \   ___| |_ _ __ __ _  ___  __ _|  _ \| __ )
+ / _ \ / __| __| '__/ _` |/ _ \/ _` | | | |  _ \
+/ ___ \\__ \ |_| | | (_| |  __/ (_| | |_| | |_) |
+/_/   \_\___/\__|_|  \__,_|\___|\__,_|____/|____/</span>
+
+AstraeaDB Interactive Shell v0.1.0
+Type <span class="str">'help'</span> for commands, <span class="str">'exit'</span> to quit.
+
+astraeadb&gt;</pre>
+
+  <h3>Example Session</h3>
+  <p>Here is a quick session that creates some data and queries it:</p>
+
+  <pre><span class="cm"># Create a node with label "Person" and properties</span>
+astraeadb&gt; <span class="kw">CREATE</span> (p:<span class="ty">Person</span> {name: <span class="str">"Alice"</span>, age: <span class="num">30</span>}) <span class="kw">RETURN</span> p
+<span class="cm">+-------+------------------------------------+</span>
+<span class="cm">| p.id  | p.labels | p.name | p.age          |</span>
+<span class="cm">+-------+------------------------------------+</span>
+<span class="cm">| nd-1  | Person   | Alice  | 30             |</span>
+<span class="cm">+-------+------------------------------------+</span>
+<span class="cm">1 row returned in 2ms</span>
+
+<span class="cm"># Create another node and an edge between them</span>
+astraeadb&gt; <span class="kw">CREATE</span> (b:<span class="ty">Person</span> {name: <span class="str">"Bob"</span>, age: <span class="num">25</span>}) <span class="kw">RETURN</span> b
+<span class="cm">1 row returned in 1ms</span>
+
+astraeadb&gt; <span class="kw">MATCH</span> (a:<span class="ty">Person</span> {name: <span class="str">"Alice"</span>}), (b:<span class="ty">Person</span> {name: <span class="str">"Bob"</span>})
+       <span class="kw">CREATE</span> (a)-[:<span class="ty">KNOWS</span> {since: <span class="num">2020</span>}]-&gt;(b)
+       <span class="kw">RETURN</span> a.name, b.name
+<span class="cm">+-------------------+</span>
+<span class="cm">| a.name | b.name   |</span>
+<span class="cm">+-------------------+</span>
+<span class="cm">| Alice  | Bob      |</span>
+<span class="cm">+-------------------+</span>
+<span class="cm">1 row returned in 3ms</span>
+
+<span class="cm"># Query for connections</span>
+astraeadb&gt; <span class="kw">MATCH</span> (p:<span class="ty">Person</span>)-[r:<span class="ty">KNOWS</span>]-&gt;(friend)
+       <span class="kw">RETURN</span> p.name, friend.name, r.since
+<span class="cm">+-------------------------------+</span>
+<span class="cm">| p.name | friend.name | r.since|</span>
+<span class="cm">+-------------------------------+</span>
+<span class="cm">| Alice  | Bob         | 2020   |</span>
+<span class="cm">+-------------------------------+</span>
+<span class="cm">1 row returned in 1ms</span></pre>
+
+  <h3>Useful Shell Commands</h3>
+  <table>
+    <thead>
+      <tr><th>Command</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>help</code></td><td>List all available commands</td></tr>
+      <tr><td><code>status</code></td><td>Show server status (uptime, node/edge counts, memory usage)</td></tr>
+      <tr><td><code>clear</code></td><td>Clear the terminal screen</td></tr>
+      <tr><td><code>export &lt;file&gt;</code></td><td>Export the current graph to a JSON file</td></tr>
+      <tr><td><code>import &lt;file&gt;</code></td><td>Import nodes and edges from a JSON file</td></tr>
+      <tr><td><code>exit</code></td><td>Close the shell and disconnect</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box info">
+    <strong>Note: Multi-line Queries</strong>
+    The shell supports multi-line input. If your query spans multiple lines, just keep typing. The shell will detect that the query is incomplete (no trailing semicolon or unmatched parentheses) and continue accepting input on the next line.
+  </div>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch02.html">&larr; Chapter 2: The Graph Database Landscape</a>
+    <span class="spacer"></span>
+    <a href="gentle-intro-ch04.html">Chapter 4: Your First Graph &rarr;</a>
+  </div>
+</div>
+
+<footer>
+  &copy; 2026 AstraeaDB Project. Released under the MIT License.
+  <a href="https://github.com/jimeharrisjr/graph-astraeadb">GitHub</a>
+</footer>
+
+<script>
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>

@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 6: Graph Traversals - AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="part-label">Table of Contents</div>
+  <a href="gentle-intro.html">Overview</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">Ch 1: Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">Ch 2: The Graph Database Landscape</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">Ch 3: Installation and Setup</a>
+  <a href="gentle-intro-ch04.html">Ch 4: Your First Graph</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">Ch 5: The GQL Query Language</a>
+  <a href="gentle-intro-ch06.html" class="active">Ch 6: Graph Traversals</a>
+  <a href="gentle-intro-ch07.html">Ch 7: Transport Protocols</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">Ch 8: Vector Search and Semantic Queries</a>
+  <a href="gentle-intro-ch09.html">Ch 9: Temporal Graphs</a>
+  <a href="gentle-intro-ch10.html">Ch 10: Graph Algorithms</a>
+  <a href="gentle-intro-ch11.html">Ch 11: GraphRAG</a>
+  <a href="gentle-intro-ch12.html">Ch 12: Graph Neural Networks</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">Ch 13: Security</a>
+  <a href="gentle-intro-ch14.html">Ch 14: Performance and Scaling</a>
+  <a href="gentle-intro-ch15.html">Ch 15: Cybersecurity Scenario</a>
+  <div class="sep"></div>
+
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A: GQL Quick Reference</a>
+  <a href="gentle-intro-appB.html">B: Client API Reference</a>
+  <a href="gentle-intro-appC.html">C: Configuration Reference</a>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+
+  <h1>Chapter 6: Graph Traversals</h1>
+  <p class="subtitle">
+    While GQL lets you describe <em>what</em> you want to find, traversal algorithms give you
+    fine-grained control over <em>how</em> the graph is explored. This chapter covers BFS, DFS,
+    shortest path (unweighted and weighted), and neighbor queries&mdash;the building blocks for
+    everything from social-network analysis to route planning.
+  </p>
+
+  <div class="info-box info">
+    <strong>Prerequisites</strong>
+    This chapter assumes you have a running AstraeaDB server with the social-network and movie-graph
+    data from <a href="gentle-intro-ch04.html">Chapter 4</a>. Traversal APIs are available on all
+    client libraries (Python, R, Go, Java).
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 6.1 BFS -->
+  <!-- ================================================================== -->
+  <h2>6.1 Breadth-First Search (BFS)</h2>
+
+  <p>
+    <strong>Breadth-First Search</strong> explores the graph level by level. Starting from a given node,
+    it first visits all immediate neighbors (depth 1), then all neighbors-of-neighbors (depth 2), and
+    so on. This guarantees that nodes are discovered in order of increasing distance from the start.
+  </p>
+
+  <h3>How BFS Works</h3>
+  <p>Consider this social network:</p>
+
+  <div class="diagram">  Start node: Alice (depth 0)
+
+         Alice
+        / | \
+       /  |  \
+     Bob  Carol  Dave       &larr; depth 1 (discovered first)
+      |    |      |
+     Eve  Frank  Grace      &larr; depth 2 (discovered second)
+           |
+          Hank              &larr; depth 3 (discovered third)
+
+  BFS visit order: Alice, Bob, Carol, Dave, Eve, Frank, Grace, Hank
+
+  At each level, ALL nodes at that depth are visited
+  before moving to the next depth.</div>
+
+  <h3>The BFS API</h3>
+  <p>AstraeaDB exposes BFS through a dedicated traversal method:</p>
+
+  <pre>result = client.<span class="fn">bfs</span>(start_node_id, max_depth=<span class="num">3</span>)</pre>
+
+  <p>The return value is a list of objects, each containing:</p>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>node_id</code></td><td>Integer</td><td>The internal ID of the discovered node</td></tr>
+      <tr><td><code>depth</code></td><td>Integer</td><td>How many hops from the start node</td></tr>
+    </tbody>
+  </table>
+
+  <h3>When to Use BFS</h3>
+  <ul>
+    <li><strong>Shortest path (unweighted):</strong> BFS inherently finds the fewest-hop path between two nodes.</li>
+    <li><strong>Finding all nodes within N hops:</strong> Set <code>max_depth</code> to limit exploration radius.</li>
+    <li><strong>Level-order analysis:</strong> Analyze how influence or information spreads outward from a source.</li>
+    <li><strong>Connected component discovery:</strong> BFS from any node discovers its entire connected component.</li>
+  </ul>
+
+  <h3>BFS Code Examples</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'bfs-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'bfs-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'bfs-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'bfs-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="bfs-python">
+    <pre><span class="kw">from</span> astraeadb <span class="kw">import</span> <span class="ty">AstraeaClient</span>
+
+<span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># First, find Alice's node ID</span>
+    alice = client.<span class="fn">query</span>(<span class="str">'MATCH (n:Person {name: "Alice"}) RETURN id(n)'</span>)
+    alice_id = alice[<span class="str">"rows"</span>][<span class="num">0</span>][<span class="num">0</span>]
+
+    <span class="cm"># Run BFS from Alice, up to 3 hops deep</span>
+    result = client.<span class="fn">bfs</span>(alice_id, max_depth=<span class="num">3</span>)
+
+    <span class="cm"># Group results by depth</span>
+    <span class="fn">print</span>(<span class="str">"BFS from Alice:"</span>)
+    <span class="kw">for</span> entry <span class="kw">in</span> result:
+        <span class="fn">print</span>(<span class="str">f"  Depth </span>{entry[<span class="str">'depth'</span>]}<span class="str">: Node </span>{entry[<span class="str">'node_id'</span>]}<span class="str">"</span>)
+
+    <span class="cm"># Example output:</span>
+    <span class="cm"># BFS from Alice:</span>
+    <span class="cm">#   Depth 0: Node 0     (Alice herself)</span>
+    <span class="cm">#   Depth 1: Node 1     (Bob)</span>
+    <span class="cm">#   Depth 1: Node 2     (Carol)</span>
+    <span class="cm">#   Depth 1: Node 3     (Dave)</span>
+    <span class="cm">#   Depth 2: Node 4     (Eve)</span>
+    <span class="cm">#   Depth 2: Node 5     (Frank)</span>
+    <span class="cm">#   Depth 2: Node 6     (Grace)</span>
+    <span class="cm">#   Depth 3: Node 7     (Hank)</span>
+
+    <span class="cm"># Count nodes at each depth</span>
+    <span class="kw">from</span> collections <span class="kw">import</span> Counter
+    depth_counts = Counter(e[<span class="str">"depth"</span>] <span class="kw">for</span> e <span class="kw">in</span> result)
+    <span class="kw">for</span> depth, count <span class="kw">in</span> <span class="fn">sorted</span>(depth_counts.items()):
+        <span class="fn">print</span>(<span class="str">f"  Depth </span>{depth}<span class="str">: </span>{count}<span class="str"> node(s)"</span>)
+
+    <span class="cm"># Depth 0: 1 node(s)</span>
+    <span class="cm"># Depth 1: 3 node(s)</span>
+    <span class="cm"># Depth 2: 3 node(s)</span>
+    <span class="cm"># Depth 3: 1 node(s)</span></pre>
+  </div>
+  <div class="lang-panel" id="bfs-r">
+    <pre><span class="fn">library</span>(astraeadb)
+
+client <span class="kw">&lt;-</span> <span class="fn">astraea_client</span>()
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Find Alice's node ID</span>
+alice <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'MATCH (n:Person {name: "Alice"}) RETURN id(n)'</span>)
+alice_id <span class="kw">&lt;-</span> alice<span class="kw">$</span>rows[<span class="num">1</span>, <span class="num">1</span>]
+
+<span class="cm"># Run BFS from Alice, up to 3 hops deep</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">bfs</span>(alice_id, max_depth = <span class="num">3</span>)
+
+<span class="cm"># Print results</span>
+<span class="fn">cat</span>(<span class="str">"BFS from Alice:\n"</span>)
+<span class="kw">for</span> (i <span class="kw">in</span> <span class="fn">seq_len</span>(<span class="fn">nrow</span>(result))) {
+    <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"  Depth %d: Node %d\n"</span>,
+        result[i, <span class="str">"depth"</span>], result[i, <span class="str">"node_id"</span>]))
+}
+
+<span class="cm"># Count nodes at each depth</span>
+depth_counts <span class="kw">&lt;-</span> <span class="fn">table</span>(result<span class="kw">$</span>depth)
+<span class="fn">print</span>(depth_counts)
+<span class="cm"># 0 1 2 3</span>
+<span class="cm"># 1 3 3 1</span>
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="bfs-go">
+    <pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    ctx := context.<span class="fn">Background</span>()
+    client := astraeadb.<span class="fn">NewClient</span>(
+        astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+    )
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Find Alice's node ID</span>
+    alice, _ := client.<span class="fn">Query</span>(ctx,
+        <span class="str">`MATCH (n:Person {name: "Alice"}) RETURN id(n)`</span>)
+    aliceID := alice.Rows[<span class="num">0</span>][<span class="num">0</span>].(<span class="ty">int64</span>)
+
+    <span class="cm">// Run BFS from Alice, up to 3 hops deep</span>
+    result, _ := client.<span class="fn">BFS</span>(ctx, aliceID, <span class="num">3</span>)
+
+    fmt.<span class="fn">Println</span>(<span class="str">"BFS from Alice:"</span>)
+    <span class="kw">for</span> _, entry := <span class="kw">range</span> result {
+        fmt.<span class="fn">Printf</span>(<span class="str">"  Depth %d: Node %d\n"</span>,
+            entry.Depth, entry.NodeID)
+    }
+
+    <span class="cm">// Count nodes at each depth</span>
+    counts := <span class="kw">make</span>(<span class="kw">map</span>[<span class="ty">int</span>]<span class="ty">int</span>)
+    <span class="kw">for</span> _, entry := <span class="kw">range</span> result {
+        counts[entry.Depth]++
+    }
+    <span class="kw">for</span> depth := <span class="num">0</span>; depth &lt;= <span class="num">3</span>; depth++ {
+        fmt.<span class="fn">Printf</span>(<span class="str">"  Depth %d: %d node(s)\n"</span>,
+            depth, counts[depth])
+    }
+}</pre>
+  </div>
+  <div class="lang-panel" id="bfs-java">
+    <pre><span class="kw">import</span> com.astraeadb.unified.<span class="ty">UnifiedClient</span>;
+<span class="kw">import</span> com.astraeadb.unified.<span class="ty">TraversalEntry</span>;
+<span class="kw">import</span> java.util.<span class="ty">List</span>;
+<span class="kw">import</span> java.util.stream.<span class="ty">Collectors</span>;
+
+<span class="kw">public class</span> <span class="ty">BFSExample</span> {
+    <span class="kw">public static void</span> <span class="fn">main</span>(<span class="ty">String</span>[] args) {
+        <span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+                .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">build</span>()) {
+            client.<span class="fn">connect</span>();
+
+            <span class="cm">// Find Alice's node ID</span>
+            <span class="kw">var</span> alice = client.<span class="fn">query</span>(
+                <span class="str">"MATCH (n:Person {name: \"Alice\"}) RETURN id(n)"</span>);
+            <span class="kw">long</span> aliceId = ((<span class="ty">Number</span>) alice.<span class="fn">rows</span>()
+                .<span class="fn">get</span>(<span class="num">0</span>).<span class="fn">get</span>(<span class="num">0</span>)).<span class="fn">longValue</span>();
+
+            <span class="cm">// Run BFS from Alice, up to 3 hops deep</span>
+            <span class="ty">List</span>&lt;<span class="ty">TraversalEntry</span>&gt; result =
+                client.<span class="fn">bfs</span>(aliceId, <span class="num">3</span>);
+
+            <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"BFS from Alice:"</span>);
+            <span class="kw">for</span> (<span class="kw">var</span> entry : result) {
+                <span class="ty">System</span>.out.<span class="fn">printf</span>(
+                    <span class="str">"  Depth %d: Node %d%n"</span>,
+                    entry.<span class="fn">depth</span>(), entry.<span class="fn">nodeId</span>());
+            }
+
+            <span class="cm">// Count nodes at each depth</span>
+            <span class="kw">var</span> counts = result.<span class="fn">stream</span>()
+                .<span class="fn">collect</span>(<span class="ty">Collectors</span>.<span class="fn">groupingBy</span>(
+                    <span class="ty">TraversalEntry</span>::depth,
+                    <span class="ty">Collectors</span>.<span class="fn">counting</span>()));
+            counts.<span class="fn">forEach</span>((depth, count) -&gt;
+                <span class="ty">System</span>.out.<span class="fn">printf</span>(
+                    <span class="str">"  Depth %d: %d node(s)%n"</span>,
+                    depth, count));
+        }
+    }
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 6.2 DFS -->
+  <!-- ================================================================== -->
+  <h2>6.2 Depth-First Search (DFS)</h2>
+
+  <p>
+    <strong>Depth-First Search</strong> takes the opposite approach from BFS: instead of exploring
+    level by level, it follows a single path as deep as possible before backtracking to explore
+    alternative branches.
+  </p>
+
+  <h3>BFS vs. DFS: Visual Comparison</h3>
+
+  <div class="diagram">  Same graph, different traversal orders:
+
+         Alice
+        / | \
+       /  |  \
+     Bob  Carol  Dave
+      |    |      |
+     Eve  Frank  Grace
+           |
+          Hank
+
+  BFS order:  Alice, Bob, Carol, Dave, Eve, Frank, Grace, Hank
+              (level by level, left to right)
+
+  DFS order:  Alice, Bob, Eve, Carol, Frank, Hank, Dave, Grace
+              (follows each branch to its deepest point first)
+
+  Visualization of DFS path:
+
+  Alice &rarr; Bob &rarr; Eve (dead end, backtrack)
+                  &rarr; Carol &rarr; Frank &rarr; Hank (dead end, backtrack)
+                                          &rarr; Dave &rarr; Grace (done)</div>
+
+  <h3>The DFS API</h3>
+
+  <div class="info-box info">
+    <strong>Note</strong>
+    DFS is available through the general traversal API. The method signature mirrors BFS,
+    but the exploration strategy is depth-first rather than breadth-first.
+  </div>
+
+  <pre>result = client.<span class="fn">dfs</span>(start_node_id, max_depth=<span class="num">3</span>)</pre>
+
+  <p>Returns the same structure as BFS: a list of <code>{node_id, depth}</code> entries, but in DFS visit order.</p>
+
+  <h3>When to Use DFS</h3>
+  <ul>
+    <li><strong>Cycle detection:</strong> DFS naturally detects back-edges, which indicate cycles in directed graphs.</li>
+    <li><strong>Topological sorting:</strong> Post-order DFS produces a topological ordering of a DAG.</li>
+    <li><strong>Exhaustive path enumeration:</strong> DFS explores every possible path, making it ideal for finding all routes between two nodes.</li>
+    <li><strong>Memory efficiency:</strong> DFS uses O(depth) memory, while BFS uses O(branching_factor^depth). For very wide graphs, DFS is more memory-efficient.</li>
+  </ul>
+
+  <h3>Choosing Between BFS and DFS</h3>
+  <table>
+    <thead>
+      <tr><th>Criterion</th><th>BFS</th><th>DFS</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Finds shortest path?</td><td>Yes (unweighted)</td><td>No</td></tr>
+      <tr><td>Memory usage</td><td>O(branching^depth)</td><td>O(depth)</td></tr>
+      <tr><td>Explores nearest first?</td><td>Yes</td><td>No</td></tr>
+      <tr><td>Detects cycles?</td><td>Possible</td><td>Natural fit</td></tr>
+      <tr><td>Topological sort?</td><td>No</td><td>Yes (post-order)</td></tr>
+      <tr><td>Exhaustive path search?</td><td>Expensive</td><td>Natural fit</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ================================================================== -->
+  <!-- 6.3 Shortest Path -->
+  <!-- ================================================================== -->
+  <h2>6.3 Shortest Path (Unweighted)</h2>
+
+  <p>
+    The unweighted shortest path finds the path between two nodes that uses the <strong>fewest hops</strong>.
+    Under the hood, this is implemented as a BFS from the source node that terminates as soon as the
+    target is reached.
+  </p>
+
+  <h3>The Shortest Path API</h3>
+
+  <pre>result = client.<span class="fn">shortest_path</span>(from_node, to_node)</pre>
+
+  <p>The return value contains:</p>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>path</code></td><td>List of integers</td><td>Ordered list of node IDs from source to target</td></tr>
+      <tr><td><code>length</code></td><td>Integer</td><td>Number of edges in the path</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example: Degrees of Separation</h3>
+  <p>
+    A classic use case: finding the shortest connection between two actors in a movie database.
+    How many "hops" separate Keanu Reeves from Tom Hanks?
+  </p>
+
+  <div class="diagram">  Shortest path: Keanu &rarr; The Matrix &rarr; Hugo Weaving &rarr; Cloud Atlas &rarr; Tom Hanks
+
+  Keanu Reeves                              Tom Hanks
+      |                                         |
+  :ACTED_IN                                 :ACTED_IN
+      |                                         |
+      v                                         v
+  The Matrix  &lt;--:ACTED_IN-- Hugo Weaving --:ACTED_IN--&gt;  Cloud Atlas
+
+  Path: [keanu_id, matrix_id, hugo_id, cloud_atlas_id, tom_id]
+  Length: 4 edges</div>
+
+  <h3>Shortest Path Code Examples</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'sp-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'sp-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'sp-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'sp-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="sp-python">
+    <pre><span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Look up the node IDs for our two target people</span>
+    keanu = client.<span class="fn">query</span>(
+        <span class="str">'MATCH (n:Person {name: "Keanu"}) RETURN id(n)'</span>)
+    tom = client.<span class="fn">query</span>(
+        <span class="str">'MATCH (n:Person {name: "Tom Hanks"}) RETURN id(n)'</span>)
+
+    keanu_id = keanu[<span class="str">"rows"</span>][<span class="num">0</span>][<span class="num">0</span>]
+    tom_id   = tom[<span class="str">"rows"</span>][<span class="num">0</span>][<span class="num">0</span>]
+
+    <span class="cm"># Find the shortest path between them</span>
+    result = client.<span class="fn">shortest_path</span>(keanu_id, tom_id)
+
+    <span class="fn">print</span>(<span class="str">f"Path length: </span>{result[<span class="str">'length'</span>]}<span class="str"> hops"</span>)
+    <span class="fn">print</span>(<span class="str">f"Path: </span>{result[<span class="str">'path'</span>]}<span class="str">"</span>)
+
+    <span class="cm"># Resolve the node IDs to names for display</span>
+    <span class="kw">for</span> node_id <span class="kw">in</span> result[<span class="str">"path"</span>]:
+        info = client.<span class="fn">query</span>(
+            <span class="str">f"MATCH (n) WHERE id(n) = </span>{node_id}<span class="str"> RETURN labels(n), n.name"</span>)
+        labels, name = info[<span class="str">"rows"</span>][<span class="num">0</span>]
+        <span class="fn">print</span>(<span class="str">f"  </span>{node_id}<span class="str">: </span>{labels}<span class="str"> </span>{name}<span class="str">"</span>)
+
+    <span class="cm"># Output:</span>
+    <span class="cm"># Path length: 4 hops</span>
+    <span class="cm"># Path: [10, 20, 15, 25, 12]</span>
+    <span class="cm">#   10: ["Person"] Keanu</span>
+    <span class="cm">#   20: ["Movie"] The Matrix</span>
+    <span class="cm">#   15: ["Person"] Hugo Weaving</span>
+    <span class="cm">#   25: ["Movie"] Cloud Atlas</span>
+    <span class="cm">#   12: ["Person"] Tom Hanks</span></pre>
+  </div>
+  <div class="lang-panel" id="sp-r">
+    <pre>client <span class="kw">&lt;-</span> <span class="fn">astraea_client</span>()
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Look up node IDs</span>
+keanu <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'MATCH (n:Person {name: "Keanu"}) RETURN id(n)'</span>)
+tom   <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'MATCH (n:Person {name: "Tom Hanks"}) RETURN id(n)'</span>)
+
+keanu_id <span class="kw">&lt;-</span> keanu<span class="kw">$</span>rows[<span class="num">1</span>, <span class="num">1</span>]
+tom_id   <span class="kw">&lt;-</span> tom<span class="kw">$</span>rows[<span class="num">1</span>, <span class="num">1</span>]
+
+<span class="cm"># Find the shortest path</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">shortest_path</span>(keanu_id, tom_id)
+
+<span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"Path length: %d hops\n"</span>, result<span class="kw">$</span>length))
+<span class="fn">cat</span>(<span class="str">"Path:"</span>, result<span class="kw">$</span>path, <span class="str">"\n"</span>)
+
+<span class="cm"># Resolve node IDs to names</span>
+<span class="kw">for</span> (nid <span class="kw">in</span> result<span class="kw">$</span>path) {
+    info <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="fn">sprintf</span>(
+        <span class="str">"MATCH (n) WHERE id(n) = %d RETURN labels(n), n.name"</span>, nid))
+    <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"  %d: %s %s\n"</span>,
+        nid, info<span class="kw">$</span>rows[<span class="num">1</span>, <span class="num">1</span>], info<span class="kw">$</span>rows[<span class="num">1</span>, <span class="num">2</span>]))
+}
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="sp-go">
+    <pre>ctx := context.<span class="fn">Background</span>()
+client := astraeadb.<span class="fn">NewClient</span>(
+    astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+)
+client.<span class="fn">Connect</span>(ctx)
+<span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+<span class="cm">// Look up node IDs</span>
+keanu, _ := client.<span class="fn">Query</span>(ctx,
+    <span class="str">`MATCH (n:Person {name: "Keanu"}) RETURN id(n)`</span>)
+tom, _ := client.<span class="fn">Query</span>(ctx,
+    <span class="str">`MATCH (n:Person {name: "Tom Hanks"}) RETURN id(n)`</span>)
+
+keanuID := keanu.Rows[<span class="num">0</span>][<span class="num">0</span>].(<span class="ty">int64</span>)
+tomID   := tom.Rows[<span class="num">0</span>][<span class="num">0</span>].(<span class="ty">int64</span>)
+
+<span class="cm">// Find the shortest path</span>
+result, _ := client.<span class="fn">ShortestPath</span>(ctx, keanuID, tomID)
+
+fmt.<span class="fn">Printf</span>(<span class="str">"Path length: %d hops\n"</span>, result.Length)
+fmt.<span class="fn">Printf</span>(<span class="str">"Path: %v\n"</span>, result.Path)
+
+<span class="cm">// Resolve node IDs to names</span>
+<span class="kw">for</span> _, nodeID := <span class="kw">range</span> result.Path {
+    info, _ := client.<span class="fn">Query</span>(ctx, fmt.<span class="fn">Sprintf</span>(
+        <span class="str">"MATCH (n) WHERE id(n) = %d RETURN labels(n), n.name"</span>,
+        nodeID))
+    fmt.<span class="fn">Printf</span>(<span class="str">"  %d: %v %v\n"</span>,
+        nodeID, info.Rows[<span class="num">0</span>][<span class="num">0</span>], info.Rows[<span class="num">0</span>][<span class="num">1</span>])
+}</pre>
+  </div>
+  <div class="lang-panel" id="sp-java">
+    <pre><span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Look up node IDs</span>
+    <span class="kw">var</span> keanu = client.<span class="fn">query</span>(
+        <span class="str">"MATCH (n:Person {name: \"Keanu\"}) RETURN id(n)"</span>);
+    <span class="kw">var</span> tom = client.<span class="fn">query</span>(
+        <span class="str">"MATCH (n:Person {name: \"Tom Hanks\"}) RETURN id(n)"</span>);
+
+    <span class="kw">long</span> keanuId = ((<span class="ty">Number</span>) keanu.<span class="fn">rows</span>()
+        .<span class="fn">get</span>(<span class="num">0</span>).<span class="fn">get</span>(<span class="num">0</span>)).<span class="fn">longValue</span>();
+    <span class="kw">long</span> tomId = ((<span class="ty">Number</span>) tom.<span class="fn">rows</span>()
+        .<span class="fn">get</span>(<span class="num">0</span>).<span class="fn">get</span>(<span class="num">0</span>)).<span class="fn">longValue</span>();
+
+    <span class="cm">// Find the shortest path</span>
+    <span class="kw">var</span> result = client.<span class="fn">shortestPath</span>(keanuId, tomId);
+
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"Path length: %d hops%n"</span>,
+        result.<span class="fn">length</span>());
+    <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"Path: "</span> + result.<span class="fn">path</span>());
+
+    <span class="cm">// Resolve node IDs to names</span>
+    <span class="kw">for</span> (<span class="kw">long</span> nodeId : result.<span class="fn">path</span>()) {
+        <span class="kw">var</span> info = client.<span class="fn">query</span>(<span class="ty">String</span>.<span class="fn">format</span>(
+            <span class="str">"MATCH (n) WHERE id(n) = %d RETURN labels(n), n.name"</span>,
+            nodeId));
+        <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"  %d: %s %s%n"</span>,
+            nodeId,
+            info.<span class="fn">rows</span>().<span class="fn">get</span>(<span class="num">0</span>).<span class="fn">get</span>(<span class="num">0</span>),
+            info.<span class="fn">rows</span>().<span class="fn">get</span>(<span class="num">0</span>).<span class="fn">get</span>(<span class="num">1</span>));
+    }
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 6.4 Weighted Shortest Path (Dijkstra) -->
+  <!-- ================================================================== -->
+  <h2>6.4 Weighted Shortest Path (Dijkstra)</h2>
+
+  <p>
+    When edges carry <strong>weights</strong> (costs, distances, latencies, or strengths), the
+    shortest path is no longer the one with the fewest hops. Instead, it is the path whose
+    <em>total weight</em> is minimized. AstraeaDB uses <strong>Dijkstra's algorithm</strong>
+    for this purpose.
+  </p>
+
+  <h3>How Dijkstra's Algorithm Works</h3>
+  <p>
+    In accessible terms: imagine you are at an intersection and you can see the travel time to each
+    neighboring intersection. Dijkstra's algorithm always expands the node with the smallest
+    <em>total cumulative cost</em> so far. It keeps a priority queue of candidates and relaxes edges
+    greedily, guaranteeing the optimal solution when all weights are non-negative.
+  </p>
+
+  <div class="diagram">  Example: Find the cheapest route from A to E
+
+       A ---5--- B ---2--- E
+       |         |         ^
+       3         7         |
+       |         |         4
+       v         v         |
+       C ---1--- D --------+
+
+  Unweighted shortest path: A &rarr; B &rarr; E  (2 hops, cost = 5 + 2 = 7)
+  Weighted shortest path:   A &rarr; C &rarr; D &rarr; E  (3 hops, cost = 3 + 1 + 4 = 8)
+
+  Wait -- the unweighted path is actually cheaper here!
+  Let's adjust weights to show the difference:
+
+       A --10--- B ---8--- E
+       |         |         ^
+       2         9         |
+       |         |         3
+       v         v         |
+       C ---1--- D --------+
+
+  Unweighted shortest path: A &rarr; B &rarr; E  (2 hops, cost = 10 + 8 = 18)
+  Weighted shortest path:   A &rarr; C &rarr; D &rarr; E  (3 hops, cost = 2 + 1 + 3 = 6)</div>
+
+  <h3>The Weighted Shortest Path API</h3>
+
+  <pre>result = client.<span class="fn">shortest_path</span>(from_node, to_node, weighted=<span class="kw">True</span>)</pre>
+
+  <p>The return value contains:</p>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>path</code></td><td>List of integers</td><td>Ordered list of node IDs from source to target</td></tr>
+      <tr><td><code>cost</code></td><td>Float</td><td>Total accumulated weight along the path</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box warn">
+    <strong>Edge weight property</strong>
+    Dijkstra's algorithm reads the <code>weight</code> property from each edge. Make sure your edges
+    have a numeric <code>weight</code> property set when creating them. Edges without a <code>weight</code>
+    property default to a weight of 1.0.
+  </div>
+
+  <h3>Dijkstra Code Examples</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'dij-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'dij-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'dij-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'dij-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="dij-python">
+    <pre><span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Build a small routing graph with distance weights</span>
+    cities = {}
+    <span class="kw">for</span> name <span class="kw">in</span> [<span class="str">"London"</span>, <span class="str">"Paris"</span>, <span class="str">"Berlin"</span>, <span class="str">"Rome"</span>, <span class="str">"Madrid"</span>]:
+        cities[name] = client.<span class="fn">create_node</span>(
+            [<span class="str">"City"</span>], {<span class="str">"name"</span>: name})
+
+    <span class="cm"># Add routes with distance weights (km)</span>
+    routes = [
+        (<span class="str">"London"</span>,  <span class="str">"Paris"</span>,  <span class="num">340</span>),
+        (<span class="str">"Paris"</span>,   <span class="str">"Berlin"</span>, <span class="num">878</span>),
+        (<span class="str">"Paris"</span>,   <span class="str">"Rome"</span>,   <span class="num">1105</span>),
+        (<span class="str">"Berlin"</span>,  <span class="str">"Rome"</span>,   <span class="num">1181</span>),
+        (<span class="str">"London"</span>,  <span class="str">"Madrid"</span>, <span class="num">1264</span>),
+        (<span class="str">"Madrid"</span>,  <span class="str">"Rome"</span>,   <span class="num">1365</span>),
+        (<span class="str">"Madrid"</span>,  <span class="str">"Paris"</span>,  <span class="num">1054</span>),
+    ]
+    <span class="kw">for</span> src, dst, km <span class="kw">in</span> routes:
+        client.<span class="fn">create_edge</span>(
+            cities[src], cities[dst],
+            <span class="str">"ROUTE"</span>, {<span class="str">"weight"</span>: km})
+
+    <span class="cm"># Weighted shortest path: London to Rome</span>
+    result = client.<span class="fn">shortest_path</span>(
+        cities[<span class="str">"London"</span>], cities[<span class="str">"Rome"</span>],
+        weighted=<span class="kw">True</span>)
+
+    <span class="fn">print</span>(<span class="str">f"Total distance: </span>{result[<span class="str">'cost'</span>]}<span class="str"> km"</span>)
+    <span class="fn">print</span>(<span class="str">f"Path: </span>{result[<span class="str">'path'</span>]}<span class="str">"</span>)
+
+    <span class="cm"># Output:</span>
+    <span class="cm"># Total distance: 1445 km</span>
+    <span class="cm"># Path: [london_id, paris_id, rome_id]</span>
+    <span class="cm"># (London &rarr; Paris: 340km, Paris &rarr; Rome: 1105km)</span>
+
+    <span class="cm"># Compare with unweighted (fewest hops)</span>
+    unweighted = client.<span class="fn">shortest_path</span>(
+        cities[<span class="str">"London"</span>], cities[<span class="str">"Rome"</span>])
+    <span class="fn">print</span>(<span class="str">f"Unweighted hops: </span>{unweighted[<span class="str">'length'</span>]}<span class="str">"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="dij-r">
+    <pre>client <span class="kw">&lt;-</span> <span class="fn">astraea_client</span>()
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Build a routing graph with distance weights</span>
+cities <span class="kw">&lt;-</span> <span class="fn">list</span>()
+<span class="kw">for</span> (name <span class="kw">in</span> <span class="fn">c</span>(<span class="str">"London"</span>, <span class="str">"Paris"</span>, <span class="str">"Berlin"</span>, <span class="str">"Rome"</span>, <span class="str">"Madrid"</span>)) {
+    cities[[name]] <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+        <span class="fn">list</span>(<span class="str">"City"</span>), <span class="fn">list</span>(name = name))
+}
+
+<span class="cm"># Add routes with distance weights (km)</span>
+client<span class="kw">$</span><span class="fn">create_edge</span>(cities[[<span class="str">"London"</span>]],  cities[[<span class="str">"Paris"</span>]],
+    <span class="str">"ROUTE"</span>, <span class="fn">list</span>(weight = <span class="num">340</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(cities[[<span class="str">"Paris"</span>]],   cities[[<span class="str">"Berlin"</span>]],
+    <span class="str">"ROUTE"</span>, <span class="fn">list</span>(weight = <span class="num">878</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(cities[[<span class="str">"Paris"</span>]],   cities[[<span class="str">"Rome"</span>]],
+    <span class="str">"ROUTE"</span>, <span class="fn">list</span>(weight = <span class="num">1105</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(cities[[<span class="str">"Berlin"</span>]],  cities[[<span class="str">"Rome"</span>]],
+    <span class="str">"ROUTE"</span>, <span class="fn">list</span>(weight = <span class="num">1181</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(cities[[<span class="str">"London"</span>]],  cities[[<span class="str">"Madrid"</span>]],
+    <span class="str">"ROUTE"</span>, <span class="fn">list</span>(weight = <span class="num">1264</span>))
+client<span class="kw">$</span><span class="fn">create_edge</span>(cities[[<span class="str">"Madrid"</span>]],  cities[[<span class="str">"Rome"</span>]],
+    <span class="str">"ROUTE"</span>, <span class="fn">list</span>(weight = <span class="num">1365</span>))
+
+<span class="cm"># Weighted shortest path: London to Rome</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">shortest_path</span>(
+    cities[[<span class="str">"London"</span>]], cities[[<span class="str">"Rome"</span>]],
+    weighted = <span class="kw">TRUE</span>)
+
+<span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"Total distance: %g km\n"</span>, result<span class="kw">$</span>cost))
+<span class="fn">cat</span>(<span class="str">"Path:"</span>, result<span class="kw">$</span>path, <span class="str">"\n"</span>)
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="dij-go">
+    <pre>ctx := context.<span class="fn">Background</span>()
+client := astraeadb.<span class="fn">NewClient</span>(
+    astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+)
+client.<span class="fn">Connect</span>(ctx)
+<span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+<span class="cm">// Create city nodes</span>
+london, _  := client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"City"</span>},
+    <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"name"</span>: <span class="str">"London"</span>}, <span class="kw">nil</span>)
+paris, _   := client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"City"</span>},
+    <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"name"</span>: <span class="str">"Paris"</span>}, <span class="kw">nil</span>)
+rome, _    := client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"City"</span>},
+    <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"name"</span>: <span class="str">"Rome"</span>}, <span class="kw">nil</span>)
+
+<span class="cm">// Add weighted routes</span>
+client.<span class="fn">CreateEdge</span>(ctx, london, paris, <span class="str">"ROUTE"</span>,
+    <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"weight"</span>: <span class="num">340.0</span>})
+client.<span class="fn">CreateEdge</span>(ctx, paris, rome, <span class="str">"ROUTE"</span>,
+    <span class="kw">map</span>[<span class="ty">string</span>]<span class="ty">any</span>{<span class="str">"weight"</span>: <span class="num">1105.0</span>})
+
+<span class="cm">// Weighted shortest path: London to Rome</span>
+result, _ := client.<span class="fn">ShortestPath</span>(ctx, london, rome,
+    astraeadb.<span class="fn">WithWeighted</span>(<span class="kw">true</span>))
+
+fmt.<span class="fn">Printf</span>(<span class="str">"Total distance: %.0f km\n"</span>, result.Cost)
+fmt.<span class="fn">Printf</span>(<span class="str">"Path: %v\n"</span>, result.Path)</pre>
+  </div>
+  <div class="lang-panel" id="dij-java">
+    <pre><span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Create city nodes</span>
+    <span class="kw">long</span> london = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"City"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"London"</span>), <span class="kw">null</span>);
+    <span class="kw">long</span> paris = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"City"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Paris"</span>), <span class="kw">null</span>);
+    <span class="kw">long</span> rome = client.<span class="fn">createNode</span>(
+        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"City"</span>),
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Rome"</span>), <span class="kw">null</span>);
+
+    <span class="cm">// Add weighted routes</span>
+    client.<span class="fn">createEdge</span>(london, paris, <span class="str">"ROUTE"</span>,
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"weight"</span>, <span class="num">340.0</span>));
+    client.<span class="fn">createEdge</span>(paris, rome, <span class="str">"ROUTE"</span>,
+        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"weight"</span>, <span class="num">1105.0</span>));
+
+    <span class="cm">// Weighted shortest path: London to Rome</span>
+    <span class="kw">var</span> result = client.<span class="fn">shortestPath</span>(
+        london, rome, <span class="kw">true</span>); <span class="cm">// weighted=true</span>
+
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(
+        <span class="str">"Total distance: %.0f km%n"</span>, result.<span class="fn">cost</span>());
+    <span class="ty">System</span>.out.<span class="fn">println</span>(
+        <span class="str">"Path: "</span> + result.<span class="fn">path</span>());
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 6.5 Neighbor Queries -->
+  <!-- ================================================================== -->
+  <h2>6.5 Neighbor Queries</h2>
+
+  <p>
+    Sometimes you do not need a full traversal&mdash;you just want to know what is immediately
+    connected to a node. The <strong>neighbor query</strong> API gives you direct access to a
+    node's local neighborhood with optional filtering by direction and edge type.
+  </p>
+
+  <h3>The Neighbors API</h3>
+
+  <pre>result = client.<span class="fn">neighbors</span>(
+    node_id,
+    direction=<span class="str">"outgoing"</span>,   <span class="cm"># "outgoing", "incoming", or "both"</span>
+    edge_type=<span class="str">"KNOWS"</span>       <span class="cm"># optional: filter by relationship type</span>
+)</pre>
+
+  <h3>Direction Parameter</h3>
+  <table>
+    <thead>
+      <tr><th>Direction</th><th>Meaning</th><th>Diagram</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>"outgoing"</code></td>
+        <td>Nodes that this node points <em>to</em></td>
+        <td><code>(node) --&gt; (neighbor)</code></td>
+      </tr>
+      <tr>
+        <td><code>"incoming"</code></td>
+        <td>Nodes that point <em>to</em> this node</td>
+        <td><code>(neighbor) --&gt; (node)</code></td>
+      </tr>
+      <tr>
+        <td><code>"both"</code></td>
+        <td>All connected nodes regardless of direction</td>
+        <td><code>(neighbor) &lt;--&gt; (node)</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Filtering by Edge Type</h3>
+  <p>
+    The optional <code>edge_type</code> parameter restricts results to neighbors connected by a
+    specific relationship type. This is especially useful when nodes have many different kinds
+    of connections.
+  </p>
+
+  <div class="diagram">  Alice has multiple edge types:
+
+         :KNOWS              :ACTED_IN            :LIVES_IN
+  Alice --------&gt; Bob   Alice ----------&gt; Matrix   Alice ----------&gt; London
+
+  neighbors(alice_id, direction="outgoing")
+  &rarr; [Bob, Matrix, London]   (all outgoing)
+
+  neighbors(alice_id, direction="outgoing", edge_type="KNOWS")
+  &rarr; [Bob]                   (only KNOWS edges)
+
+  neighbors(alice_id, direction="outgoing", edge_type="ACTED_IN")
+  &rarr; [Matrix]                (only ACTED_IN edges)</div>
+
+  <h3>Neighbor Query Code Examples</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'nb-python')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'nb-r')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'nb-go')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'nb-java')">Java</button>
+  </div>
+  <div class="lang-panel active" id="nb-python">
+    <pre><span class="kw">with</span> <span class="ty">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Find Alice's node ID</span>
+    alice = client.<span class="fn">query</span>(
+        <span class="str">'MATCH (n:Person {name: "Alice"}) RETURN id(n)'</span>)
+    alice_id = alice[<span class="str">"rows"</span>][<span class="num">0</span>][<span class="num">0</span>]
+
+    <span class="cm"># All outgoing neighbors</span>
+    all_out = client.<span class="fn">neighbors</span>(alice_id, direction=<span class="str">"outgoing"</span>)
+    <span class="fn">print</span>(<span class="str">"All outgoing neighbors:"</span>)
+    <span class="kw">for</span> n <span class="kw">in</span> all_out:
+        <span class="fn">print</span>(<span class="str">f"  Node </span>{n[<span class="str">'node_id'</span>]}<span class="str"> via </span>{n[<span class="str">'edge_type'</span>]}<span class="str">"</span>)
+
+    <span class="cm"># Only KNOWS relationships</span>
+    friends = client.<span class="fn">neighbors</span>(
+        alice_id, direction=<span class="str">"outgoing"</span>, edge_type=<span class="str">"KNOWS"</span>)
+    <span class="fn">print</span>(<span class="str">f"\nAlice knows </span>{<span class="fn">len</span>(friends)}<span class="str"> people:"</span>)
+    <span class="kw">for</span> f <span class="kw">in</span> friends:
+        <span class="cm"># Resolve the neighbor's name</span>
+        info = client.<span class="fn">query</span>(
+            <span class="str">f"MATCH (n) WHERE id(n) = </span>{f[<span class="str">'node_id'</span>]}<span class="str"> RETURN n.name"</span>)
+        <span class="fn">print</span>(<span class="str">f"  </span>{info[<span class="str">'rows'</span>][<span class="num">0</span>][<span class="num">0</span>]}<span class="str">"</span>)
+
+    <span class="cm"># Incoming neighbors (who knows Alice?)</span>
+    admirers = client.<span class="fn">neighbors</span>(
+        alice_id, direction=<span class="str">"incoming"</span>, edge_type=<span class="str">"KNOWS"</span>)
+    <span class="fn">print</span>(<span class="str">f"\n</span>{<span class="fn">len</span>(admirers)}<span class="str"> people know Alice"</span>)
+
+    <span class="cm"># Both directions (full neighborhood)</span>
+    all_connected = client.<span class="fn">neighbors</span>(
+        alice_id, direction=<span class="str">"both"</span>)
+    <span class="fn">print</span>(<span class="str">f"\nTotal connections: </span>{<span class="fn">len</span>(all_connected)}<span class="str">"</span>)
+
+    <span class="cm"># Example output:</span>
+    <span class="cm"># All outgoing neighbors:</span>
+    <span class="cm">#   Node 1 via KNOWS</span>
+    <span class="cm">#   Node 2 via KNOWS</span>
+    <span class="cm">#   Node 20 via ACTED_IN</span>
+    <span class="cm">#</span>
+    <span class="cm"># Alice knows 2 people:</span>
+    <span class="cm">#   Bob</span>
+    <span class="cm">#   Carol</span>
+    <span class="cm">#</span>
+    <span class="cm"># 1 people know Alice</span>
+    <span class="cm">#</span>
+    <span class="cm"># Total connections: 4</span></pre>
+  </div>
+  <div class="lang-panel" id="nb-r">
+    <pre>client <span class="kw">&lt;-</span> <span class="fn">astraea_client</span>()
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Find Alice's node ID</span>
+alice <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="str">'MATCH (n:Person {name: "Alice"}) RETURN id(n)'</span>)
+alice_id <span class="kw">&lt;-</span> alice<span class="kw">$</span>rows[<span class="num">1</span>, <span class="num">1</span>]
+
+<span class="cm"># All outgoing neighbors</span>
+all_out <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">neighbors</span>(alice_id, direction = <span class="str">"outgoing"</span>)
+<span class="fn">cat</span>(<span class="str">"All outgoing neighbors:\n"</span>)
+<span class="kw">for</span> (i <span class="kw">in</span> <span class="fn">seq_along</span>(all_out)) {
+    <span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"  Node %d via %s\n"</span>,
+        all_out[[i]]<span class="kw">$</span>node_id, all_out[[i]]<span class="kw">$</span>edge_type))
+}
+
+<span class="cm"># Only KNOWS relationships</span>
+friends <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">neighbors</span>(
+    alice_id, direction = <span class="str">"outgoing"</span>, edge_type = <span class="str">"KNOWS"</span>)
+<span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"\nAlice knows %d people:\n"</span>, <span class="fn">length</span>(friends)))
+<span class="kw">for</span> (f <span class="kw">in</span> friends) {
+    info <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="fn">sprintf</span>(
+        <span class="str">"MATCH (n) WHERE id(n) = %d RETURN n.name"</span>, f<span class="kw">$</span>node_id))
+    <span class="fn">cat</span>(<span class="str">"  "</span>, info<span class="kw">$</span>rows[<span class="num">1</span>, <span class="num">1</span>], <span class="str">"\n"</span>)
+}
+
+<span class="cm"># Incoming neighbors</span>
+admirers <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">neighbors</span>(
+    alice_id, direction = <span class="str">"incoming"</span>, edge_type = <span class="str">"KNOWS"</span>)
+<span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"\n%d people know Alice\n"</span>, <span class="fn">length</span>(admirers)))
+
+<span class="cm"># Both directions</span>
+all_connected <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">neighbors</span>(
+    alice_id, direction = <span class="str">"both"</span>)
+<span class="fn">cat</span>(<span class="fn">sprintf</span>(<span class="str">"Total connections: %d\n"</span>, <span class="fn">length</span>(all_connected)))
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="nb-go">
+    <pre>ctx := context.<span class="fn">Background</span>()
+client := astraeadb.<span class="fn">NewClient</span>(
+    astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
+)
+client.<span class="fn">Connect</span>(ctx)
+<span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+<span class="cm">// Find Alice's node ID</span>
+alice, _ := client.<span class="fn">Query</span>(ctx,
+    <span class="str">`MATCH (n:Person {name: "Alice"}) RETURN id(n)`</span>)
+aliceID := alice.Rows[<span class="num">0</span>][<span class="num">0</span>].(<span class="ty">int64</span>)
+
+<span class="cm">// All outgoing neighbors</span>
+allOut, _ := client.<span class="fn">Neighbors</span>(ctx, aliceID,
+    astraeadb.<span class="fn">DirectionOutgoing</span>)
+
+fmt.<span class="fn">Println</span>(<span class="str">"All outgoing neighbors:"</span>)
+<span class="kw">for</span> _, n := <span class="kw">range</span> allOut {
+    fmt.<span class="fn">Printf</span>(<span class="str">"  Node %d via %s\n"</span>,
+        n.NodeID, n.EdgeType)
+}
+
+<span class="cm">// Only KNOWS relationships</span>
+friends, _ := client.<span class="fn">Neighbors</span>(ctx, aliceID,
+    astraeadb.<span class="fn">DirectionOutgoing</span>,
+    astraeadb.<span class="fn">WithEdgeType</span>(<span class="str">"KNOWS"</span>))
+
+fmt.<span class="fn">Printf</span>(<span class="str">"\nAlice knows %d people:\n"</span>, <span class="fn">len</span>(friends))
+<span class="kw">for</span> _, f := <span class="kw">range</span> friends {
+    info, _ := client.<span class="fn">Query</span>(ctx, fmt.<span class="fn">Sprintf</span>(
+        <span class="str">"MATCH (n) WHERE id(n) = %d RETURN n.name"</span>,
+        f.NodeID))
+    fmt.<span class="fn">Printf</span>(<span class="str">"  %v\n"</span>, info.Rows[<span class="num">0</span>][<span class="num">0</span>])
+}
+
+<span class="cm">// Both directions</span>
+allConnected, _ := client.<span class="fn">Neighbors</span>(ctx, aliceID,
+    astraeadb.<span class="fn">DirectionBoth</span>)
+fmt.<span class="fn">Printf</span>(<span class="str">"\nTotal connections: %d\n"</span>,
+    <span class="fn">len</span>(allConnected))</pre>
+  </div>
+  <div class="lang-panel" id="nb-java">
+    <pre><span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Find Alice's node ID</span>
+    <span class="kw">var</span> alice = client.<span class="fn">query</span>(
+        <span class="str">"MATCH (n:Person {name: \"Alice\"}) RETURN id(n)"</span>);
+    <span class="kw">long</span> aliceId = ((<span class="ty">Number</span>) alice.<span class="fn">rows</span>()
+        .<span class="fn">get</span>(<span class="num">0</span>).<span class="fn">get</span>(<span class="num">0</span>)).<span class="fn">longValue</span>();
+
+    <span class="cm">// All outgoing neighbors</span>
+    <span class="kw">var</span> allOut = client.<span class="fn">neighbors</span>(
+        aliceId, <span class="str">"outgoing"</span>, <span class="kw">null</span>);
+
+    <span class="ty">System</span>.out.<span class="fn">println</span>(<span class="str">"All outgoing neighbors:"</span>);
+    <span class="kw">for</span> (<span class="kw">var</span> n : allOut) {
+        <span class="ty">System</span>.out.<span class="fn">printf</span>(<span class="str">"  Node %d via %s%n"</span>,
+            n.<span class="fn">nodeId</span>(), n.<span class="fn">edgeType</span>());
+    }
+
+    <span class="cm">// Only KNOWS relationships</span>
+    <span class="kw">var</span> friends = client.<span class="fn">neighbors</span>(
+        aliceId, <span class="str">"outgoing"</span>, <span class="str">"KNOWS"</span>);
+
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(
+        <span class="str">"%nAlice knows %d people:%n"</span>,
+        friends.<span class="fn">size</span>());
+    <span class="kw">for</span> (<span class="kw">var</span> f : friends) {
+        <span class="kw">var</span> info = client.<span class="fn">query</span>(<span class="ty">String</span>.<span class="fn">format</span>(
+            <span class="str">"MATCH (n) WHERE id(n) = %d RETURN n.name"</span>,
+            f.<span class="fn">nodeId</span>()));
+        <span class="ty">System</span>.out.<span class="fn">println</span>(
+            <span class="str">"  "</span> + info.<span class="fn">rows</span>().<span class="fn">get</span>(<span class="num">0</span>).<span class="fn">get</span>(<span class="num">0</span>));
+    }
+
+    <span class="cm">// Both directions</span>
+    <span class="kw">var</span> allConnected = client.<span class="fn">neighbors</span>(
+        aliceId, <span class="str">"both"</span>, <span class="kw">null</span>);
+    <span class="ty">System</span>.out.<span class="fn">printf</span>(
+        <span class="str">"%nTotal connections: %d%n"</span>,
+        allConnected.<span class="fn">size</span>());
+}</pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- Summary -->
+  <!-- ================================================================== -->
+  <h2>Chapter Summary</h2>
+
+  <div class="info-box tip">
+    <strong>Key Takeaways</strong>
+    <ul style="margin-top: 8px;">
+      <li><strong>BFS</strong> explores level by level. Use it for shortest paths (unweighted), bounded exploration, and discovering connected components.</li>
+      <li><strong>DFS</strong> dives deep before backtracking. Use it for cycle detection, topological sorting, and exhaustive path enumeration.</li>
+      <li><strong>Shortest Path (unweighted)</strong> finds the fewest-hop path between two nodes. It is a specialized BFS that stops at the target.</li>
+      <li><strong>Dijkstra (weighted)</strong> finds the lowest-cost path when edges have weights. Always reads the <code>weight</code> property from edges.</li>
+      <li><strong>Neighbor Queries</strong> give direct access to a node's local neighborhood, filterable by direction (<code>outgoing</code>, <code>incoming</code>, <code>both</code>) and edge type.</li>
+    </ul>
+  </div>
+
+  <p>
+    These traversal primitives are the foundation for everything that follows. In the next chapter,
+    we explore the <strong>transport protocols</strong> (JSON-TCP, gRPC, Arrow Flight) that carry
+    these operations between your application and the AstraeaDB server.
+  </p>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch05.html">&larr; Chapter 5: The GQL Query Language</a>
+    <a href="gentle-intro-ch07.html">Chapter 7: Transport Protocols &rarr;</a>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>AstraeaDB &copy; 2025. Built with Rust. Licensed under <a href="https://github.com/jimeharrisjr/graph-astraeadb/blob/main/LICENSE">MIT</a>.</p>
+</footer>
+
+<script>
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+</script>
+</body>
+</html>

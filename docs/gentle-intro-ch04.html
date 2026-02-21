@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 4: Your First Graph - AstraeaDB Gentle Introduction</title>
+<link rel="stylesheet" href="gentle-intro.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="index.html" class="topnav-logo"><img src="assets/logo.png" alt="AstraeaDB">Astraea<span>DB</span></a>
+  <div class="topnav-links">
+    <a href="index.html">Home</a>
+    <a href="gentle-intro.html">Gentle Introduction</a>
+    <a href="wiki.html">Wiki</a>
+    <a href="https://github.com/jimeharrisjr/graph-astraeadb" class="btn-nav">GitHub</a>
+  </div>
+</nav>
+<button class="menu-toggle">&#9776;</button>
+
+<aside class="sidebar">
+  <div class="part-label">Part I: Foundations</div>
+  <a href="gentle-intro-ch01.html">1. Why Graphs?</a>
+  <a href="gentle-intro-ch02.html">2. The Graph Database Landscape</a>
+  <div class="sep"></div>
+  <div class="part-label">Part II: Getting Started</div>
+  <a href="gentle-intro-ch03.html">3. Installation and Setup</a>
+  <a href="gentle-intro-ch04.html" class="active">4. Your First Graph</a>
+  <div class="sep"></div>
+  <div class="part-label">Part III: Intermediate</div>
+  <a href="gentle-intro-ch05.html">5. Schema and Data Modeling</a>
+  <a href="gentle-intro-ch06.html">6. Querying in Depth</a>
+  <a href="gentle-intro-ch07.html">7. Indexing and Performance</a>
+  <div class="sep"></div>
+  <div class="part-label">Part IV: Advanced</div>
+  <a href="gentle-intro-ch08.html">8. Vector Embeddings</a>
+  <a href="gentle-intro-ch09.html">9. Graph Algorithms</a>
+  <a href="gentle-intro-ch10.html">10. Temporal Graphs</a>
+  <a href="gentle-intro-ch11.html">11. Graph Neural Networks</a>
+  <a href="gentle-intro-ch12.html">12. GraphRAG</a>
+  <div class="sep"></div>
+  <div class="part-label">Part V: Production</div>
+  <a href="gentle-intro-ch13.html">13. Clustering and Sharding</a>
+  <a href="gentle-intro-ch14.html">14. Security and Encryption</a>
+  <a href="gentle-intro-ch15.html">15. Monitoring and Tuning</a>
+  <div class="sep"></div>
+  <div class="part-label">Appendices</div>
+  <a href="gentle-intro-appA.html">A. GQL Reference</a>
+  <a href="gentle-intro-appB.html">B. Configuration Options</a>
+  <a href="gentle-intro-appC.html">C. Troubleshooting</a>
+</aside>
+
+<div class="main">
+
+  <h1>Chapter 4: Your First Graph</h1>
+  <p class="subtitle">Build a movie database from scratch using AstraeaDB. You will create nodes for movies and people, connect them with edges, query the data with GQL, and learn how to update, delete, and bulk-import records.</p>
+
+  <div class="info-box info">
+    <strong>What We Are Building</strong>
+    Throughout this chapter, we will model a small movie database with <strong>Movie</strong> nodes, <strong>Person</strong> nodes (actors, directors), and relationships like <strong>ACTED_IN</strong> and <strong>DIRECTED</strong>. By the end, you will have a working graph you can query, update, and export.
+  </div>
+
+  <!-- 4.1 Creating Nodes -->
+  <h2>4.1 Creating Nodes</h2>
+
+  <p>Nodes are the fundamental building blocks of a graph. Each node has one or more <strong>labels</strong> (like <code>Movie</code> or <code>Person</code>) and a set of <strong>properties</strong> (key-value pairs stored as JSON).</p>
+
+  <p>Let us create four nodes: one movie and three people.</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-create-nodes')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-create-nodes')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-create-nodes')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-create-nodes')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-create-nodes">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Create a Movie node</span>
+    matrix = client.<span class="fn">create_node</span>(
+        [<span class="str">"Movie"</span>],
+        {<span class="str">"title"</span>: <span class="str">"The Matrix"</span>, <span class="str">"year"</span>: <span class="num">1999</span>}
+    )
+
+    <span class="cm"># Create Person nodes for actors and director</span>
+    keanu = client.<span class="fn">create_node</span>(
+        [<span class="str">"Person"</span>],
+        {<span class="str">"name"</span>: <span class="str">"Keanu Reeves"</span>, <span class="str">"born"</span>: <span class="num">1964</span>}
+    )
+    carrie = client.<span class="fn">create_node</span>(
+        [<span class="str">"Person"</span>],
+        {<span class="str">"name"</span>: <span class="str">"Carrie-Anne Moss"</span>, <span class="str">"born"</span>: <span class="num">1967</span>}
+    )
+    lana = client.<span class="fn">create_node</span>(
+        [<span class="str">"Person"</span>],
+        {<span class="str">"name"</span>: <span class="str">"Lana Wachowski"</span>, <span class="str">"born"</span>: <span class="num">1965</span>}
+    )
+
+    <span class="fn">print</span>(<span class="str">f"Created movie: </span>{matrix}<span class="str">"</span>)
+    <span class="fn">print</span>(<span class="str">f"Created people: </span>{keanu}<span class="str">, </span>{carrie}<span class="str">, </span>{lana}<span class="str">"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-create-nodes">
+<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
+
+client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>)
+client<span class="kw">$</span><span class="fn">connect</span>()
+
+<span class="cm"># Create a Movie node</span>
+matrix <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+    labels = <span class="fn">list</span>(<span class="str">"Movie"</span>),
+    properties = <span class="fn">list</span>(title = <span class="str">"The Matrix"</span>, year = <span class="num">1999</span>)
+)
+
+<span class="cm"># Create Person nodes</span>
+keanu <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+    labels = <span class="fn">list</span>(<span class="str">"Person"</span>),
+    properties = <span class="fn">list</span>(name = <span class="str">"Keanu Reeves"</span>, born = <span class="num">1964</span>)
+)
+carrie <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+    labels = <span class="fn">list</span>(<span class="str">"Person"</span>),
+    properties = <span class="fn">list</span>(name = <span class="str">"Carrie-Anne Moss"</span>, born = <span class="num">1967</span>)
+)
+lana <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
+    labels = <span class="fn">list</span>(<span class="str">"Person"</span>),
+    properties = <span class="fn">list</span>(name = <span class="str">"Lana Wachowski"</span>, born = <span class="num">1965</span>)
+)
+
+<span class="fn">cat</span>(<span class="str">"Created movie:"</span>, matrix<span class="kw">$</span>id, <span class="str">"\n"</span>)
+<span class="fn">cat</span>(<span class="str">"Created people:"</span>, keanu<span class="kw">$</span>id, carrie<span class="kw">$</span>id, lana<span class="kw">$</span>id, <span class="str">"\n"</span>)
+
+client<span class="kw">$</span><span class="fn">close</span>()</pre>
+  </div>
+  <div class="lang-panel" id="go-create-nodes">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>))
+    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
+    client.<span class="fn">Connect</span>(ctx)
+    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+
+    <span class="cm">// Create a Movie node</span>
+    matrix, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Movie"</span>}, <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+        <span class="str">"title"</span>: <span class="str">"The Matrix"</span>,
+        <span class="str">"year"</span>:  <span class="num">1999</span>,
+    })
+
+    <span class="cm">// Create Person nodes</span>
+    keanu, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Person"</span>}, <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+        <span class="str">"name"</span>: <span class="str">"Keanu Reeves"</span>,
+        <span class="str">"born"</span>: <span class="num">1964</span>,
+    })
+    carrie, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Person"</span>}, <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+        <span class="str">"name"</span>: <span class="str">"Carrie-Anne Moss"</span>,
+        <span class="str">"born"</span>: <span class="num">1967</span>,
+    })
+    lana, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx, []<span class="ty">string</span>{<span class="str">"Person"</span>}, <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+        <span class="str">"name"</span>: <span class="str">"Lana Wachowski"</span>,
+        <span class="str">"born"</span>: <span class="num">1965</span>,
+    })
+
+    fmt.<span class="fn">Println</span>(<span class="str">"Created movie:"</span>, matrix.ID)
+    fmt.<span class="fn">Println</span>(<span class="str">"Created people:"</span>, keanu.ID, carrie.ID, lana.ID)
+}</pre>
+  </div>
+  <div class="lang-panel" id="java-create-nodes">
+<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
+<span class="kw">import</span> java.util.List;
+<span class="kw">import</span> java.util.Map;
+
+<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
+        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>).<span class="fn">build</span>()) {
+    client.<span class="fn">connect</span>();
+
+    <span class="cm">// Create a Movie node</span>
+    <span class="kw">var</span> matrix = client.<span class="fn">createNode</span>(
+        List.<span class="fn">of</span>(<span class="str">"Movie"</span>),
+        Map.<span class="fn">of</span>(<span class="str">"title"</span>, <span class="str">"The Matrix"</span>, <span class="str">"year"</span>, <span class="num">1999</span>)
+    );
+
+    <span class="cm">// Create Person nodes</span>
+    <span class="kw">var</span> keanu = client.<span class="fn">createNode</span>(
+        List.<span class="fn">of</span>(<span class="str">"Person"</span>),
+        Map.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Keanu Reeves"</span>, <span class="str">"born"</span>, <span class="num">1964</span>)
+    );
+    <span class="kw">var</span> carrie = client.<span class="fn">createNode</span>(
+        List.<span class="fn">of</span>(<span class="str">"Person"</span>),
+        Map.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Carrie-Anne Moss"</span>, <span class="str">"born"</span>, <span class="num">1967</span>)
+    );
+    <span class="kw">var</span> lana = client.<span class="fn">createNode</span>(
+        List.<span class="fn">of</span>(<span class="str">"Person"</span>),
+        Map.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Lana Wachowski"</span>, <span class="str">"born"</span>, <span class="num">1965</span>)
+    );
+
+    System.out.<span class="fn">println</span>(<span class="str">"Created movie: "</span> + matrix.id());
+    System.out.<span class="fn">println</span>(<span class="str">"Created people: "</span> + keanu.id() + <span class="str">", "</span>
+        + carrie.id() + <span class="str">", "</span> + lana.id());
+}</pre>
+  </div>
+
+  <p>Each <code>create_node</code> call returns a node object (or ID) that you can use to create edges and retrieve data later. The server assigns a unique identifier to every node automatically.</p>
+
+  <!-- 4.2 Creating Edges -->
+  <h2>4.2 Creating Edges</h2>
+
+  <p>Edges (also called relationships) connect two nodes with a <strong>type</strong> and optional <strong>properties</strong>. In our movie database, we use <code>ACTED_IN</code> to connect actors to movies and <code>DIRECTED</code> to connect directors to movies.</p>
+
+  <div class="diagram">
+  (Keanu Reeves) ----[ACTED_IN {role: "Neo"}]----&gt; (The Matrix)
+  (Carrie-Anne Moss) -[ACTED_IN {role: "Trinity"}]-&gt; (The Matrix)
+  (Lana Wachowski) ---[DIRECTED]---&gt; (The Matrix)
+  </div>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-create-edges')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-create-edges')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-create-edges')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-create-edges')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-create-edges">
+<pre><span class="cm"># Continuing from the previous example (inside the `with` block)</span>
+
+    <span class="cm"># Connect actors to the movie</span>
+    edge1 = client.<span class="fn">create_edge</span>(
+        keanu, matrix, <span class="str">"ACTED_IN"</span>,
+        {<span class="str">"role"</span>: <span class="str">"Neo"</span>}
+    )
+    edge2 = client.<span class="fn">create_edge</span>(
+        carrie, matrix, <span class="str">"ACTED_IN"</span>,
+        {<span class="str">"role"</span>: <span class="str">"Trinity"</span>}
+    )
+
+    <span class="cm"># Connect the director (no extra properties needed)</span>
+    edge3 = client.<span class="fn">create_edge</span>(lana, matrix, <span class="str">"DIRECTED"</span>)
+
+    <span class="fn">print</span>(<span class="str">f"Created </span>{<span class="num">3</span>}<span class="str"> edges"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-create-edges">
+<pre><span class="cm"># Continuing from the previous example</span>
+
+<span class="cm"># Connect actors to the movie</span>
+edge1 <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_edge</span>(
+    from_node = keanu<span class="kw">$</span>id,
+    to_node   = matrix<span class="kw">$</span>id,
+    edge_type = <span class="str">"ACTED_IN"</span>,
+    properties = <span class="fn">list</span>(role = <span class="str">"Neo"</span>)
+)
+edge2 <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_edge</span>(
+    from_node = carrie<span class="kw">$</span>id,
+    to_node   = matrix<span class="kw">$</span>id,
+    edge_type = <span class="str">"ACTED_IN"</span>,
+    properties = <span class="fn">list</span>(role = <span class="str">"Trinity"</span>)
+)
+
+<span class="cm"># Connect the director</span>
+edge3 <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_edge</span>(
+    from_node = lana<span class="kw">$</span>id,
+    to_node   = matrix<span class="kw">$</span>id,
+    edge_type = <span class="str">"DIRECTED"</span>
+)
+
+<span class="fn">cat</span>(<span class="str">"Created 3 edges\n"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="go-create-edges">
+<pre>    <span class="cm">// Continuing from the previous example</span>
+
+    <span class="cm">// Connect actors to the movie</span>
+    edge1, _ <span class="kw">:=</span> client.<span class="fn">CreateEdge</span>(ctx, keanu.ID, matrix.ID, <span class="str">"ACTED_IN"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"role"</span>: <span class="str">"Neo"</span>})
+
+    edge2, _ <span class="kw">:=</span> client.<span class="fn">CreateEdge</span>(ctx, carrie.ID, matrix.ID, <span class="str">"ACTED_IN"</span>,
+        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"role"</span>: <span class="str">"Trinity"</span>})
+
+    <span class="cm">// Connect the director</span>
+    edge3, _ <span class="kw">:=</span> client.<span class="fn">CreateEdge</span>(ctx, lana.ID, matrix.ID, <span class="str">"DIRECTED"</span>, <span class="kw">nil</span>)
+
+    fmt.<span class="fn">Println</span>(<span class="str">"Created 3 edges:"</span>, edge1.ID, edge2.ID, edge3.ID)</pre>
+  </div>
+  <div class="lang-panel" id="java-create-edges">
+<pre>    <span class="cm">// Continuing from the previous example</span>
+
+    <span class="cm">// Connect actors to the movie</span>
+    <span class="kw">var</span> edge1 = client.<span class="fn">createEdge</span>(
+        keanu.id(), matrix.id(), <span class="str">"ACTED_IN"</span>,
+        Map.<span class="fn">of</span>(<span class="str">"role"</span>, <span class="str">"Neo"</span>)
+    );
+    <span class="kw">var</span> edge2 = client.<span class="fn">createEdge</span>(
+        carrie.id(), matrix.id(), <span class="str">"ACTED_IN"</span>,
+        Map.<span class="fn">of</span>(<span class="str">"role"</span>, <span class="str">"Trinity"</span>)
+    );
+
+    <span class="cm">// Connect the director</span>
+    <span class="kw">var</span> edge3 = client.<span class="fn">createEdge</span>(
+        lana.id(), matrix.id(), <span class="str">"DIRECTED"</span>,
+        Map.<span class="fn">of</span>()
+    );
+
+    System.out.<span class="fn">println</span>(<span class="str">"Created 3 edges"</span>);</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Tip: Edge Direction Matters</strong>
+    Edges in AstraeaDB are <strong>directed</strong>. The first argument is the <em>source</em> node and the second is the <em>target</em> node. In our example, Keanu Reeves ACTED_IN The Matrix (Person &rarr; Movie), not the other way around. You can traverse edges in either direction when querying, but the stored direction is fixed.
+  </div>
+
+  <!-- 4.3 Retrieving Data -->
+  <h2>4.3 Retrieving Data</h2>
+
+  <p>Once you have created nodes and edges, you can retrieve them by their IDs. This is the simplest way to fetch data -- direct lookup by identifier.</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-retrieve')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-retrieve')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-retrieve')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-retrieve')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-retrieve">
+<pre>    <span class="cm"># Retrieve a node by ID</span>
+    node = client.<span class="fn">get_node</span>(matrix)
+    <span class="fn">print</span>(node)
+    <span class="cm"># {'id': 'nd-1', 'labels': ['Movie'],</span>
+    <span class="cm">#  'properties': {'title': 'The Matrix', 'year': 1999}}</span>
+
+    <span class="cm"># Retrieve an edge by ID</span>
+    edge = client.<span class="fn">get_edge</span>(edge1)
+    <span class="fn">print</span>(edge)
+    <span class="cm"># {'id': 'ed-1', 'source': 'nd-2', 'target': 'nd-1',</span>
+    <span class="cm">#  'type': 'ACTED_IN', 'properties': {'role': 'Neo'}}</span>
+
+    <span class="cm"># Get all edges connected to a node</span>
+    edges = client.<span class="fn">get_edges</span>(matrix)
+    <span class="kw">for</span> e <span class="kw">in</span> edges:
+        <span class="fn">print</span>(<span class="str">f"  </span>{e[<span class="str">'type'</span>]}<span class="str">: </span>{e[<span class="str">'source'</span>]}<span class="str"> -&gt; </span>{e[<span class="str">'target'</span>]}<span class="str">"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-retrieve">
+<pre><span class="cm"># Retrieve a node by ID</span>
+node <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">get_node</span>(matrix<span class="kw">$</span>id)
+<span class="fn">print</span>(node)
+<span class="cm"># $id: "nd-1"</span>
+<span class="cm"># $labels: "Movie"</span>
+<span class="cm"># $properties: list(title = "The Matrix", year = 1999)</span>
+
+<span class="cm"># Retrieve an edge by ID</span>
+edge <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">get_edge</span>(edge1<span class="kw">$</span>id)
+<span class="fn">print</span>(edge)
+<span class="cm"># $id: "ed-1"</span>
+<span class="cm"># $source: "nd-2", $target: "nd-1"</span>
+<span class="cm"># $type: "ACTED_IN", $properties: list(role = "Neo")</span>
+
+<span class="cm"># Get all edges connected to a node</span>
+edges <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">get_edges</span>(matrix<span class="kw">$</span>id)
+<span class="kw">for</span> (e <span class="kw">in</span> edges) {
+    <span class="fn">cat</span>(<span class="str">" "</span>, e<span class="kw">$</span>type, <span class="str">":"</span>, e<span class="kw">$</span>source, <span class="str">"-&gt;"</span>, e<span class="kw">$</span>target, <span class="str">"\n"</span>)
+}</pre>
+  </div>
+  <div class="lang-panel" id="go-retrieve">
+<pre>    <span class="cm">// Retrieve a node by ID</span>
+    node, _ <span class="kw">:=</span> client.<span class="fn">GetNode</span>(ctx, matrix.ID)
+    fmt.<span class="fn">Printf</span>(<span class="str">"Node: %+v\n"</span>, node)
+    <span class="cm">// Node: {ID:nd-1 Labels:[Movie]</span>
+    <span class="cm">//        Properties:map[title:The Matrix year:1999]}</span>
+
+    <span class="cm">// Retrieve an edge by ID</span>
+    edge, _ <span class="kw">:=</span> client.<span class="fn">GetEdge</span>(ctx, edge1.ID)
+    fmt.<span class="fn">Printf</span>(<span class="str">"Edge: %+v\n"</span>, edge)
+    <span class="cm">// Edge: {ID:ed-1 Source:nd-2 Target:nd-1</span>
+    <span class="cm">//        Type:ACTED_IN Properties:map[role:Neo]}</span>
+
+    <span class="cm">// Get all edges connected to a node</span>
+    edges, _ <span class="kw">:=</span> client.<span class="fn">GetEdges</span>(ctx, matrix.ID)
+    <span class="kw">for</span> _, e <span class="kw">:=</span> <span class="kw">range</span> edges {
+        fmt.<span class="fn">Printf</span>(<span class="str">"  %s: %s -&gt; %s\n"</span>, e.Type, e.Source, e.Target)
+    }</pre>
+  </div>
+  <div class="lang-panel" id="java-retrieve">
+<pre>    <span class="cm">// Retrieve a node by ID</span>
+    <span class="kw">var</span> node = client.<span class="fn">getNode</span>(matrix.id());
+    System.out.<span class="fn">println</span>(node);
+    <span class="cm">// Node{id=nd-1, labels=[Movie],</span>
+    <span class="cm">//   properties={title=The Matrix, year=1999}}</span>
+
+    <span class="cm">// Retrieve an edge by ID</span>
+    <span class="kw">var</span> edge = client.<span class="fn">getEdge</span>(edge1.id());
+    System.out.<span class="fn">println</span>(edge);
+    <span class="cm">// Edge{id=ed-1, source=nd-2, target=nd-1,</span>
+    <span class="cm">//   type=ACTED_IN, properties={role=Neo}}</span>
+
+    <span class="cm">// Get all edges connected to a node</span>
+    <span class="kw">var</span> edges = client.<span class="fn">getEdges</span>(matrix.id());
+    <span class="kw">for</span> (<span class="kw">var</span> e : edges) {
+        System.out.<span class="fn">printf</span>(<span class="str">"  %s: %s -&gt; %s%n"</span>,
+            e.type(), e.source(), e.target());
+    }</pre>
+  </div>
+
+  <!-- 4.4 Your First Query (GQL) -->
+  <h2>4.4 Your First Query (GQL)</h2>
+
+  <p>While direct ID lookups are useful, the real power of a graph database comes from <strong>pattern matching</strong> with GQL (Graph Query Language). GQL lets you describe the shape of the data you are looking for, and the engine finds all matching subgraphs.</p>
+
+  <h3>Understanding MATCH Patterns</h3>
+
+  <p>A GQL <code>MATCH</code> clause uses an ASCII-art syntax to describe graph patterns. Here is how to read it:</p>
+
+  <div class="diagram">
+    Pattern:    (p:Person)-[:ACTED_IN]-&gt;(m:Movie)
+
+    Breakdown:
+    (p:Person)       A node with label "Person", bound to variable "p"
+    -[:ACTED_IN]-&gt;   An outgoing edge of type "ACTED_IN"
+    (m:Movie)        A node with label "Movie", bound to variable "m"
+
+    Visual:
+    +---------+    ACTED_IN    +----------+
+    | Person  | -----------&gt;  |  Movie   |
+    | (p)     |               |  (m)     |
+    +---------+               +----------+
+  </div>
+
+  <h3>Basic Query: Find All Actors and Their Movies</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-query')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-query')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-query')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-query')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-query">
+<pre>    <span class="cm"># Find all actors and the movies they acted in</span>
+    result = client.<span class="fn">query</span>(
+        <span class="str">'MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie) '</span>
+        <span class="str">'RETURN p.name, m.title'</span>
+    )
+
+    <span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+        <span class="fn">print</span>(row)
+    <span class="cm"># ['Keanu Reeves', 'The Matrix']</span>
+    <span class="cm"># ['Carrie-Anne Moss', 'The Matrix']</span></pre>
+  </div>
+  <div class="lang-panel" id="r-query">
+<pre><span class="cm"># Find all actors and the movies they acted in</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(
+    <span class="str">"MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie) RETURN p.name, m.title"</span>
+)
+
+<span class="kw">for</span> (row <span class="kw">in</span> result<span class="kw">$</span>rows) {
+    <span class="fn">cat</span>(row[[<span class="num">1</span>]], <span class="str">"-"</span>, row[[<span class="num">2</span>]], <span class="str">"\n"</span>)
+}
+<span class="cm"># Keanu Reeves - The Matrix</span>
+<span class="cm"># Carrie-Anne Moss - The Matrix</span></pre>
+  </div>
+  <div class="lang-panel" id="go-query">
+<pre>    <span class="cm">// Find all actors and the movies they acted in</span>
+    result, _ <span class="kw">:=</span> client.<span class="fn">Query</span>(ctx,
+        <span class="str">"MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie) RETURN p.name, m.title"</span>)
+
+    <span class="kw">for</span> _, row <span class="kw">:=</span> <span class="kw">range</span> result.Rows {
+        fmt.<span class="fn">Println</span>(row)
+    }
+    <span class="cm">// [Keanu Reeves The Matrix]</span>
+    <span class="cm">// [Carrie-Anne Moss The Matrix]</span></pre>
+  </div>
+  <div class="lang-panel" id="java-query">
+<pre>    <span class="cm">// Find all actors and the movies they acted in</span>
+    <span class="kw">var</span> result = client.<span class="fn">query</span>(
+        <span class="str">"MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie) RETURN p.name, m.title"</span>
+    );
+
+    <span class="kw">for</span> (<span class="kw">var</span> row : result.rows()) {
+        System.out.<span class="fn">println</span>(row);
+    }
+    <span class="cm">// [Keanu Reeves, The Matrix]</span>
+    <span class="cm">// [Carrie-Anne Moss, The Matrix]</span></pre>
+  </div>
+
+  <h3>Filtering with WHERE</h3>
+  <p>Use <code>WHERE</code> to add conditions that narrow down your results:</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-where')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-where')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-where')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-where')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-where">
+<pre>    <span class="cm"># Find actors born before 1966</span>
+    result = client.<span class="fn">query</span>(
+        <span class="str">'MATCH (p:Person)-[r:ACTED_IN]-&gt;(m:Movie) '</span>
+        <span class="str">'WHERE p.born &lt; 1966 '</span>
+        <span class="str">'RETURN p.name, p.born, r.role, m.title'</span>
+    )
+
+    <span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+        <span class="fn">print</span>(row)
+    <span class="cm"># ['Keanu Reeves', 1964, 'Neo', 'The Matrix']</span></pre>
+  </div>
+  <div class="lang-panel" id="r-where">
+<pre><span class="cm"># Find actors born before 1966</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(<span class="fn">paste</span>(
+    <span class="str">"MATCH (p:Person)-[r:ACTED_IN]-&gt;(m:Movie)"</span>,
+    <span class="str">"WHERE p.born &lt; 1966"</span>,
+    <span class="str">"RETURN p.name, p.born, r.role, m.title"</span>
+))
+
+<span class="kw">for</span> (row <span class="kw">in</span> result<span class="kw">$</span>rows) {
+    <span class="fn">cat</span>(row[[<span class="num">1</span>]], <span class="str">"born"</span>, row[[<span class="num">2</span>]], <span class="str">"as"</span>, row[[<span class="num">3</span>]], <span class="str">"in"</span>, row[[<span class="num">4</span>]], <span class="str">"\n"</span>)
+}
+<span class="cm"># Keanu Reeves born 1964 as Neo in The Matrix</span></pre>
+  </div>
+  <div class="lang-panel" id="go-where">
+<pre>    <span class="cm">// Find actors born before 1966</span>
+    result, _ <span class="kw">:=</span> client.<span class="fn">Query</span>(ctx,
+        <span class="str">"MATCH (p:Person)-[r:ACTED_IN]-&gt;(m:Movie) "</span>+
+        <span class="str">"WHERE p.born &lt; 1966 "</span>+
+        <span class="str">"RETURN p.name, p.born, r.role, m.title"</span>)
+
+    <span class="kw">for</span> _, row <span class="kw">:=</span> <span class="kw">range</span> result.Rows {
+        fmt.<span class="fn">Println</span>(row)
+    }
+    <span class="cm">// [Keanu Reeves 1964 Neo The Matrix]</span></pre>
+  </div>
+  <div class="lang-panel" id="java-where">
+<pre>    <span class="cm">// Find actors born before 1966</span>
+    <span class="kw">var</span> result = client.<span class="fn">query</span>(
+        <span class="str">"MATCH (p:Person)-[r:ACTED_IN]-&gt;(m:Movie) "</span>
+        + <span class="str">"WHERE p.born &lt; 1966 "</span>
+        + <span class="str">"RETURN p.name, p.born, r.role, m.title"</span>
+    );
+
+    <span class="kw">for</span> (<span class="kw">var</span> row : result.rows()) {
+        System.out.<span class="fn">println</span>(row);
+    }
+    <span class="cm">// [Keanu Reeves, 1964, Neo, The Matrix]</span></pre>
+  </div>
+
+  <h3>Sorting with ORDER BY</h3>
+  <p>You can sort results just like in SQL:</p>
+
+<pre><span class="cm">-- Find all people, sorted by birth year (oldest first)</span>
+<span class="kw">MATCH</span> (p:<span class="ty">Person</span>)
+<span class="kw">RETURN</span> p.name, p.born
+<span class="kw">ORDER BY</span> p.born <span class="kw">ASC</span></pre>
+
+  <p>Result:</p>
+  <table>
+    <thead>
+      <tr><th>p.name</th><th>p.born</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Keanu Reeves</td><td>1964</td></tr>
+      <tr><td>Lana Wachowski</td><td>1965</td></tr>
+      <tr><td>Carrie-Anne Moss</td><td>1967</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Finding Directors (Traversing a Different Edge Type)</h3>
+
+<pre><span class="cm">-- Who directed The Matrix?</span>
+<span class="kw">MATCH</span> (d:<span class="ty">Person</span>)-[:<span class="ty">DIRECTED</span>]-&gt;(m:<span class="ty">Movie</span> {title: <span class="str">"The Matrix"</span>})
+<span class="kw">RETURN</span> d.name
+<span class="cm">-- Result: Lana Wachowski</span></pre>
+
+  <!-- 4.5 Updating and Deleting -->
+  <h2>4.5 Updating and Deleting</h2>
+
+  <p>Graphs are living data structures. You will frequently need to update properties or remove nodes and edges as your data evolves.</p>
+
+  <h3>Updating Node Properties</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-update')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-update')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-update')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-update')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-update">
+<pre>    <span class="cm"># Add a rating to the movie</span>
+    client.<span class="fn">update_node</span>(matrix, {<span class="str">"rating"</span>: <span class="num">8.7</span>})
+
+    <span class="cm"># Verify the update</span>
+    updated = client.<span class="fn">get_node</span>(matrix)
+    <span class="fn">print</span>(updated[<span class="str">"properties"</span>][<span class="str">"rating"</span>])
+    <span class="cm"># 8.7</span></pre>
+  </div>
+  <div class="lang-panel" id="r-update">
+<pre><span class="cm"># Add a rating to the movie</span>
+client<span class="kw">$</span><span class="fn">update_node</span>(matrix<span class="kw">$</span>id, <span class="fn">list</span>(rating = <span class="num">8.7</span>))
+
+<span class="cm"># Verify the update</span>
+updated <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">get_node</span>(matrix<span class="kw">$</span>id)
+<span class="fn">cat</span>(<span class="str">"Rating:"</span>, updated<span class="kw">$</span>properties<span class="kw">$</span>rating, <span class="str">"\n"</span>)
+<span class="cm"># Rating: 8.7</span></pre>
+  </div>
+  <div class="lang-panel" id="go-update">
+<pre>    <span class="cm">// Add a rating to the movie</span>
+    client.<span class="fn">UpdateNode</span>(ctx, matrix.ID, <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+        <span class="str">"rating"</span>: <span class="num">8.7</span>,
+    })
+
+    <span class="cm">// Verify the update</span>
+    updated, _ <span class="kw">:=</span> client.<span class="fn">GetNode</span>(ctx, matrix.ID)
+    fmt.<span class="fn">Println</span>(<span class="str">"Rating:"</span>, updated.Properties[<span class="str">"rating"</span>])
+    <span class="cm">// Rating: 8.7</span></pre>
+  </div>
+  <div class="lang-panel" id="java-update">
+<pre>    <span class="cm">// Add a rating to the movie</span>
+    client.<span class="fn">updateNode</span>(matrix.id(), Map.<span class="fn">of</span>(<span class="str">"rating"</span>, <span class="num">8.7</span>));
+
+    <span class="cm">// Verify the update</span>
+    <span class="kw">var</span> updated = client.<span class="fn">getNode</span>(matrix.id());
+    System.out.<span class="fn">println</span>(<span class="str">"Rating: "</span> + updated.properties().<span class="fn">get</span>(<span class="str">"rating"</span>));
+    <span class="cm">// Rating: 8.7</span></pre>
+  </div>
+
+  <h3>Deleting Edges</h3>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-delete')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-delete')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-delete')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-delete')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-delete">
+<pre>    <span class="cm"># Delete a specific edge</span>
+    client.<span class="fn">delete_edge</span>(edge1)
+    <span class="fn">print</span>(<span class="str">"Edge deleted"</span>)
+
+    <span class="cm"># Verify: query should now return only Carrie-Anne Moss</span>
+    result = client.<span class="fn">query</span>(
+        <span class="str">'MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie) '</span>
+        <span class="str">'RETURN p.name'</span>
+    )
+    <span class="fn">print</span>(result[<span class="str">"rows"</span>])
+    <span class="cm"># [['Carrie-Anne Moss']]</span></pre>
+  </div>
+  <div class="lang-panel" id="r-delete">
+<pre><span class="cm"># Delete a specific edge</span>
+client<span class="kw">$</span><span class="fn">delete_edge</span>(edge1<span class="kw">$</span>id)
+<span class="fn">cat</span>(<span class="str">"Edge deleted\n"</span>)
+
+<span class="cm"># Verify: query should now return only Carrie-Anne Moss</span>
+result <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">query</span>(
+    <span class="str">"MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie) RETURN p.name"</span>
+)
+<span class="fn">print</span>(result<span class="kw">$</span>rows)
+<span class="cm"># [['Carrie-Anne Moss']]</span></pre>
+  </div>
+  <div class="lang-panel" id="go-delete">
+<pre>    <span class="cm">// Delete a specific edge</span>
+    client.<span class="fn">DeleteEdge</span>(ctx, edge1.ID)
+    fmt.<span class="fn">Println</span>(<span class="str">"Edge deleted"</span>)
+
+    <span class="cm">// Verify</span>
+    result, _ <span class="kw">:=</span> client.<span class="fn">Query</span>(ctx,
+        <span class="str">"MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie) RETURN p.name"</span>)
+    fmt.<span class="fn">Println</span>(result.Rows)
+    <span class="cm">// [[Carrie-Anne Moss]]</span></pre>
+  </div>
+  <div class="lang-panel" id="java-delete">
+<pre>    <span class="cm">// Delete a specific edge</span>
+    client.<span class="fn">deleteEdge</span>(edge1.id());
+    System.out.<span class="fn">println</span>(<span class="str">"Edge deleted"</span>);
+
+    <span class="cm">// Verify</span>
+    <span class="kw">var</span> result = client.<span class="fn">query</span>(
+        <span class="str">"MATCH (p:Person)-[:ACTED_IN]-&gt;(m:Movie) RETURN p.name"</span>
+    );
+    System.out.<span class="fn">println</span>(result.rows());
+    <span class="cm">// [[Carrie-Anne Moss]]</span></pre>
+  </div>
+
+  <h3>Deleting Nodes</h3>
+
+  <div class="info-box warn">
+    <strong>Warning: Delete Edges First</strong>
+    You cannot delete a node that still has connected edges. AstraeaDB enforces referential integrity. Always delete (or detach) edges before removing a node, or use the <code>force</code> option to automatically remove connected edges.
+  </div>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-delete-node')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-delete-node')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-delete-node')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-delete-node')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-delete-node">
+<pre>    <span class="cm"># Option 1: Delete a disconnected node</span>
+    client.<span class="fn">delete_node</span>(keanu)
+
+    <span class="cm"># Option 2: Force-delete a node and all its edges</span>
+    client.<span class="fn">delete_node</span>(carrie, force=<span class="kw">True</span>)
+    <span class="fn">print</span>(<span class="str">"Node and all connected edges deleted"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-delete-node">
+<pre><span class="cm"># Option 1: Delete a disconnected node</span>
+client<span class="kw">$</span><span class="fn">delete_node</span>(keanu<span class="kw">$</span>id)
+
+<span class="cm"># Option 2: Force-delete a node and all its edges</span>
+client<span class="kw">$</span><span class="fn">delete_node</span>(carrie<span class="kw">$</span>id, force = <span class="kw">TRUE</span>)
+<span class="fn">cat</span>(<span class="str">"Node and all connected edges deleted\n"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="go-delete-node">
+<pre>    <span class="cm">// Option 1: Delete a disconnected node</span>
+    client.<span class="fn">DeleteNode</span>(ctx, keanu.ID)
+
+    <span class="cm">// Option 2: Force-delete a node and all its edges</span>
+    client.<span class="fn">DeleteNode</span>(ctx, carrie.ID, astraeadb.<span class="fn">WithForce</span>(<span class="kw">true</span>))
+    fmt.<span class="fn">Println</span>(<span class="str">"Node and all connected edges deleted"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="java-delete-node">
+<pre>    <span class="cm">// Option 1: Delete a disconnected node</span>
+    client.<span class="fn">deleteNode</span>(keanu.id());
+
+    <span class="cm">// Option 2: Force-delete a node and all its edges</span>
+    client.<span class="fn">deleteNode</span>(carrie.id(), <span class="kw">true</span>); <span class="cm">// force=true</span>
+    System.out.<span class="fn">println</span>(<span class="str">"Node and all connected edges deleted"</span>);</pre>
+  </div>
+
+  <!-- 4.6 Bulk Import and Export -->
+  <h2>4.6 Bulk Import and Export</h2>
+
+  <p>When working with larger datasets, creating nodes one at a time is inefficient. AstraeaDB supports bulk operations through both the CLI and the client APIs.</p>
+
+  <h3>JSON Import Format</h3>
+  <p>AstraeaDB uses a straightforward JSON format for import files. Here is an example file called <code>movies.json</code>:</p>
+
+<pre>{
+  <span class="str">"nodes"</span>: [
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Movie"</span>],
+      <span class="str">"properties"</span>: {<span class="str">"title"</span>: <span class="str">"The Matrix"</span>, <span class="str">"year"</span>: <span class="num">1999</span>}
+    },
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Movie"</span>],
+      <span class="str">"properties"</span>: {<span class="str">"title"</span>: <span class="str">"John Wick"</span>, <span class="str">"year"</span>: <span class="num">2014</span>}
+    },
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Person"</span>],
+      <span class="str">"properties"</span>: {<span class="str">"name"</span>: <span class="str">"Keanu Reeves"</span>, <span class="str">"born"</span>: <span class="num">1964</span>}
+    },
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Person"</span>],
+      <span class="str">"properties"</span>: {<span class="str">"name"</span>: <span class="str">"Carrie-Anne Moss"</span>, <span class="str">"born"</span>: <span class="num">1967</span>}
+    },
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Person"</span>],
+      <span class="str">"properties"</span>: {<span class="str">"name"</span>: <span class="str">"Lana Wachowski"</span>, <span class="str">"born"</span>: <span class="num">1965</span>}
+    },
+    {
+      <span class="str">"labels"</span>: [<span class="str">"Person"</span>],
+      <span class="str">"properties"</span>: {<span class="str">"name"</span>: <span class="str">"Chad Stahelski"</span>, <span class="str">"born"</span>: <span class="num">1968</span>}
+    }
+  ],
+  <span class="str">"edges"</span>: [
+    {
+      <span class="str">"source_match"</span>: {<span class="str">"name"</span>: <span class="str">"Keanu Reeves"</span>},
+      <span class="str">"target_match"</span>: {<span class="str">"title"</span>: <span class="str">"The Matrix"</span>},
+      <span class="str">"type"</span>: <span class="str">"ACTED_IN"</span>,
+      <span class="str">"properties"</span>: {<span class="str">"role"</span>: <span class="str">"Neo"</span>}
+    },
+    {
+      <span class="str">"source_match"</span>: {<span class="str">"name"</span>: <span class="str">"Carrie-Anne Moss"</span>},
+      <span class="str">"target_match"</span>: {<span class="str">"title"</span>: <span class="str">"The Matrix"</span>},
+      <span class="str">"type"</span>: <span class="str">"ACTED_IN"</span>,
+      <span class="str">"properties"</span>: {<span class="str">"role"</span>: <span class="str">"Trinity"</span>}
+    },
+    {
+      <span class="str">"source_match"</span>: {<span class="str">"name"</span>: <span class="str">"Lana Wachowski"</span>},
+      <span class="str">"target_match"</span>: {<span class="str">"title"</span>: <span class="str">"The Matrix"</span>},
+      <span class="str">"type"</span>: <span class="str">"DIRECTED"</span>
+    },
+    {
+      <span class="str">"source_match"</span>: {<span class="str">"name"</span>: <span class="str">"Keanu Reeves"</span>},
+      <span class="str">"target_match"</span>: {<span class="str">"title"</span>: <span class="str">"John Wick"</span>},
+      <span class="str">"type"</span>: <span class="str">"ACTED_IN"</span>,
+      <span class="str">"properties"</span>: {<span class="str">"role"</span>: <span class="str">"John Wick"</span>}
+    },
+    {
+      <span class="str">"source_match"</span>: {<span class="str">"name"</span>: <span class="str">"Chad Stahelski"</span>},
+      <span class="str">"target_match"</span>: {<span class="str">"title"</span>: <span class="str">"John Wick"</span>},
+      <span class="str">"type"</span>: <span class="str">"DIRECTED"</span>
+    }
+  ]
+}</pre>
+
+  <h3>CLI Import and Export</h3>
+  <p>Use the AstraeaDB CLI to import and export data:</p>
+
+<pre><span class="cm"># Import nodes and edges from a JSON file</span>
+astraea-cli import movies.json
+<span class="cm"># Imported 6 nodes and 5 edges in 12ms</span>
+
+<span class="cm"># Export the entire graph to a JSON file</span>
+astraea-cli export output.json
+<span class="cm"># Exported 6 nodes and 5 edges to output.json</span></pre>
+
+  <div class="info-box info">
+    <strong>Note: Edge Matching</strong>
+    In the import JSON, edges use <code>source_match</code> and <code>target_match</code> to find existing nodes by property values rather than by internal IDs. This makes import files portable -- you do not need to know the internal IDs ahead of time.
+  </div>
+
+  <h3>Batch API (Programmatic)</h3>
+  <p>For programmatic bulk operations, all client libraries offer batch methods that are significantly faster than individual calls:</p>
+
+  <div class="lang-tabs">
+    <button class="lang-tab active" onclick="switchTab(event, 'python-bulk')">Python</button>
+    <button class="lang-tab" onclick="switchTab(event, 'r-bulk')">R</button>
+    <button class="lang-tab" onclick="switchTab(event, 'go-bulk')">Go</button>
+    <button class="lang-tab" onclick="switchTab(event, 'java-bulk')">Java</button>
+  </div>
+  <div class="lang-panel active" id="python-bulk">
+<pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+
+<span class="kw">with</span> <span class="fn">AstraeaClient</span>() <span class="kw">as</span> client:
+    <span class="cm"># Batch-create multiple nodes at once</span>
+    nodes = client.<span class="fn">create_nodes</span>([
+        {<span class="str">"labels"</span>: [<span class="str">"Movie"</span>], <span class="str">"properties"</span>: {<span class="str">"title"</span>: <span class="str">"Speed"</span>, <span class="str">"year"</span>: <span class="num">1994</span>}},
+        {<span class="str">"labels"</span>: [<span class="str">"Movie"</span>], <span class="str">"properties"</span>: {<span class="str">"title"</span>: <span class="str">"Point Break"</span>, <span class="str">"year"</span>: <span class="num">1991</span>}},
+        {<span class="str">"labels"</span>: [<span class="str">"Person"</span>], <span class="str">"properties"</span>: {<span class="str">"name"</span>: <span class="str">"Sandra Bullock"</span>, <span class="str">"born"</span>: <span class="num">1964</span>}},
+    ])
+    <span class="fn">print</span>(<span class="str">f"Created </span>{<span class="fn">len</span>(nodes)}<span class="str"> nodes in batch"</span>)
+
+    <span class="cm"># Batch-create multiple edges at once</span>
+    speed, point_break, sandra = nodes[<span class="num">0</span>], nodes[<span class="num">1</span>], nodes[<span class="num">2</span>]
+    edges = client.<span class="fn">create_edges</span>([
+        {<span class="str">"source"</span>: sandra, <span class="str">"target"</span>: speed,
+         <span class="str">"type"</span>: <span class="str">"ACTED_IN"</span>, <span class="str">"properties"</span>: {<span class="str">"role"</span>: <span class="str">"Annie Porter"</span>}},
+        {<span class="str">"source"</span>: keanu, <span class="str">"target"</span>: speed,
+         <span class="str">"type"</span>: <span class="str">"ACTED_IN"</span>, <span class="str">"properties"</span>: {<span class="str">"role"</span>: <span class="str">"Jack Traven"</span>}},
+        {<span class="str">"source"</span>: keanu, <span class="str">"target"</span>: point_break,
+         <span class="str">"type"</span>: <span class="str">"ACTED_IN"</span>, <span class="str">"properties"</span>: {<span class="str">"role"</span>: <span class="str">"Johnny Utah"</span>}},
+    ])
+    <span class="fn">print</span>(<span class="str">f"Created </span>{<span class="fn">len</span>(edges)}<span class="str"> edges in batch"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="r-bulk">
+<pre><span class="cm"># Batch-create multiple nodes at once</span>
+nodes <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_nodes</span>(<span class="fn">list</span>(
+    <span class="fn">list</span>(labels = <span class="fn">list</span>(<span class="str">"Movie"</span>),
+         properties = <span class="fn">list</span>(title = <span class="str">"Speed"</span>, year = <span class="num">1994</span>)),
+    <span class="fn">list</span>(labels = <span class="fn">list</span>(<span class="str">"Movie"</span>),
+         properties = <span class="fn">list</span>(title = <span class="str">"Point Break"</span>, year = <span class="num">1991</span>)),
+    <span class="fn">list</span>(labels = <span class="fn">list</span>(<span class="str">"Person"</span>),
+         properties = <span class="fn">list</span>(name = <span class="str">"Sandra Bullock"</span>, born = <span class="num">1964</span>))
+))
+<span class="fn">cat</span>(<span class="str">"Created"</span>, <span class="fn">length</span>(nodes), <span class="str">"nodes in batch\n"</span>)
+
+<span class="cm"># Batch-create multiple edges at once</span>
+edges <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_edges</span>(<span class="fn">list</span>(
+    <span class="fn">list</span>(source = nodes[[<span class="num">3</span>]]<span class="kw">$</span>id, target = nodes[[<span class="num">1</span>]]<span class="kw">$</span>id,
+         type = <span class="str">"ACTED_IN"</span>, properties = <span class="fn">list</span>(role = <span class="str">"Annie Porter"</span>)),
+    <span class="fn">list</span>(source = keanu<span class="kw">$</span>id, target = nodes[[<span class="num">1</span>]]<span class="kw">$</span>id,
+         type = <span class="str">"ACTED_IN"</span>, properties = <span class="fn">list</span>(role = <span class="str">"Jack Traven"</span>)),
+    <span class="fn">list</span>(source = keanu<span class="kw">$</span>id, target = nodes[[<span class="num">2</span>]]<span class="kw">$</span>id,
+         type = <span class="str">"ACTED_IN"</span>, properties = <span class="fn">list</span>(role = <span class="str">"Johnny Utah"</span>))
+))
+<span class="fn">cat</span>(<span class="str">"Created"</span>, <span class="fn">length</span>(edges), <span class="str">"edges in batch\n"</span>)</pre>
+  </div>
+  <div class="lang-panel" id="go-bulk">
+<pre>    <span class="cm">// Batch-create multiple nodes at once</span>
+    nodes, _ <span class="kw">:=</span> client.<span class="fn">CreateNodes</span>(ctx, []astraeadb.<span class="ty">NodeInput</span>{
+        {Labels: []<span class="ty">string</span>{<span class="str">"Movie"</span>}, Properties: <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+            <span class="str">"title"</span>: <span class="str">"Speed"</span>, <span class="str">"year"</span>: <span class="num">1994</span>,
+        }},
+        {Labels: []<span class="ty">string</span>{<span class="str">"Movie"</span>}, Properties: <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+            <span class="str">"title"</span>: <span class="str">"Point Break"</span>, <span class="str">"year"</span>: <span class="num">1991</span>,
+        }},
+        {Labels: []<span class="ty">string</span>{<span class="str">"Person"</span>}, Properties: <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{
+            <span class="str">"name"</span>: <span class="str">"Sandra Bullock"</span>, <span class="str">"born"</span>: <span class="num">1964</span>,
+        }},
+    })
+    fmt.<span class="fn">Printf</span>(<span class="str">"Created %d nodes in batch\n"</span>, <span class="fn">len</span>(nodes))
+
+    <span class="cm">// Batch-create multiple edges at once</span>
+    edges, _ <span class="kw">:=</span> client.<span class="fn">CreateEdges</span>(ctx, []astraeadb.<span class="ty">EdgeInput</span>{
+        {Source: nodes[<span class="num">2</span>].ID, Target: nodes[<span class="num">0</span>].ID, Type: <span class="str">"ACTED_IN"</span>,
+         Properties: <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"role"</span>: <span class="str">"Annie Porter"</span>}},
+        {Source: keanu.ID, Target: nodes[<span class="num">0</span>].ID, Type: <span class="str">"ACTED_IN"</span>,
+         Properties: <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"role"</span>: <span class="str">"Jack Traven"</span>}},
+        {Source: keanu.ID, Target: nodes[<span class="num">1</span>].ID, Type: <span class="str">"ACTED_IN"</span>,
+         Properties: <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">interface</span>{}{<span class="str">"role"</span>: <span class="str">"Johnny Utah"</span>}},
+    })
+    fmt.<span class="fn">Printf</span>(<span class="str">"Created %d edges in batch\n"</span>, <span class="fn">len</span>(edges))</pre>
+  </div>
+  <div class="lang-panel" id="java-bulk">
+<pre>    <span class="cm">// Batch-create multiple nodes at once</span>
+    <span class="kw">var</span> nodes = client.<span class="fn">createNodes</span>(List.<span class="fn">of</span>(
+        <span class="kw">new</span> <span class="ty">NodeInput</span>(List.<span class="fn">of</span>(<span class="str">"Movie"</span>),
+            Map.<span class="fn">of</span>(<span class="str">"title"</span>, <span class="str">"Speed"</span>, <span class="str">"year"</span>, <span class="num">1994</span>)),
+        <span class="kw">new</span> <span class="ty">NodeInput</span>(List.<span class="fn">of</span>(<span class="str">"Movie"</span>),
+            Map.<span class="fn">of</span>(<span class="str">"title"</span>, <span class="str">"Point Break"</span>, <span class="str">"year"</span>, <span class="num">1991</span>)),
+        <span class="kw">new</span> <span class="ty">NodeInput</span>(List.<span class="fn">of</span>(<span class="str">"Person"</span>),
+            Map.<span class="fn">of</span>(<span class="str">"name"</span>, <span class="str">"Sandra Bullock"</span>, <span class="str">"born"</span>, <span class="num">1964</span>))
+    ));
+    System.out.<span class="fn">println</span>(<span class="str">"Created "</span> + nodes.size() + <span class="str">" nodes in batch"</span>);
+
+    <span class="cm">// Batch-create multiple edges at once</span>
+    <span class="kw">var</span> speed = nodes.<span class="fn">get</span>(<span class="num">0</span>);
+    <span class="kw">var</span> pointBreak = nodes.<span class="fn">get</span>(<span class="num">1</span>);
+    <span class="kw">var</span> sandra = nodes.<span class="fn">get</span>(<span class="num">2</span>);
+
+    <span class="kw">var</span> edges = client.<span class="fn">createEdges</span>(List.<span class="fn">of</span>(
+        <span class="kw">new</span> <span class="ty">EdgeInput</span>(sandra.id(), speed.id(), <span class="str">"ACTED_IN"</span>,
+            Map.<span class="fn">of</span>(<span class="str">"role"</span>, <span class="str">"Annie Porter"</span>)),
+        <span class="kw">new</span> <span class="ty">EdgeInput</span>(keanu.id(), speed.id(), <span class="str">"ACTED_IN"</span>,
+            Map.<span class="fn">of</span>(<span class="str">"role"</span>, <span class="str">"Jack Traven"</span>)),
+        <span class="kw">new</span> <span class="ty">EdgeInput</span>(keanu.id(), pointBreak.id(), <span class="str">"ACTED_IN"</span>,
+            Map.<span class="fn">of</span>(<span class="str">"role"</span>, <span class="str">"Johnny Utah"</span>))
+    ));
+    System.out.<span class="fn">println</span>(<span class="str">"Created "</span> + edges.size() + <span class="str">" edges in batch"</span>);</pre>
+  </div>
+
+  <div class="info-box tip">
+    <strong>Tip: Performance</strong>
+    Batch operations are sent as a single network request and processed atomically on the server. For loading datasets of thousands of nodes and edges, batch methods can be <strong>10-100x faster</strong> than individual create calls due to reduced network round-trips and write-ahead log batching.
+  </div>
+
+  <h3>Summary</h3>
+  <p>In this chapter you learned the fundamental CRUD operations for working with AstraeaDB:</p>
+  <ul>
+    <li><strong>Create</strong> nodes with labels and properties, and edges with types and properties</li>
+    <li><strong>Read</strong> data by ID lookup or by GQL pattern matching with <code>MATCH</code></li>
+    <li><strong>Update</strong> node and edge properties</li>
+    <li><strong>Delete</strong> edges and nodes (with referential integrity checks)</li>
+    <li><strong>Bulk import/export</strong> via the CLI or batch API methods</li>
+  </ul>
+  <p>In the next chapter, we will explore schema design and data modeling -- how to structure your graph for real-world applications.</p>
+
+  <!-- Chapter Navigation -->
+  <div class="chapter-nav">
+    <a href="gentle-intro-ch03.html">&larr; Chapter 3: Installation and Setup</a>
+    <span class="spacer"></span>
+    <a href="gentle-intro-ch05.html">Chapter 5: Schema and Data Modeling &rarr;</a>
+  </div>
+</div>
+
+<footer>
+  &copy; 2026 AstraeaDB Project. Released under the MIT License.
+  <a href="https://github.com/jimeharrisjr/graph-astraeadb">GitHub</a>
+</footer>
+
+<script>
+function switchTab(evt, lang) {
+  const container = evt.target.closest('.lang-tabs').parentElement;
+  container.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+  container.querySelectorAll('.lang-panel').forEach(p => p.classList.remove('active'));
+  evt.target.classList.add('active');
+  container.querySelector('#' + lang).classList.add('active');
+}
+document.querySelector('.menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+</script>
+</body>
+</html>
