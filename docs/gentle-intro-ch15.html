@@ -67,625 +67,751 @@
 
   <h1>Chapter 15: Real-World Scenario &mdash; Cybersecurity Threat Investigation</h1>
   <p class="subtitle">
-    This capstone chapter brings together nearly every feature covered in the guide&mdash;node and edge creation, graph traversals, GQL queries, vector search, GraphRAG, temporal analysis, and graph algorithms&mdash;in the context of a realistic cybersecurity threat investigation. You will build a threat graph from scratch, investigate a simulated breach, enrich findings with AI, and trace the attack timeline using temporal edges.
+    This capstone chapter ties together nearly every feature of AstraeaDB&mdash;graph construction, traversals, GQL queries, vector search, hybrid search, GraphRAG, and temporal analysis&mdash;in a single, realistic scenario. You will build a cybersecurity threat graph from scratch, investigate an active alert, enrich your findings with AI, and reconstruct the attack timeline. By the end, you will have seen how graph thinking transforms security operations from reactive log-chasing into proactive, contextual investigation.
   </p>
 
-  <div class="info-box info">
-    <strong>Prerequisites</strong>
-    This chapter assumes you have worked through the earlier chapters and are comfortable with the AstraeaDB Python client. The primary examples are in Python; tabs for other languages are provided for key operations. Make sure your AstraeaDB server is running before following along.
-  </div>
-
-  <!-- 15.1 Building the Threat Graph -->
+  <!-- ================================================================== -->
+  <!-- 15.1 Building the Threat Graph                                     -->
+  <!-- ================================================================== -->
   <h2>15.1 Building the Threat Graph</h2>
 
   <p>
-    The first step in any graph-powered security investigation is modeling the environment. In cybersecurity, entities and their relationships form a natural graph. Here is the data model we will build:
+    Every cybersecurity investigation begins with a model of the environment. In a traditional SIEM, this model is implicit&mdash;scattered across log tables, asset inventories, and vulnerability scanners. In AstraeaDB, we make it <strong>explicit</strong> by constructing a graph where every entity is a node and every relationship is an edge.
   </p>
 
-  <h3>Node Types</h3>
+  <h3>The Schema</h3>
+  <p>Our threat graph uses six node types and five edge types:</p>
+
   <table>
     <thead>
-      <tr><th>Label</th><th>Description</th><th>Example Properties</th></tr>
+      <tr><th>Node Label</th><th>Description</th><th>Example Properties</th></tr>
     </thead>
     <tbody>
       <tr>
-        <td><code>Host</code></td>
-        <td>A server, workstation, or network device</td>
-        <td><code>hostname</code>, <code>os</code>, <code>ip</code>, <code>criticality</code></td>
+        <td><strong>Host</strong></td>
+        <td>A server, workstation, or container in the environment</td>
+        <td><code>hostname</code>, <code>os</code>, <code>tier</code></td>
       </tr>
       <tr>
-        <td><code>IPAddress</code></td>
-        <td>An external or internal IP address</td>
-        <td><code>address</code>, <code>geo_country</code>, <code>is_tor</code></td>
+        <td><strong>IPAddress</strong></td>
+        <td>An internal or external IP address</td>
+        <td><code>ip</code>, <code>type</code> (internal/external)</td>
       </tr>
       <tr>
-        <td><code>Vulnerability</code></td>
-        <td>A known CVE or weakness</td>
-        <td><code>cve_id</code>, <code>severity</code>, <code>description</code>, <code>cvss_score</code></td>
+        <td><strong>Vulnerability</strong></td>
+        <td>A known CVE affecting a host</td>
+        <td><code>cve_id</code>, <code>severity</code>, <code>cvss</code></td>
       </tr>
       <tr>
-        <td><code>Alert</code></td>
-        <td>A security alert from a SIEM or IDS</td>
-        <td><code>alert_id</code>, <code>severity</code>, <code>rule_name</code>, <code>timestamp</code></td>
+        <td><strong>Alert</strong></td>
+        <td>A security alert triggered by a detection rule</td>
+        <td><code>alert_id</code>, <code>rule</code>, <code>severity</code></td>
       </tr>
       <tr>
-        <td><code>AttackPattern</code></td>
-        <td>A MITRE ATT&CK technique or tactic</td>
+        <td><strong>AttackPattern</strong></td>
+        <td>A MITRE ATT&amp;CK technique or tactic</td>
         <td><code>technique_id</code>, <code>name</code>, <code>tactic</code></td>
       </tr>
       <tr>
-        <td><code>User</code></td>
-        <td>A user account (human or service)</td>
-        <td><code>username</code>, <code>department</code>, <code>privilege_level</code></td>
+        <td><strong>User</strong></td>
+        <td>A human or service account</td>
+        <td><code>username</code>, <code>role</code>, <code>department</code></td>
       </tr>
     </tbody>
   </table>
 
-  <h3>Edge Types</h3>
   <table>
     <thead>
-      <tr><th>Type</th><th>From</th><th>To</th><th>Meaning</th></tr>
+      <tr><th>Edge Type</th><th>From</th><th>To</th><th>Meaning</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>CONNECTS_TO</code></td><td>Host</td><td>Host</td><td>Network connectivity (with port and protocol)</td></tr>
-      <tr><td><code>HAS_VULNERABILITY</code></td><td>Host</td><td>Vulnerability</td><td>Host is affected by this CVE</td></tr>
-      <tr><td><code>TRIGGERED_ALERT</code></td><td>Host</td><td>Alert</td><td>An alert fired on this host</td></tr>
-      <tr><td><code>EXPLOITS</code></td><td>AttackPattern</td><td>Vulnerability</td><td>This technique exploits this vulnerability</td></tr>
-      <tr><td><code>LOGGED_IN_FROM</code></td><td>User</td><td>Host</td><td>User authenticated from this host</td></tr>
-      <tr><td><code>COMMUNICATES_WITH</code></td><td>Host</td><td>IPAddress</td><td>Outbound connection to external IP</td></tr>
+      <tr>
+        <td><strong>CONNECTS_TO</strong></td>
+        <td>Host</td>
+        <td>IPAddress</td>
+        <td>The host has communicated with this IP</td>
+      </tr>
+      <tr>
+        <td><strong>HAS_VULNERABILITY</strong></td>
+        <td>Host</td>
+        <td>Vulnerability</td>
+        <td>The host is affected by this CVE</td>
+      </tr>
+      <tr>
+        <td><strong>TRIGGERED_ALERT</strong></td>
+        <td>Host</td>
+        <td>Alert</td>
+        <td>An alert was raised on this host</td>
+      </tr>
+      <tr>
+        <td><strong>EXPLOITS</strong></td>
+        <td>AttackPattern</td>
+        <td>Vulnerability</td>
+        <td>This attack technique exploits this vulnerability</td>
+      </tr>
+      <tr>
+        <td><strong>LOGGED_IN_FROM</strong></td>
+        <td>User</td>
+        <td>Host</td>
+        <td>The user authenticated to this host</td>
+      </tr>
     </tbody>
   </table>
 
-  <h3>Building the Graph Step by Step</h3>
+  <h3>Constructing the Graph in Python</h3>
+  <p>
+    The following code builds the complete threat graph. Notice how some nodes carry <strong>embeddings</strong>&mdash;vector representations of their descriptions. These will power semantic search in Section 15.3.
+  </p>
 
-  <div class="lang-tabs">
-    <button class="lang-tab active" onclick="switchTab(event, 'python-build')">Python</button>
-    <button class="lang-tab" onclick="switchTab(event, 'r-build')">R</button>
-    <button class="lang-tab" onclick="switchTab(event, 'go-build')">Go</button>
-    <button class="lang-tab" onclick="switchTab(event, 'java-build')">Java</button>
-  </div>
-  <div class="lang-panel active" id="python-build">
 <pre><span class="kw">from</span> astraeadb <span class="kw">import</span> AstraeaClient
+<span class="kw">import</span> numpy <span class="kw">as</span> np
 
-<span class="kw">with</span> <span class="fn">AstraeaClient</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>, auth_token=<span class="str">"admin-token"</span>) <span class="kw">as</span> client:
+client = AstraeaClient(<span class="str">"localhost:7687"</span>)
 
-    <span class="cm"># ── Hosts ──────────────────────────────────────────────</span>
-    web_server = client.<span class="fn">create_node</span>(
-        [<span class="str">"Host"</span>],
-        {
-            <span class="str">"hostname"</span>: <span class="str">"web-prod-01"</span>,
-            <span class="str">"os"</span>: <span class="str">"Ubuntu 22.04"</span>,
-            <span class="str">"ip"</span>: <span class="str">"10.0.1.10"</span>,
-            <span class="str">"criticality"</span>: <span class="str">"high"</span>
-        },
-        embedding=[<span class="num">0.12</span>, <span class="num">0.85</span>, <span class="num">-0.34</span>, <span class="num">0.67</span>, <span class="num">0.91</span>]  <span class="cm"># From security description</span>
-    )
-    <span class="fn">print</span>(<span class="str">f"Created web server: </span>{web_server}<span class="str">"</span>)
-
-    db_server = client.<span class="fn">create_node</span>(
-        [<span class="str">"Host"</span>],
-        {
-            <span class="str">"hostname"</span>: <span class="str">"db-prod-01"</span>,
-            <span class="str">"os"</span>: <span class="str">"Ubuntu 22.04"</span>,
-            <span class="str">"ip"</span>: <span class="str">"10.0.2.20"</span>,
-            <span class="str">"criticality"</span>: <span class="str">"critical"</span>
-        },
-        embedding=[<span class="num">0.08</span>, <span class="num">0.72</span>, <span class="num">-0.41</span>, <span class="num">0.55</span>, <span class="num">0.88</span>]
-    )
-
-    jumpbox = client.<span class="fn">create_node</span>(
-        [<span class="str">"Host"</span>],
-        {
-            <span class="str">"hostname"</span>: <span class="str">"jumpbox-01"</span>,
-            <span class="str">"os"</span>: <span class="str">"Ubuntu 22.04"</span>,
-            <span class="str">"ip"</span>: <span class="str">"10.0.0.5"</span>,
-            <span class="str">"criticality"</span>: <span class="str">"high"</span>
-        }
-    )
-
-    <span class="cm"># ── External IP (suspicious) ──────────────────────────</span>
-    external_ip = client.<span class="fn">create_node</span>(
-        [<span class="str">"IPAddress"</span>],
-        {
-            <span class="str">"address"</span>: <span class="str">"198.51.100.42"</span>,
-            <span class="str">"geo_country"</span>: <span class="str">"Unknown"</span>,
-            <span class="str">"is_tor"</span>: <span class="num">True</span>
-        }
-    )
-
-    <span class="cm"># ── Vulnerability ─────────────────────────────────────</span>
-    cve = client.<span class="fn">create_node</span>(
-        [<span class="str">"Vulnerability"</span>],
-        {
-            <span class="str">"cve_id"</span>: <span class="str">"CVE-2024-1234"</span>,
-            <span class="str">"severity"</span>: <span class="str">"Critical"</span>,
-            <span class="str">"description"</span>: <span class="str">"Remote code execution in web framework"</span>,
-            <span class="str">"cvss_score"</span>: <span class="num">9.8</span>
-        }
-    )
-
-    <span class="cm"># ── Alert ─────────────────────────────────────────────</span>
-    alert = client.<span class="fn">create_node</span>(
-        [<span class="str">"Alert"</span>],
-        {
-            <span class="str">"alert_id"</span>: <span class="str">"ALT-2024-5678"</span>,
-            <span class="str">"severity"</span>: <span class="str">"Critical"</span>,
-            <span class="str">"rule_name"</span>: <span class="str">"Reverse Shell Detected"</span>,
-            <span class="str">"timestamp"</span>: <span class="str">"2024-11-15T03:22:00Z"</span>
-        }
-    )
-
-    <span class="cm"># ── Attack Pattern (MITRE ATT&CK) ────────────────────</span>
-    attack_pattern = client.<span class="fn">create_node</span>(
-        [<span class="str">"AttackPattern"</span>],
-        {
-            <span class="str">"technique_id"</span>: <span class="str">"T1059.004"</span>,
-            <span class="str">"name"</span>: <span class="str">"Unix Shell Command Execution"</span>,
-            <span class="str">"tactic"</span>: <span class="str">"Execution"</span>
-        }
-    )
-
-    <span class="cm"># ── User ──────────────────────────────────────────────</span>
-    admin_user = client.<span class="fn">create_node</span>(
-        [<span class="str">"User"</span>],
-        {
-            <span class="str">"username"</span>: <span class="str">"svc-deploy"</span>,
-            <span class="str">"department"</span>: <span class="str">"Engineering"</span>,
-            <span class="str">"privilege_level"</span>: <span class="str">"admin"</span>
-        }
-    )
-
-    <span class="cm"># ── Edges (Relationships) ─────────────────────────────</span>
-
-    <span class="cm"># Network topology</span>
-    client.<span class="fn">create_edge</span>(web_server, db_server, <span class="str">"CONNECTS_TO"</span>,
-        {<span class="str">"port"</span>: <span class="num">5432</span>, <span class="str">"protocol"</span>: <span class="str">"TCP"</span>})
-    client.<span class="fn">create_edge</span>(jumpbox, web_server, <span class="str">"CONNECTS_TO"</span>,
-        {<span class="str">"port"</span>: <span class="num">22</span>, <span class="str">"protocol"</span>: <span class="str">"SSH"</span>})
-
-    <span class="cm"># Vulnerability exposure</span>
-    client.<span class="fn">create_edge</span>(web_server, cve, <span class="str">"HAS_VULNERABILITY"</span>)
-
-    <span class="cm"># Alert association</span>
-    client.<span class="fn">create_edge</span>(web_server, alert, <span class="str">"TRIGGERED_ALERT"</span>)
-
-    <span class="cm"># Attack pattern exploits vulnerability</span>
-    client.<span class="fn">create_edge</span>(attack_pattern, cve, <span class="str">"EXPLOITS"</span>)
-
-    <span class="cm"># Suspicious external communication</span>
-    client.<span class="fn">create_edge</span>(web_server, external_ip, <span class="str">"COMMUNICATES_WITH"</span>,
-        {<span class="str">"bytes_sent"</span>: <span class="num">524288</span>, <span class="str">"first_seen"</span>: <span class="str">"2024-11-15T03:20:00Z"</span>})
-
-    <span class="cm"># User login</span>
-    client.<span class="fn">create_edge</span>(admin_user, jumpbox, <span class="str">"LOGGED_IN_FROM"</span>,
-        {<span class="str">"timestamp"</span>: <span class="str">"2024-11-15T03:15:00Z"</span>})
-
-    <span class="fn">print</span>(<span class="str">"Threat graph built successfully."</span>)</pre>
-  </div>
-  <div class="lang-panel" id="r-build">
-<pre><span class="fn">source</span>(<span class="str">"r_client.R"</span>)
-
-client <span class="kw">&lt;-</span> AstraeaClient<span class="kw">$</span><span class="fn">new</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>, auth_token = <span class="str">"admin-token"</span>)
-client<span class="kw">$</span><span class="fn">connect</span>()
-
-<span class="cm"># Create hosts</span>
-web_server <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
-    <span class="fn">c</span>(<span class="str">"Host"</span>),
-    <span class="fn">list</span>(hostname = <span class="str">"web-prod-01"</span>, os = <span class="str">"Ubuntu 22.04"</span>,
-         ip = <span class="str">"10.0.1.10"</span>, criticality = <span class="str">"high"</span>),
-    embedding = <span class="fn">c</span>(<span class="num">0.12</span>, <span class="num">0.85</span>, <span class="num">-0.34</span>, <span class="num">0.67</span>, <span class="num">0.91</span>)
+<span class="cm"># ── Hosts ─────────────────────────────────────────────────────────</span>
+web_server = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"Host"</span>],
+    properties={
+        <span class="str">"hostname"</span>: <span class="str">"web-prod-01"</span>,
+        <span class="str">"os"</span>: <span class="str">"Ubuntu 22.04"</span>,
+        <span class="str">"tier"</span>: <span class="str">"DMZ"</span>,
+        <span class="str">"description"</span>: <span class="str">"Public-facing web server hosting customer portal"</span>
+    },
+    embedding=np.random.rand(<span class="num">128</span>).tolist()  <span class="cm"># embedding from host description</span>
 )
 
-db_server <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
-    <span class="fn">c</span>(<span class="str">"Host"</span>),
-    <span class="fn">list</span>(hostname = <span class="str">"db-prod-01"</span>, os = <span class="str">"Ubuntu 22.04"</span>,
-         ip = <span class="str">"10.0.2.20"</span>, criticality = <span class="str">"critical"</span>),
-    embedding = <span class="fn">c</span>(<span class="num">0.08</span>, <span class="num">0.72</span>, <span class="num">-0.41</span>, <span class="num">0.55</span>, <span class="num">0.88</span>)
+db_server = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"Host"</span>],
+    properties={
+        <span class="str">"hostname"</span>: <span class="str">"db-prod-01"</span>,
+        <span class="str">"os"</span>: <span class="str">"Ubuntu 22.04"</span>,
+        <span class="str">"tier"</span>: <span class="str">"Internal"</span>,
+        <span class="str">"description"</span>: <span class="str">"Primary PostgreSQL database server"</span>
+    },
+    embedding=np.random.rand(<span class="num">128</span>).tolist()
 )
 
-<span class="cm"># Create vulnerability</span>
-cve <span class="kw">&lt;-</span> client<span class="kw">$</span><span class="fn">create_node</span>(
-    <span class="fn">c</span>(<span class="str">"Vulnerability"</span>),
-    <span class="fn">list</span>(cve_id = <span class="str">"CVE-2024-1234"</span>, severity = <span class="str">"Critical"</span>,
-         description = <span class="str">"Remote code execution in web framework"</span>)
+jump_host = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"Host"</span>],
+    properties={
+        <span class="str">"hostname"</span>: <span class="str">"bastion-01"</span>,
+        <span class="str">"os"</span>: <span class="str">"Amazon Linux 2"</span>,
+        <span class="str">"tier"</span>: <span class="str">"Management"</span>,
+        <span class="str">"description"</span>: <span class="str">"SSH jump host for administrative access"</span>
+    }
 )
 
-<span class="cm"># Create edges</span>
-client<span class="kw">$</span><span class="fn">create_edge</span>(web_server, db_server, <span class="str">"CONNECTS_TO"</span>,
-    <span class="fn">list</span>(port = <span class="num">5432</span>))
-client<span class="kw">$</span><span class="fn">create_edge</span>(web_server, cve, <span class="str">"HAS_VULNERABILITY"</span>)
-
-<span class="fn">cat</span>(<span class="str">"Threat graph built successfully.\n"</span>)
-client<span class="kw">$</span><span class="fn">close</span>()</pre>
-  </div>
-  <div class="lang-panel" id="go-build">
-<pre><span class="kw">package</span> main
-
-<span class="kw">import</span> (
-    <span class="str">"context"</span>
-    <span class="str">"fmt"</span>
-    <span class="str">"github.com/jimeharrisjr/astraeadb-go"</span>
+<span class="cm"># ── IP Addresses ──────────────────────────────────────────────────</span>
+ext_ip = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"IPAddress"</span>],
+    properties={<span class="str">"ip"</span>: <span class="str">"198.51.100.42"</span>, <span class="str">"type"</span>: <span class="str">"external"</span>, <span class="str">"geo"</span>: <span class="str">"Eastern Europe"</span>}
 )
 
-<span class="kw">func</span> <span class="fn">main</span>() {
-    client <span class="kw">:=</span> astraeadb.<span class="fn">NewClient</span>(
-        astraeadb.<span class="fn">WithAddress</span>(<span class="str">"127.0.0.1"</span>, <span class="num">7687</span>),
-        astraeadb.<span class="fn">WithAuthToken</span>(<span class="str">"admin-token"</span>),
-    )
-    ctx <span class="kw">:=</span> context.<span class="fn">Background</span>()
-    client.<span class="fn">Connect</span>(ctx)
-    <span class="kw">defer</span> client.<span class="fn">Close</span>()
+int_ip = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"IPAddress"</span>],
+    properties={<span class="str">"ip"</span>: <span class="str">"10.0.1.50"</span>, <span class="str">"type"</span>: <span class="str">"internal"</span>}
+)
 
-    <span class="cm">// Create hosts</span>
-    webServer, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx,
-        []<span class="ty">string</span>{<span class="str">"Host"</span>},
-        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{
-            <span class="str">"hostname"</span>:    <span class="str">"web-prod-01"</span>,
-            <span class="str">"os"</span>:          <span class="str">"Ubuntu 22.04"</span>,
-            <span class="str">"ip"</span>:          <span class="str">"10.0.1.10"</span>,
-            <span class="str">"criticality"</span>: <span class="str">"high"</span>,
-        },
-        astraeadb.<span class="fn">WithEmbedding</span>([]<span class="ty">float32</span>{<span class="num">0.12</span>, <span class="num">0.85</span>, <span class="num">-0.34</span>, <span class="num">0.67</span>, <span class="num">0.91</span>}),
-    )
+<span class="cm"># ── Vulnerabilities ───────────────────────────────────────────────</span>
+vuln_rce = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"Vulnerability"</span>],
+    properties={
+        <span class="str">"cve_id"</span>: <span class="str">"CVE-2024-3094"</span>,
+        <span class="str">"severity"</span>: <span class="str">"CRITICAL"</span>,
+        <span class="str">"cvss"</span>: <span class="num">9.8</span>,
+        <span class="str">"description"</span>: <span class="str">"Remote code execution via crafted HTTP request"</span>
+    },
+    embedding=np.random.rand(<span class="num">128</span>).tolist()
+)
 
-    dbServer, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx,
-        []<span class="ty">string</span>{<span class="str">"Host"</span>},
-        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{
-            <span class="str">"hostname"</span>:    <span class="str">"db-prod-01"</span>,
-            <span class="str">"os"</span>:          <span class="str">"Ubuntu 22.04"</span>,
-            <span class="str">"ip"</span>:          <span class="str">"10.0.2.20"</span>,
-            <span class="str">"criticality"</span>: <span class="str">"critical"</span>,
-        },
-    )
+vuln_sqli = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"Vulnerability"</span>],
+    properties={
+        <span class="str">"cve_id"</span>: <span class="str">"CVE-2024-1234"</span>,
+        <span class="str">"severity"</span>: <span class="str">"HIGH"</span>,
+        <span class="str">"cvss"</span>: <span class="num">8.1</span>,
+        <span class="str">"description"</span>: <span class="str">"SQL injection in authentication module"</span>
+    },
+    embedding=np.random.rand(<span class="num">128</span>).tolist()
+)
 
-    cve, _ <span class="kw">:=</span> client.<span class="fn">CreateNode</span>(ctx,
-        []<span class="ty">string</span>{<span class="str">"Vulnerability"</span>},
-        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{
-            <span class="str">"cve_id"</span>:      <span class="str">"CVE-2024-1234"</span>,
-            <span class="str">"severity"</span>:    <span class="str">"Critical"</span>,
-            <span class="str">"description"</span>: <span class="str">"Remote code execution in web framework"</span>,
-        },
-    )
+<span class="cm"># ── Alert ─────────────────────────────────────────────────────────</span>
+alert = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"Alert"</span>],
+    properties={
+        <span class="str">"alert_id"</span>: <span class="str">"ALT-2024-0891"</span>,
+        <span class="str">"rule"</span>: <span class="str">"Suspicious outbound connection to known C2 IP"</span>,
+        <span class="str">"severity"</span>: <span class="str">"CRITICAL"</span>,
+        <span class="str">"timestamp"</span>: <span class="str">"2024-11-15T03:22:17Z"</span>,
+        <span class="str">"description"</span>: <span class="str">"Outbound beacon detected to known command-and-control server"</span>
+    },
+    embedding=np.random.rand(<span class="num">128</span>).tolist()
+)
 
-    <span class="cm">// Create edges</span>
-    client.<span class="fn">CreateEdge</span>(ctx, webServer, dbServer, <span class="str">"CONNECTS_TO"</span>,
-        <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>{<span class="str">"port"</span>: <span class="num">5432</span>})
-    client.<span class="fn">CreateEdge</span>(ctx, webServer, cve, <span class="str">"HAS_VULNERABILITY"</span>, <span class="kw">nil</span>)
+<span class="cm"># ── Attack Pattern (MITRE ATT&amp;CK) ────────────────────────────────</span>
+attack = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"AttackPattern"</span>],
+    properties={
+        <span class="str">"technique_id"</span>: <span class="str">"T1190"</span>,
+        <span class="str">"name"</span>: <span class="str">"Exploit Public-Facing Application"</span>,
+        <span class="str">"tactic"</span>: <span class="str">"Initial Access"</span>,
+        <span class="str">"description"</span>: <span class="str">"Adversary exploits a vulnerability in an internet-facing application"</span>
+    },
+    embedding=np.random.rand(<span class="num">128</span>).tolist()
+)
 
-    fmt.<span class="fn">Println</span>(<span class="str">"Threat graph built successfully."</span>)
-}</pre>
-  </div>
-  <div class="lang-panel" id="java-build">
-<pre><span class="kw">import</span> com.astraeadb.unified.UnifiedClient;
-<span class="kw">import</span> java.util.List;
-<span class="kw">import</span> java.util.Map;
+<span class="cm"># ── User ──────────────────────────────────────────────────────────</span>
+admin_user = client.<span class="fn">create_node</span>(
+    labels=[<span class="str">"User"</span>],
+    properties={
+        <span class="str">"username"</span>: <span class="str">"svc-deploy"</span>,
+        <span class="str">"role"</span>: <span class="str">"service_account"</span>,
+        <span class="str">"department"</span>: <span class="str">"DevOps"</span>
+    }
+)
 
-<span class="kw">try</span> (<span class="kw">var</span> client = <span class="ty">UnifiedClient</span>.<span class="fn">builder</span>()
-        .<span class="fn">host</span>(<span class="str">"127.0.0.1"</span>).<span class="fn">port</span>(<span class="num">7687</span>)
-        .<span class="fn">authToken</span>(<span class="str">"admin-token"</span>)
-        .<span class="fn">build</span>()) {
-    client.<span class="fn">connect</span>();
+<span class="cm"># ── Edges ─────────────────────────────────────────────────────────</span>
+<span class="cm"># Network connections (temporal: valid_from / valid_to)</span>
+client.<span class="fn">create_edge</span>(web_server, ext_ip, <span class="str">"CONNECTS_TO"</span>,
+    properties={<span class="str">"port"</span>: <span class="num">443</span>, <span class="str">"protocol"</span>: <span class="str">"HTTPS"</span>},
+    weight=<span class="num">0.9</span>,
+    valid_from=<span class="str">"2024-11-15T03:22:00Z"</span>,
+    valid_to=<span class="str">"2024-11-15T04:15:00Z"</span>
+)
 
-    <span class="cm">// Create hosts</span>
-    <span class="kw">var</span> webServer = client.<span class="fn">createNode</span>(
-        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Host"</span>),
-        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"hostname"</span>, <span class="str">"web-prod-01"</span>,
-               <span class="str">"os"</span>, <span class="str">"Ubuntu 22.04"</span>,
-               <span class="str">"ip"</span>, <span class="str">"10.0.1.10"</span>,
-               <span class="str">"criticality"</span>, <span class="str">"high"</span>),
-        <span class="kw">new</span> <span class="ty">float</span>[]{<span class="num">0.12f</span>, <span class="num">0.85f</span>, <span class="num">-0.34f</span>, <span class="num">0.67f</span>, <span class="num">0.91f</span>}
-    );
+client.<span class="fn">create_edge</span>(web_server, int_ip, <span class="str">"CONNECTS_TO"</span>,
+    properties={<span class="str">"port"</span>: <span class="num">5432</span>, <span class="str">"protocol"</span>: <span class="str">"TCP"</span>},
+    weight=<span class="num">0.3</span>,
+    valid_from=<span class="str">"2024-01-01T00:00:00Z"</span>,
+    valid_to=<span class="str">"9999-12-31T23:59:59Z"</span>
+)
 
-    <span class="kw">var</span> dbServer = client.<span class="fn">createNode</span>(
-        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Host"</span>),
-        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"hostname"</span>, <span class="str">"db-prod-01"</span>,
-               <span class="str">"os"</span>, <span class="str">"Ubuntu 22.04"</span>,
-               <span class="str">"ip"</span>, <span class="str">"10.0.2.20"</span>,
-               <span class="str">"criticality"</span>, <span class="str">"critical"</span>)
-    );
+client.<span class="fn">create_edge</span>(db_server, int_ip, <span class="str">"CONNECTS_TO"</span>,
+    properties={<span class="str">"port"</span>: <span class="num">5432</span>, <span class="str">"protocol"</span>: <span class="str">"TCP"</span>},
+    weight=<span class="num">0.2</span>,
+    valid_from=<span class="str">"2024-01-01T00:00:00Z"</span>,
+    valid_to=<span class="str">"9999-12-31T23:59:59Z"</span>
+)
 
-    <span class="kw">var</span> cve = client.<span class="fn">createNode</span>(
-        <span class="ty">List</span>.<span class="fn">of</span>(<span class="str">"Vulnerability"</span>),
-        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"cve_id"</span>, <span class="str">"CVE-2024-1234"</span>,
-               <span class="str">"severity"</span>, <span class="str">"Critical"</span>,
-               <span class="str">"description"</span>, <span class="str">"Remote code execution in web framework"</span>)
-    );
+<span class="cm"># Vulnerabilities</span>
+client.<span class="fn">create_edge</span>(web_server, vuln_rce, <span class="str">"HAS_VULNERABILITY"</span>,
+    properties={<span class="str">"discovered"</span>: <span class="str">"2024-10-20"</span>, <span class="str">"status"</span>: <span class="str">"unpatched"</span>},
+    weight=<span class="num">0.95</span>,
+    valid_from=<span class="str">"2024-10-20T00:00:00Z"</span>,
+    valid_to=<span class="str">"9999-12-31T23:59:59Z"</span>
+)
 
-    <span class="cm">// Create edges</span>
-    client.<span class="fn">createEdge</span>(webServer, dbServer, <span class="str">"CONNECTS_TO"</span>,
-        <span class="ty">Map</span>.<span class="fn">of</span>(<span class="str">"port"</span>, <span class="num">5432</span>));
-    client.<span class="fn">createEdge</span>(webServer, cve, <span class="str">"HAS_VULNERABILITY"</span>, <span class="ty">Map</span>.<span class="fn">of</span>());
+client.<span class="fn">create_edge</span>(web_server, vuln_sqli, <span class="str">"HAS_VULNERABILITY"</span>,
+    properties={<span class="str">"discovered"</span>: <span class="str">"2024-09-05"</span>, <span class="str">"status"</span>: <span class="str">"unpatched"</span>},
+    weight=<span class="num">0.8</span>,
+    valid_from=<span class="str">"2024-09-05T00:00:00Z"</span>,
+    valid_to=<span class="str">"9999-12-31T23:59:59Z"</span>
+)
 
-    System.out.<span class="fn">println</span>(<span class="str">"Threat graph built successfully."</span>);
-}</pre>
-  </div>
+client.<span class="fn">create_edge</span>(db_server, vuln_sqli, <span class="str">"HAS_VULNERABILITY"</span>,
+    properties={<span class="str">"discovered"</span>: <span class="str">"2024-09-05"</span>, <span class="str">"status"</span>: <span class="str">"patched"</span>},
+    weight=<span class="num">0.1</span>,
+    valid_from=<span class="str">"2024-09-05T00:00:00Z"</span>,
+    valid_to=<span class="str">"2024-10-01T00:00:00Z"</span>
+)
 
-  <p>At this point, the graph looks like this:</p>
+<span class="cm"># Alert</span>
+client.<span class="fn">create_edge</span>(web_server, alert, <span class="str">"TRIGGERED_ALERT"</span>,
+    properties={<span class="str">"source"</span>: <span class="str">"EDR"</span>},
+    weight=<span class="num">1.0</span>
+)
+
+<span class="cm"># Attack pattern exploits vulnerability</span>
+client.<span class="fn">create_edge</span>(attack, vuln_rce, <span class="str">"EXPLOITS"</span>,
+    properties={<span class="str">"confidence"</span>: <span class="str">"high"</span>},
+    weight=<span class="num">0.95</span>
+)
+
+client.<span class="fn">create_edge</span>(attack, vuln_sqli, <span class="str">"EXPLOITS"</span>,
+    properties={<span class="str">"confidence"</span>: <span class="str">"medium"</span>},
+    weight=<span class="num">0.6</span>
+)
+
+<span class="cm"># User logins (temporal)</span>
+client.<span class="fn">create_edge</span>(admin_user, jump_host, <span class="str">"LOGGED_IN_FROM"</span>,
+    properties={<span class="str">"method"</span>: <span class="str">"ssh_key"</span>},
+    weight=<span class="num">0.5</span>,
+    valid_from=<span class="str">"2024-11-15T02:45:00Z"</span>,
+    valid_to=<span class="str">"2024-11-15T03:30:00Z"</span>
+)
+
+client.<span class="fn">create_edge</span>(admin_user, web_server, <span class="str">"LOGGED_IN_FROM"</span>,
+    properties={<span class="str">"method"</span>: <span class="str">"ssh_key"</span>},
+    weight=<span class="num">0.7</span>,
+    valid_from=<span class="str">"2024-11-15T03:00:00Z"</span>,
+    valid_to=<span class="str">"2024-11-15T03:25:00Z"</span>
+)
+
+<span class="kw">print</span>(<span class="str">"Threat graph constructed: 10 nodes, 12 edges"</span>)</pre>
+
+  <p>At this point, the graph contains the following topology:</p>
 
   <div class="diagram">
-                   (svc-deploy:User)
-                        |
-                        | LOGGED_IN_FROM
-                        v
-    (198.51.100.42   (jumpbox-01:Host)
-     :IPAddress)          |
-        ^                 | CONNECTS_TO (SSH:22)
-        |                 v
-        |          (web-prod-01:Host) ---------> (ALT-2024-5678:Alert)
-        |                 |    |       TRIGGERED_ALERT
-    COMMUNICATES_WITH     |    |
-                          |    +---> (CVE-2024-1234:Vulnerability)
-               CONNECTS_TO|          HAS_VULNERABILITY    ^
-               (TCP:5432)  |                               |
-                          v                          EXPLOITS
-                   (db-prod-01:Host)    (T1059.004:AttackPattern)
+                       (svc-deploy:User)
+                         /            \
+              LOGGED_IN_FROM      LOGGED_IN_FROM
+              [02:45-03:30]        [03:00-03:25]
+                       /                \
+            (bastion-01:Host)     (web-prod-01:Host)
+                                   /    |    |    \
+                  CONNECTS_TO     /     |    |     \  CONNECTS_TO
+                  [03:22-04:15]  /      |    |      \ [permanent]
+                                /       |    |       \
+              (198.51.100.42  HAS_VULN  | TRIGGERED   (10.0.1.50
+               :IPAddress)     |        |  _ALERT      :IPAddress)
+                               |        |              |
+                         +-----+--+     |        CONNECTS_TO
+                         |        |     |         [permanent]
+                   (CVE-2024  (CVE-2024 |              |
+                    -3094)     -1234)   |        (db-prod-01:Host)
+                    :Vuln)     :Vuln)   |
+                       \       /        |
+                    EXPLOITS  /    (ALT-2024-0891
+                         \   /      :Alert)
+                   (T1190:AttackPattern)
   </div>
 
-  <!-- 15.2 Investigating an Alert -->
+  <div class="info-box info">
+    <strong>Why embeddings on some nodes?</strong>
+    Not every node needs an embedding. We attach them to nodes whose <code>description</code> field carries semantic meaning&mdash;vulnerabilities, alerts, attack patterns, and key hosts. This lets us use vector search (Section 15.3) to find entities that are <em>conceptually</em> similar, not just structurally connected. In a production system, you would generate these embeddings using a model like <code>text-embedding-3-small</code> rather than random vectors.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 15.2 Investigating an Alert                                        -->
+  <!-- ================================================================== -->
   <h2>15.2 Investigating an Alert</h2>
 
   <p>
-    The scenario: at 03:22 UTC, a critical alert fires on <code>web-prod-01</code> &mdash; a reverse shell has been detected. As the security analyst, your job is to determine the blast radius, trace the attack path, and identify what assets are at risk.
+    At 03:22 UTC, alert <code>ALT-2024-0891</code> fires: <em>"Suspicious outbound connection to known C2 IP"</em> on <code>web-prod-01</code>. The SOC analyst opens the AstraeaDB console and begins the investigation.
   </p>
 
-  <h3>Step 1: Determine the Blast Radius with BFS</h3>
+  <h3>Step 1: Determine the Blast Radius (BFS)</h3>
   <p>
-    Use breadth-first search to find all nodes reachable from the compromised host within 3 hops. This tells you the potential impact of the breach.
+    The first question is: <strong>what else is reachable from the compromised host?</strong> A breadth-first search from <code>web-prod-01</code> reveals every entity within two hops&mdash;the immediate blast radius.
   </p>
 
-<pre><span class="cm"># How far can the attacker reach from the web server?</span>
-blast_radius = client.<span class="fn">bfs</span>(web_server, max_depth=<span class="num">3</span>)
-<span class="fn">print</span>(<span class="str">f"Potential impact: </span>{<span class="fn">len</span>(blast_radius)}<span class="str"> nodes within 3 hops"</span>)
-<span class="fn">print</span>(<span class="str">"Affected entities:"</span>)
+<pre><span class="cm"># BFS from the web server, max depth of 2</span>
+blast_radius = client.<span class="fn">bfs</span>(start=web_server, max_depth=<span class="num">2</span>)
+
+<span class="kw">print</span>(<span class="str">f"Blast radius: {len(blast_radius)} entities reachable within 2 hops"</span>)
 <span class="kw">for</span> node <span class="kw">in</span> blast_radius:
-    <span class="fn">print</span>(<span class="str">f"  - </span>{node}<span class="str">"</span>)</pre>
+    <span class="kw">print</span>(<span class="str">f"  [{node['labels'][0]}] {node['properties']}"</span>)</pre>
 
   <p>Expected output:</p>
-<pre><span class="cm">Potential impact: 7 nodes within 3 hops
-Affected entities:
-  - web-prod-01 (Host)
-  - db-prod-01 (Host)
-  - CVE-2024-1234 (Vulnerability)
-  - ALT-2024-5678 (Alert)
-  - 198.51.100.42 (IPAddress)
-  - jumpbox-01 (Host)
-  - svc-deploy (User)</span></pre>
+
+<pre><span class="cm">Blast radius: 8 entities reachable within 2 hops
+  [IPAddress]     {"ip": "198.51.100.42", "type": "external", "geo": "Eastern Europe"}
+  [IPAddress]     {"ip": "10.0.1.50", "type": "internal"}
+  [Vulnerability] {"cve_id": "CVE-2024-3094", "severity": "CRITICAL", "cvss": 9.8}
+  [Vulnerability] {"cve_id": "CVE-2024-1234", "severity": "HIGH", "cvss": 8.1}
+  [Alert]         {"alert_id": "ALT-2024-0891", "severity": "CRITICAL"}
+  [Host]          {"hostname": "db-prod-01", "tier": "Internal"}
+  [AttackPattern] {"technique_id": "T1190", "name": "Exploit Public-Facing Application"}
+  [User]          {"username": "svc-deploy", "role": "service_account"}</span></pre>
 
   <div class="info-box warn">
-    <strong>Critical Finding</strong>
-    The database server <code>db-prod-01</code> is within 1 hop of the compromised web server. If the attacker has code execution on <code>web-prod-01</code>, they can potentially reach the database via the PostgreSQL connection on port 5432. This is the highest-priority risk to investigate.
+    <strong>Critical finding</strong>
+    The blast radius includes <code>db-prod-01</code> (the production database) via the internal IP <code>10.0.1.50</code>. If the attacker has achieved code execution on the web server, the database is one hop away. This must be escalated immediately.
   </div>
 
-  <h3>Step 2: Trace the Attack Path</h3>
+  <h3>Step 2: Find the Attack Path (Shortest Path)</h3>
   <p>
-    Use shortest path to find how the attacker could have reached the database server from the external IP address:
+    How could the attacker reach the database from the external IP? The weighted shortest path reveals the most likely route, where edge weights represent risk scores.
   </p>
 
-<pre><span class="cm"># How could the attacker reach the database?</span>
-path = client.<span class="fn">shortest_path</span>(external_ip, db_server)
-<span class="fn">print</span>(<span class="str">"Attack path:"</span>, <span class="str">" -> "</span>.<span class="fn">join</span>(<span class="fn">str</span>(n) <span class="kw">for</span> n <span class="kw">in</span> path[<span class="str">"path"</span>]))
-<span class="fn">print</span>(<span class="str">f"Path length: </span>{path[<span class="str">'distance'</span>]}<span class="str"> hops"</span>)</pre>
+<pre><span class="cm"># Weighted shortest path: external IP --> database server</span>
+path = client.<span class="fn">shortest_path</span>(
+    from_node=ext_ip,
+    to_node=db_server,
+    weighted=<span class="num">True</span>
+)
+
+<span class="kw">print</span>(<span class="str">f"Attack path (cost: {path['cost']}):"</span>)
+<span class="kw">for</span> step <span class="kw">in</span> path[<span class="str">"path"</span>]:
+    <span class="kw">print</span>(<span class="str">f"  --> {step}"</span>)</pre>
 
   <p>Expected output:</p>
-<pre><span class="cm">Attack path: 198.51.100.42 -> web-prod-01 -> db-prod-01
-Path length: 2 hops</span></pre>
 
-  <h3>Step 3: Find Related Vulnerabilities</h3>
+<pre><span class="cm">Attack path (cost: 1.4):
+  --> IPAddress  198.51.100.42 (external)
+  --> Host       web-prod-01 (DMZ)
+  --> IPAddress  10.0.1.50 (internal)
+  --> Host       db-prod-01 (Internal)</span></pre>
+
+  <h3>Step 3: Examine Neighbors (Direct Relationships)</h3>
   <p>
-    Use a neighbor query to find all vulnerabilities associated with hosts in the blast radius:
+    Next, the analyst inspects the web server's immediate relationships to understand its full exposure surface.
   </p>
 
-<pre><span class="cm"># What vulnerabilities exist on the compromised host?</span>
-neighbors = client.<span class="fn">neighbors</span>(web_server, direction=<span class="str">"outgoing"</span>)
-vulns = [n <span class="kw">for</span> n <span class="kw">in</span> neighbors <span class="kw">if</span> <span class="str">"Vulnerability"</span> <span class="kw">in</span> n.<span class="fn">get</span>(<span class="str">"labels"</span>, [])]
-<span class="kw">for</span> v <span class="kw">in</span> vulns:
-    <span class="fn">print</span>(<span class="str">f"  CVE: </span>{v[<span class="str">'cve_id'</span>]}<span class="str">  Severity: </span>{v[<span class="str">'severity'</span>]}<span class="str">  CVSS: </span>{v[<span class="str">'cvss_score'</span>]}<span class="str">"</span>)</pre>
+<pre><span class="cm"># What is directly connected to the compromised web server?</span>
+neighbors = client.<span class="fn">neighbors</span>(
+    node_id=web_server,
+    direction=<span class="str">"both"</span>,
+    edge_type=<span class="kw">None</span>  <span class="cm"># all edge types</span>
+)
 
-  <h3>Step 4: GQL Query for Targeted Investigation</h3>
+<span class="kw">print</span>(<span class="str">f"web-prod-01 has {len(neighbors)} direct relationships:"</span>)
+<span class="kw">for</span> n <span class="kw">in</span> neighbors:
+    <span class="kw">print</span>(<span class="str">f"  --[{n['edge_type']}]--> {n['labels'][0]}: {n['properties']}"</span>)</pre>
+
+  <p>Expected output:</p>
+
+<pre><span class="cm">web-prod-01 has 6 direct relationships:
+  --[CONNECTS_TO]--------> IPAddress:     {"ip": "198.51.100.42", "type": "external"}
+  --[CONNECTS_TO]--------> IPAddress:     {"ip": "10.0.1.50", "type": "internal"}
+  --[HAS_VULNERABILITY]--> Vulnerability: {"cve_id": "CVE-2024-3094", "severity": "CRITICAL"}
+  --[HAS_VULNERABILITY]--> Vulnerability: {"cve_id": "CVE-2024-1234", "severity": "HIGH"}
+  --[TRIGGERED_ALERT]----> Alert:         {"alert_id": "ALT-2024-0891", "severity": "CRITICAL"}
+  --[LOGGED_IN_FROM]<----- User:          {"username": "svc-deploy", "role": "service_account"}</span></pre>
+
+  <h3>Step 4: Targeted GQL Queries</h3>
   <p>
-    Use a GQL query to find all critical vulnerabilities across the entire environment, along with the hosts they affect:
+    For more precise questions, the analyst drops into GQL. These queries demonstrate the power of declarative pattern matching for security investigations.
   </p>
 
-<pre><span class="cm"># Find all critical vulnerabilities and their hosts</span>
-result = client.<span class="fn">query</span>(
-    <span class="str">'MATCH (h:Host)-[:HAS_VULNERABILITY]->(v:Vulnerability) '</span>
-    <span class="str">'WHERE v.severity = "Critical" '</span>
-    <span class="str">'RETURN h.hostname, h.ip, v.cve_id, v.cvss_score '</span>
-    <span class="str">'ORDER BY v.cvss_score DESC'</span>
-)
-<span class="fn">print</span>(<span class="str">"Critical vulnerabilities in environment:"</span>)
-<span class="kw">for</span> row <span class="kw">in</span> result:
-    <span class="fn">print</span>(<span class="str">f"  </span>{row[<span class="str">'h.hostname'</span>]}<span class="str"> (</span>{row[<span class="str">'h.ip'</span>]}<span class="str">): </span>{row[<span class="str">'v.cve_id'</span>]}<span class="str"> (CVSS </span>{row[<span class="str">'v.cvss_score'</span>]}<span class="str">)"</span>)</pre>
+  <h4>Query 1: Find all CRITICAL or HIGH vulnerabilities on the compromised host</h4>
 
-  <p>You can also trace which attack patterns exploit known vulnerabilities:</p>
+<pre><span class="cm"># GQL: Find critical/high vulnerabilities on web-prod-01</span>
+result = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH (h:Host)-[:HAS_VULNERABILITY]->(v:Vulnerability)
+    WHERE h.hostname = 'web-prod-01'
+      AND v.severity IN ['CRITICAL', 'HIGH']
+    RETURN v.cve_id, v.severity, v.cvss, v.description
+    ORDER BY v.cvss DESC
+"""</span>)
 
-<pre><span class="cm"># Which MITRE ATT&CK techniques could be used against our hosts?</span>
-result = client.<span class="fn">query</span>(
-    <span class="str">'MATCH (a:AttackPattern)-[:EXPLOITS]->(v:Vulnerability)'</span>
-    <span class="str">'      <-(h:Host) '</span>
-    <span class="str">'RETURN h.hostname, v.cve_id, a.technique_id, a.name'</span>
-)
-<span class="kw">for</span> row <span class="kw">in</span> result:
-    <span class="fn">print</span>(<span class="str">f"  </span>{row[<span class="str">'h.hostname'</span>]}<span class="str">: </span>{row[<span class="str">'a.technique_id'</span>]}<span class="str"> - </span>{row[<span class="str">'a.name'</span>]}<span class="str">"</span>)</pre>
+<span class="kw">print</span>(<span class="str">"Vulnerabilities on compromised host:"</span>)
+<span class="kw">print</span>(<span class="str">f"  Columns: {result['columns']}"</span>)
+<span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+    <span class="kw">print</span>(<span class="str">f"  {row[0]} | {row[1]} | CVSS {row[2]} | {row[3]}"</span>)
+<span class="kw">print</span>(<span class="str">f"  ({result['stats']['rows_returned']} rows)"</span>)</pre>
 
-  <!-- 15.3 Enriching with AI -->
+  <p>Expected output:</p>
+
+<pre><span class="cm">Vulnerabilities on compromised host:
+  Columns: ['v.cve_id', 'v.severity', 'v.cvss', 'v.description']
+  CVE-2024-3094 | CRITICAL | CVSS 9.8 | Remote code execution via crafted HTTP request
+  CVE-2024-1234 | HIGH     | CVSS 8.1 | SQL injection in authentication module
+  (2 rows)</span></pre>
+
+  <h4>Query 2: Find all hosts that connect to the same suspicious external IP</h4>
+
+<pre><span class="cm"># GQL: Which hosts have talked to the C2 IP?</span>
+result = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH (h:Host)-[:CONNECTS_TO]->(ip:IPAddress)
+    WHERE ip.ip = '198.51.100.42'
+    RETURN h.hostname, h.tier, h.os
+"""</span>)
+
+<span class="kw">print</span>(<span class="str">"Hosts communicating with suspected C2 IP:"</span>)
+<span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+    <span class="kw">print</span>(<span class="str">f"  {row[0]} (tier: {row[1]}, os: {row[2]})"</span>)</pre>
+
+  <h4>Query 3: Trace the full attack chain from technique to impact</h4>
+
+<pre><span class="cm"># GQL: Full attack chain -- technique -> vulnerability -> host -> alert</span>
+result = client.<span class="fn">query</span>(<span class="str">"""
+    MATCH (a:AttackPattern)-[:EXPLOITS]->(v:Vulnerability)
+          &lt;-(h:Host)-[:TRIGGERED_ALERT]->(alert:Alert)
+    WHERE alert.severity = 'CRITICAL'
+    RETURN a.technique_id, a.name,
+           v.cve_id, v.cvss,
+           h.hostname,
+           alert.alert_id, alert.rule
+"""</span>)
+
+<span class="kw">print</span>(<span class="str">"Full attack chain:"</span>)
+<span class="kw">for</span> row <span class="kw">in</span> result[<span class="str">"rows"</span>]:
+    <span class="kw">print</span>(<span class="str">f"  Technique: {row[0]} ({row[1]})"</span>)
+    <span class="kw">print</span>(<span class="str">f"  Exploits:  {row[2]} (CVSS {row[3]})"</span>)
+    <span class="kw">print</span>(<span class="str">f"  Target:    {row[4]}"</span>)
+    <span class="kw">print</span>(<span class="str">f"  Alert:     {row[5]} -- {row[6]}"</span>)
+    <span class="kw">print</span>()</pre>
+
+  <p>Expected output:</p>
+
+<pre><span class="cm">Full attack chain:
+  Technique: T1190 (Exploit Public-Facing Application)
+  Exploits:  CVE-2024-3094 (CVSS 9.8)
+  Target:    web-prod-01
+  Alert:     ALT-2024-0891 -- Suspicious outbound connection to known C2 IP</span></pre>
+
+  <div class="info-box tip">
+    <strong>Graph advantage</strong>
+    In a relational database, the query above would require joining four or five tables. In AstraeaDB, it is a single pattern match that follows the natural structure of the data. The graph model turns multi-table joins into intuitive path expressions. See <a href="gentle-intro-ch05.html">Chapter 5</a> for the complete GQL guide.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 15.3 Enriching with AI                                             -->
+  <!-- ================================================================== -->
   <h2>15.3 Enriching with AI</h2>
 
   <p>
-    The graph gives us structure. AI gives us semantics. AstraeaDB's vector search and GraphRAG capabilities allow the analyst to go beyond exact matches and find <em>similar</em> threats, then generate human-readable briefings.
+    The structural investigation from Section 15.2 told us <em>what</em> is connected and <em>how</em>. Now we use AstraeaDB's AI capabilities to understand <em>what it means</em>&mdash;finding similar past threats, discovering hidden relationships, and generating analyst-ready briefings.
   </p>
 
-  <h3>Vector Search: Find Similar Threats</h3>
+  <h3>Vector Search: Find Similar Past Threats</h3>
   <p>
-    If you have embedded the alert description into a vector (using any embedding model), you can find historically similar threats in the database:
+    Given the embedding of the current alert, vector search finds historically similar events&mdash;even if they share no structural connection to the current graph. This is especially powerful in large environments with thousands of past incidents.
   </p>
 
-<pre><span class="cm"># Generate an embedding from the alert description</span>
-<span class="cm"># (In practice, use an embedding model like OpenAI, Cohere, etc.)</span>
-alert_embedding = [<span class="num">0.15</span>, <span class="num">0.82</span>, <span class="num">-0.31</span>, <span class="num">0.69</span>, <span class="num">0.87</span>]
+<pre><span class="cm"># Generate an embedding for the current threat description</span>
+query_text = <span class="str">"Outbound beacon to command-and-control server via HTTPS"</span>
+query_vector = <span class="fn">embed</span>(query_text)  <span class="cm"># your embedding model (e.g., text-embedding-3-small)</span>
 
-<span class="cm"># Find the 5 most similar nodes in the graph</span>
-similar_threats = client.<span class="fn">vector_search</span>(alert_embedding, k=<span class="num">5</span>)
-<span class="fn">print</span>(<span class="str">"Similar threats found:"</span>)
-<span class="kw">for</span> threat <span class="kw">in</span> similar_threats:
-    <span class="fn">print</span>(<span class="str">f"  - </span>{threat[<span class="str">'labels'</span>]}<span class="str">: </span>{threat[<span class="str">'properties'</span>]}<span class="str">"</span>)
-    <span class="fn">print</span>(<span class="str">f"    Similarity: </span>{threat[<span class="str">'score'</span>]:<span class="num">.4f</span>}<span class="str">"</span>)</pre>
+<span class="cm"># Find the 5 most semantically similar nodes in the graph</span>
+similar = client.<span class="fn">vector_search</span>(query_vector=query_vector, k=<span class="num">5</span>)
 
-  <p>
-    Because AstraeaDB's vector index uses graph-based ANN (HNSW), the navigation links in the index <em>are</em> graph edges. This means you can perform <strong>hybrid search</strong>&mdash;finding nodes that are both semantically similar (close in vector space) and structurally connected (reachable via graph edges):
-  </p>
+<span class="kw">print</span>(<span class="str">"Semantically similar entities:"</span>)
+<span class="kw">for</span> hit <span class="kw">in</span> similar:
+    <span class="kw">print</span>(<span class="str">f"  [{hit['labels'][0]}] score={hit['score']:.3f}"</span>)
+    <span class="kw">print</span>(<span class="str">f"    {hit['properties'].get('description', hit['properties'])}"</span>)</pre>
 
-<pre><span class="cm"># Hybrid search: similar AND connected</span>
-<span class="cm"># "Find hosts within 2 hops of web-prod-01 that are most similar</span>
-<span class="cm">#  to a 'database server with sensitive data' description"</span>
-results = client.<span class="fn">vector_search</span>(
-    db_description_embedding,
-    k=<span class="num">5</span>,
-    anchor=web_server,
-    max_hops=<span class="num">2</span>
-)
-<span class="kw">for</span> r <span class="kw">in</span> results:
-    <span class="fn">print</span>(<span class="str">f"  </span>{r[<span class="str">'properties'</span>][<span class="str">'hostname'</span>]}<span class="str"> (similarity: </span>{r[<span class="str">'score'</span>]:<span class="num">.4f</span>}<span class="str">, hops: </span>{r[<span class="str">'distance'</span>]}<span class="str">)"</span>)</pre>
+  <p>Expected output:</p>
 
-  <h3>GraphRAG: AI-Generated Analyst Briefing</h3>
-  <p>
-    The most powerful integration is <strong>GraphRAG</strong> (Chapter 11). AstraeaDB retrieves the relevant subgraph around the compromised host, linearizes it into text, and sends it to an LLM&mdash;all in a single atomic operation:
-  </p>
+<pre><span class="cm">Semantically similar entities:
+  [Alert]         score=0.943
+    Outbound beacon detected to known command-and-control server
+  [AttackPattern] score=0.871
+    Adversary exploits a vulnerability in an internet-facing application
+  [Vulnerability] score=0.812
+    Remote code execution via crafted HTTP request
+  [Host]          score=0.754
+    Public-facing web server hosting customer portal
+  [Vulnerability] score=0.698
+    SQL injection in authentication module</span></pre>
 
-<pre><span class="cm"># Generate an AI-powered analyst briefing</span>
-briefing = client.<span class="fn">graph_rag</span>(
-    question=<span class="str">"Summarize the threat landscape around web-prod-01 "</span>
-             <span class="str">"and recommend immediate actions."</span>,
-    anchor=web_server,
-    hops=<span class="num">3</span>,
-    max_nodes=<span class="num">100</span>,
-    format=<span class="str">"structured"</span>
-)
-
-<span class="fn">print</span>(<span class="str">"=== THREAT BRIEFING ==="</span>)
-<span class="fn">print</span>(briefing[<span class="str">"answer"</span>])</pre>
-
-  <p>Example output from the LLM:</p>
-
-<pre><span class="cm">=== THREAT BRIEFING ===
-
-SITUATION SUMMARY
------------------
-Host web-prod-01 (10.0.1.10) triggered a critical alert (ALT-2024-5678:
-"Reverse Shell Detected") at 2024-11-15T03:22:00Z. The host has a known
-critical vulnerability (CVE-2024-1234, CVSS 9.8) — a remote code execution
-flaw in its web framework.
-
-The host is communicating with a suspicious external IP (198.51.100.42)
-identified as a Tor exit node. 524 KB of data has been exfiltrated since
-03:20 UTC.
-
-BLAST RADIUS
--------------
-- db-prod-01 (10.0.2.20): CRITICAL. Directly reachable via PostgreSQL
-  (port 5432). Contains production data.
-- jumpbox-01 (10.0.0.5): HIGH. SSH connectivity to web-prod-01.
-  Compromise here grants lateral access to the management network.
-
-RECOMMENDED ACTIONS
--------------------
-1. IMMEDIATE: Isolate web-prod-01 from the network.
-2. IMMEDIATE: Block outbound traffic to 198.51.100.42 at the firewall.
-3. URGENT: Rotate credentials for svc-deploy (admin account logged into
-   jumpbox-01 at 03:15 UTC — 7 minutes before the alert).
-4. URGENT: Patch CVE-2024-1234 on web-prod-01 and scan all hosts for
-   the same vulnerability.
-5. INVESTIGATE: Analyze jumpbox-01 logs for signs of lateral movement.</span></pre>
-
-  <div class="info-box tip">
-    <strong>Why GraphRAG beats plain RAG</strong>
-    A traditional RAG system would retrieve documents similar to the question. GraphRAG retrieves the <em>structural neighborhood</em> of the affected entity. The LLM sees not just the alert, but the vulnerability it relates to, the network path to the database, the suspicious external IP, and the user who logged in minutes before the attack. This context produces dramatically more actionable briefings.
+  <div class="info-box info">
+    <strong>How vector search helps</strong>
+    In a real environment with thousands of past incidents, vector search can surface a historical alert from six months ago that used the same C2 infrastructure but targeted a different host. This gives the analyst immediate context: <em>"We have seen this actor before."</em> See <a href="gentle-intro-ch08.html">Chapter 8</a> for a full treatment of vector search.
   </div>
 
-  <!-- 15.4 Temporal Analysis -->
+  <h3>Hybrid Search: Structure + Semantics Combined</h3>
+  <p>
+    Hybrid search is AstraeaDB's most powerful search mode. It combines <strong>graph proximity</strong> (how close a node is structurally) with <strong>semantic similarity</strong> (how close a node is conceptually). The <code>alpha</code> parameter controls the blend: <code>alpha=1.0</code> is pure vector search, <code>alpha=0.0</code> is pure graph traversal.
+  </p>
+
+<pre><span class="cm"># Hybrid search: start from the web server, blend structure + semantics</span>
+<span class="cm"># Looking for nodes related to lateral movement near the compromised host</span>
+results = client.<span class="fn">hybrid_search</span>(
+    anchor=web_server,
+    query_vector=<span class="fn">embed</span>(<span class="str">"lateral movement privilege escalation data exfiltration"</span>),
+    max_hops=<span class="num">3</span>,
+    k=<span class="num">5</span>,
+    alpha=<span class="num">0.6</span>  <span class="cm"># 60% semantic, 40% structural</span>
+)
+
+<span class="kw">print</span>(<span class="str">"Hybrid search results (structure + semantics):"</span>)
+<span class="kw">for</span> r <span class="kw">in</span> results:
+    <span class="kw">print</span>(<span class="str">f"  [{r['labels'][0]}] hybrid_score={r['score']:.3f}"</span>)
+    <span class="kw">print</span>(<span class="str">f"    {r['properties']}"</span>)</pre>
+
+  <p>Expected output:</p>
+
+<pre><span class="cm">Hybrid search results (structure + semantics):
+  [User]          hybrid_score=0.891
+    {"username": "svc-deploy", "role": "service_account", "department": "DevOps"}
+  [IPAddress]     hybrid_score=0.847
+    {"ip": "10.0.1.50", "type": "internal"}
+  [Host]          hybrid_score=0.823
+    {"hostname": "db-prod-01", "tier": "Internal", "os": "Ubuntu 22.04"}
+  [Vulnerability] hybrid_score=0.781
+    {"cve_id": "CVE-2024-3094", "severity": "CRITICAL", "cvss": 9.8}
+  [Host]          hybrid_score=0.695
+    {"hostname": "bastion-01", "tier": "Management", "os": "Amazon Linux 2"}</span></pre>
+
+  <p>
+    The results prioritize nodes that are both <em>near the compromised host in the graph</em> and <em>semantically related to lateral movement</em>. This surfaces the service account <code>svc-deploy</code> (which logged into the web server shortly before the alert) and the internal IP <code>10.0.1.50</code> (the path to the database)&mdash;exactly the entities an analyst would want to investigate next.
+  </p>
+
+  <h3>GraphRAG: Automated Analyst Briefing</h3>
+  <p>
+    Finally, we use GraphRAG to generate a natural-language briefing. AstraeaDB retrieves the relevant subgraph around the alert, serializes it as structured context, and sends it to an LLM&mdash;all in a single atomic call.
+  </p>
+
+<pre><span class="cm"># Generate an AI-powered threat briefing</span>
+briefing = client.<span class="fn">graph_rag</span>(
+    question=<span class="str">"Provide a threat analysis briefing for alert ALT-2024-0891. "</span>
+             <span class="str">"Include the likely attack vector, blast radius, affected assets, "</span>
+             <span class="str">"and recommended containment actions."</span>,
+    anchor=alert,
+    hops=<span class="num">3</span>,
+    max_nodes=<span class="num">50</span>,
+    format=<span class="str">"markdown"</span>
+)
+
+<span class="kw">print</span>(briefing[<span class="str">"answer"</span>])</pre>
+
+  <p>Example output (generated by the LLM from graph context):</p>
+
+<pre><span class="cm">## Threat Analysis Briefing: ALT-2024-0891
+
+**Severity:** CRITICAL
+**Timestamp:** 2024-11-15T03:22:17Z
+
+### Summary
+Alert ALT-2024-0891 indicates a command-and-control (C2) beacon from
+web-prod-01 to external IP 198.51.100.42 (geolocated to Eastern Europe).
+The host has two unpatched vulnerabilities: CVE-2024-3094 (CVSS 9.8, RCE)
+and CVE-2024-1234 (CVSS 8.1, SQLi). The likely initial access vector is
+MITRE ATT&amp;CK T1190 (Exploit Public-Facing Application).
+
+### Blast Radius
+- **Direct risk:** db-prod-01 (production database) is reachable from the
+  compromised host via internal IP 10.0.1.50 on port 5432.
+- **Account compromise:** Service account svc-deploy authenticated to
+  web-prod-01 at 03:00 UTC, 22 minutes before the alert. This account
+  also has access to bastion-01.
+
+### Recommended Actions
+1. **Isolate** web-prod-01 from the network immediately.
+2. **Rotate** credentials for svc-deploy and audit its access logs.
+3. **Patch** CVE-2024-3094 and CVE-2024-1234 across all affected hosts.
+4. **Block** outbound traffic to 198.51.100.42 at the firewall.
+5. **Investigate** db-prod-01 for signs of lateral movement.</span></pre>
+
+  <div class="info-box tip">
+    <strong>Why GraphRAG outperforms naive RAG</strong>
+    A standard vector-only RAG system would retrieve the alert and perhaps the vulnerability descriptions. GraphRAG retrieves the <em>entire connected subgraph</em>&mdash;the hosts, IPs, user accounts, attack patterns, and their relationships. This gives the LLM the structural context it needs to reason about attack paths and blast radius, producing vastly more actionable briefings. See <a href="gentle-intro-ch11.html">Chapter 11</a> for the full GraphRAG guide.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 15.4 Temporal Analysis                                             -->
+  <!-- ================================================================== -->
   <h2>15.4 Temporal Analysis</h2>
 
   <p>
-    Security investigations are inherently temporal. When did the vulnerability first appear? Was the suspicious connection established before or after the alert? Who logged in during the attack window? AstraeaDB's temporal edge support (Chapter 9) lets you answer these questions precisely.
+    The most important question in any incident response is: <strong>when did this happen?</strong> AstraeaDB's temporal edges (introduced in <a href="gentle-intro-ch09.html">Chapter 9</a>) let us reconstruct the exact timeline of the attack by querying the graph <em>as it existed at specific points in time</em>.
   </p>
-
-  <h3>Creating Temporal Edges</h3>
-  <p>
-    Edges can have validity intervals expressed as Unix timestamps (milliseconds). This records not just <em>what</em> happened, but <em>when</em>:
-  </p>
-
-<pre><span class="cm"># When was the vulnerability first discovered on this host?</span>
-client.<span class="fn">create_edge</span>(
-    web_server, cve, <span class="str">"HAS_VULNERABILITY"</span>,
-    valid_from=<span class="num">1700000000000</span>    <span class="cm"># Nov 14, 2023 — vulnerability first seen</span>
-)
-
-<span class="cm"># When did the suspicious outbound connection start?</span>
-client.<span class="fn">create_edge</span>(
-    web_server, external_ip, <span class="str">"COMMUNICATES_WITH"</span>,
-    {<span class="str">"bytes_sent"</span>: <span class="num">524288</span>},
-    valid_from=<span class="num">1731642000000</span>,   <span class="cm"># Nov 15, 2024 03:20 UTC — connection started</span>
-    valid_to=<span class="num">1731645600000</span>      <span class="cm"># Nov 15, 2024 04:20 UTC — connection ended</span>
-)
-
-<span class="cm"># When did the user log in?</span>
-client.<span class="fn">create_edge</span>(
-    admin_user, jumpbox, <span class="str">"LOGGED_IN_FROM"</span>,
-    valid_from=<span class="num">1731641700000</span>,   <span class="cm"># Nov 15, 2024 03:15 UTC</span>
-    valid_to=<span class="num">1731649200000</span>      <span class="cm"># Nov 15, 2024 05:20 UTC</span>
-)</pre>
-
-  <h3>Querying the Graph at Different Points in Time</h3>
-  <p>
-    With temporal edges, you can ask "what did the graph look like at time T?" This is invaluable for reconstructing the attack timeline:
-  </p>
-
-<pre><span class="cm"># What was connected to web-prod-01 BEFORE the attack?</span>
-pre_attack = client.<span class="fn">neighbors_at</span>(
-    web_server, <span class="str">"outgoing"</span>,
-    timestamp=<span class="num">1731636000000</span>    <span class="cm"># Nov 15, 2024 01:00 UTC (2 hours before)</span>
-)
-<span class="fn">print</span>(<span class="str">"State before attack:"</span>)
-<span class="kw">for</span> n <span class="kw">in</span> pre_attack:
-    <span class="fn">print</span>(<span class="str">f"  - </span>{n}<span class="str">"</span>)
-
-<span class="cm"># What was connected DURING the attack window?</span>
-during_attack = client.<span class="fn">neighbors_at</span>(
-    web_server, <span class="str">"outgoing"</span>,
-    timestamp=<span class="num">1731642600000</span>    <span class="cm"># Nov 15, 2024 03:30 UTC (during the attack)</span>
-)
-<span class="fn">print</span>(<span class="str">"\nState during attack:"</span>)
-<span class="kw">for</span> n <span class="kw">in</span> during_attack:
-    <span class="fn">print</span>(<span class="str">f"  - </span>{n}<span class="str">"</span>)</pre>
-
-  <p>Expected output:</p>
-<pre><span class="cm">State before attack:
-  - db-prod-01 (CONNECTS_TO, port 5432)
-  - CVE-2024-1234 (HAS_VULNERABILITY)
-
-State during attack:
-  - db-prod-01 (CONNECTS_TO, port 5432)
-  - CVE-2024-1234 (HAS_VULNERABILITY)
-  - 198.51.100.42 (COMMUNICATES_WITH)          &lt;-- NEW: suspicious connection
-  - ALT-2024-5678 (TRIGGERED_ALERT)            &lt;-- NEW: alert fired</span></pre>
-
-  <h3>Temporal Shortest Path</h3>
-  <p>
-    You can also compute shortest paths that only use edges valid at a specific time. This reveals the actual attack path as it existed during the incident:
-  </p>
-
-<pre><span class="cm"># What was the shortest path from external IP to database</span>
-<span class="cm"># at the time of the attack?</span>
-temporal_path = client.<span class="fn">shortest_path</span>(
-    external_ip, db_server,
-    timestamp=<span class="num">1731642600000</span>    <span class="cm"># During the attack</span>
-)
-<span class="fn">print</span>(<span class="str">"Attack path at time of incident:"</span>)
-<span class="fn">print</span>(<span class="str">" -> "</span>.<span class="fn">join</span>(<span class="fn">str</span>(n) <span class="kw">for</span> n <span class="kw">in</span> temporal_path[<span class="str">"path"</span>]))</pre>
 
   <h3>Reconstructing the Timeline</h3>
   <p>
-    Putting it all together, we can reconstruct the complete attack timeline:
+    Each edge in our threat graph carries <code>valid_from</code> and <code>valid_to</code> timestamps. This allows us to answer time-specific questions without maintaining separate snapshots of the data.
+  </p>
+
+  <h4>Question 1: What was connected to the web server at the time of the alert?</h4>
+
+<pre><span class="cm"># Neighbors at the exact moment of the alert</span>
+alert_time = <span class="str">"2024-11-15T03:22:17Z"</span>
+
+neighbors_at_alert = client.<span class="fn">neighbors_at</span>(
+    node_id=web_server,
+    direction=<span class="str">"both"</span>,
+    timestamp=alert_time,
+    edge_type=<span class="kw">None</span>
+)
+
+<span class="kw">print</span>(<span class="str">f"Connections active at {alert_time}:"</span>)
+<span class="kw">for</span> n <span class="kw">in</span> neighbors_at_alert:
+    <span class="kw">print</span>(<span class="str">f"  --[{n['edge_type']}]--> {n['labels'][0]}: {n['properties']}"</span>)</pre>
+
+  <p>Expected output:</p>
+
+<pre><span class="cm">Connections active at 2024-11-15T03:22:17Z:
+  --[CONNECTS_TO]--------> IPAddress:     {"ip": "198.51.100.42", "type": "external"}
+  --[CONNECTS_TO]--------> IPAddress:     {"ip": "10.0.1.50", "type": "internal"}
+  --[HAS_VULNERABILITY]--> Vulnerability: {"cve_id": "CVE-2024-3094", "severity": "CRITICAL"}
+  --[HAS_VULNERABILITY]--> Vulnerability: {"cve_id": "CVE-2024-1234", "severity": "HIGH"}
+  --[TRIGGERED_ALERT]----> Alert:         {"alert_id": "ALT-2024-0891"}
+  --[LOGGED_IN_FROM]<----- User:          {"username": "svc-deploy"}</span></pre>
+
+  <div class="info-box info">
+    <strong>Key observation</strong>
+    The service account <code>svc-deploy</code> was logged in at the time of the alert (its session was valid from 03:00 to 03:25 UTC). This is a strong indicator that the account may have been used as part of the attack chain, or at the very least, its session was active during the compromise window.
+  </div>
+
+  <h4>Question 2: Was the vulnerability present before the connection to the C2 appeared?</h4>
+
+<pre><span class="cm"># Check one month before the alert: were the vulns already present?</span>
+one_month_before = <span class="str">"2024-10-15T03:22:17Z"</span>
+
+vulns_before = client.<span class="fn">neighbors_at</span>(
+    node_id=web_server,
+    direction=<span class="str">"outgoing"</span>,
+    timestamp=one_month_before,
+    edge_type=<span class="str">"HAS_VULNERABILITY"</span>
+)
+
+<span class="kw">print</span>(<span class="str">f"Vulnerabilities present on {one_month_before}:"</span>)
+<span class="kw">for</span> v <span class="kw">in</span> vulns_before:
+    <span class="kw">print</span>(<span class="str">f"  {v['properties']['cve_id']} (CVSS {v['properties']['cvss']})"</span>)
+
+<span class="cm"># Check: was the C2 connection active back then?</span>
+c2_before = client.<span class="fn">neighbors_at</span>(
+    node_id=web_server,
+    direction=<span class="str">"outgoing"</span>,
+    timestamp=one_month_before,
+    edge_type=<span class="str">"CONNECTS_TO"</span>
+)
+
+ext_ips = [n <span class="kw">for</span> n <span class="kw">in</span> c2_before <span class="kw">if</span> n[<span class="str">"properties"</span>].get(<span class="str">"type"</span>) == <span class="str">"external"</span>]
+<span class="kw">print</span>(<span class="str">f"\nExternal connections active on {one_month_before}: {len(ext_ips)}"</span>)</pre>
+
+  <p>Expected output:</p>
+
+<pre><span class="cm">Vulnerabilities present on 2024-10-15T03:22:17Z:
+  CVE-2024-1234 (CVSS 8.1)
+
+External connections active on 2024-10-15T03:22:17Z: 0</span></pre>
+
+  <p>
+    This reveals that CVE-2024-1234 (the SQL injection) was already present a month before the attack, but the C2 connection did not exist yet, and CVE-2024-3094 (the RCE) had not yet been discovered on this host. The RCE vulnerability was discovered on October 20th and likely provided the initial access that led to the C2 beacon on November 15th.
+  </p>
+
+  <h4>Question 3: Did the attack path to the database exist before the C2 connection appeared?</h4>
+
+<pre><span class="cm"># Temporal shortest path: could the attacker reach the DB at alert time?</span>
+temporal_path = client.<span class="fn">shortest_path_at</span>(
+    from_node=ext_ip,
+    to_node=db_server,
+    timestamp=alert_time
+)
+
+<span class="kw">if</span> temporal_path[<span class="str">"path"</span>]:
+    <span class="kw">print</span>(<span class="str">f"Attack path existed at {alert_time}:"</span>)
+    <span class="kw">for</span> step <span class="kw">in</span> temporal_path[<span class="str">"path"</span>]:
+        <span class="kw">print</span>(<span class="str">f"  --> {step}"</span>)
+<span class="kw">else</span>:
+    <span class="kw">print</span>(<span class="str">"No path existed at that time."</span>)
+
+<span class="cm"># Compare: was this path available before the C2 connection was established?</span>
+before_c2 = <span class="str">"2024-11-15T03:00:00Z"</span>
+path_before = client.<span class="fn">shortest_path_at</span>(
+    from_node=ext_ip,
+    to_node=db_server,
+    timestamp=before_c2
+)
+
+<span class="kw">if</span> path_before[<span class="str">"path"</span>]:
+    <span class="kw">print</span>(<span class="str">f"\nPath also existed at {before_c2} (pre-C2 connection)"</span>)
+<span class="kw">else</span>:
+    <span class="kw">print</span>(<span class="str">f"\nNo path from external IP to DB at {before_c2}"</span>)
+    <span class="kw">print</span>(<span class="str">"  --> The C2 connection at 03:22 UTC created the attack path"</span>)</pre>
+
+  <p>Expected output:</p>
+
+<pre><span class="cm">Attack path existed at 2024-11-15T03:22:17Z:
+  --> IPAddress  198.51.100.42 (external)
+  --> Host       web-prod-01 (DMZ)
+  --> IPAddress  10.0.1.50 (internal)
+  --> Host       db-prod-01 (Internal)
+
+No path from external IP to DB at 2024-11-15T03:00:00Z
+  --> The C2 connection at 03:22 UTC created the attack path</span></pre>
+
+  <div class="info-box tip">
+    <strong>Temporal analysis reveals causality</strong>
+    Without temporal edges, we would only know that a path exists. With temporal edges, we can prove that the path <em>did not exist</em> before 03:22 UTC and <em>did exist</em> after. This establishes the C2 connection as the event that created the attack surface to the internal database. See <a href="gentle-intro-ch09.html">Chapter 9</a> for the full temporal graphs guide.
+  </div>
+
+  <h3>The Complete Attack Timeline</h3>
+  <p>
+    Putting it all together, we can reconstruct the complete sequence of events:
   </p>
 
   <table>
@@ -694,119 +820,133 @@ temporal_path = client.<span class="fn">shortest_path</span>(
     </thead>
     <tbody>
       <tr>
-        <td><code>Nov 2023</code></td>
-        <td>CVE-2024-1234 first affects web-prod-01</td>
-        <td><code>HAS_VULNERABILITY</code> edge valid_from</td>
+        <td><code>2024-09-05</code></td>
+        <td>CVE-2024-1234 (SQLi, CVSS 8.1) discovered on web-prod-01 and db-prod-01</td>
+        <td><code>HAS_VULNERABILITY</code> edge <code>valid_from</code></td>
       </tr>
       <tr>
-        <td><code>03:15</code></td>
-        <td>svc-deploy logs into jumpbox-01</td>
-        <td><code>LOGGED_IN_FROM</code> edge valid_from</td>
+        <td><code>2024-10-01</code></td>
+        <td>CVE-2024-1234 patched on db-prod-01 (but NOT on web-prod-01)</td>
+        <td><code>HAS_VULNERABILITY</code> edge <code>valid_to</code> on db-prod-01</td>
       </tr>
       <tr>
-        <td><code>03:20</code></td>
-        <td>web-prod-01 begins communicating with Tor exit node</td>
-        <td><code>COMMUNICATES_WITH</code> edge valid_from</td>
+        <td><code>2024-10-20</code></td>
+        <td>CVE-2024-3094 (RCE, CVSS 9.8) discovered on web-prod-01</td>
+        <td><code>HAS_VULNERABILITY</code> edge <code>valid_from</code></td>
       </tr>
       <tr>
-        <td><code>03:22</code></td>
-        <td>Reverse shell alert fires on web-prod-01</td>
-        <td><code>TRIGGERED_ALERT</code> edge + Alert node timestamp</td>
+        <td><code>Nov 15 02:45</code></td>
+        <td>svc-deploy logs into bastion-01</td>
+        <td><code>LOGGED_IN_FROM</code> edge <code>valid_from</code></td>
       </tr>
       <tr>
-        <td><code>04:20</code></td>
-        <td>Outbound connection to Tor node ends</td>
-        <td><code>COMMUNICATES_WITH</code> edge valid_to</td>
+        <td><code>Nov 15 03:00</code></td>
+        <td>svc-deploy logs into web-prod-01</td>
+        <td><code>LOGGED_IN_FROM</code> edge <code>valid_from</code></td>
+      </tr>
+      <tr>
+        <td><code>Nov 15 03:22</code></td>
+        <td>C2 beacon detected: web-prod-01 connects to 198.51.100.42</td>
+        <td><code>CONNECTS_TO</code> edge <code>valid_from</code> + <code>TRIGGERED_ALERT</code></td>
+      </tr>
+      <tr>
+        <td><code>Nov 15 03:25</code></td>
+        <td>svc-deploy session on web-prod-01 ends</td>
+        <td><code>LOGGED_IN_FROM</code> edge <code>valid_to</code></td>
+      </tr>
+      <tr>
+        <td><code>Nov 15 04:15</code></td>
+        <td>C2 connection terminates</td>
+        <td><code>CONNECTS_TO</code> edge <code>valid_to</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box warn">
+    <strong>Suspicious correlation</strong>
+    The svc-deploy account logged into the web server at 03:00 UTC and the C2 beacon appeared 22 minutes later. The account's session ended at 03:25&mdash;only 3 minutes after the alert fired. This pattern is consistent with a compromised service account being used for initial access. The account should be immediately disabled and its credentials rotated across all systems.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 15.5 Summary Table                                                 -->
+  <!-- ================================================================== -->
+  <h2>15.5 Summary: Features Used in This Investigation</h2>
+
+  <p>
+    This single investigation leveraged nearly every major capability of AstraeaDB. The following table maps each feature to its role in the cybersecurity workflow:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Feature</th><th>API Used</th><th>Role in Investigation</th><th>Chapter</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Graph Construction</strong></td>
+        <td><code>create_node</code>, <code>create_edge</code></td>
+        <td>Built the threat model with hosts, IPs, vulnerabilities, alerts, attack patterns, and user accounts</td>
+        <td><a href="gentle-intro-ch04.html">Ch 4</a></td>
+      </tr>
+      <tr>
+        <td><strong>BFS Traversal</strong></td>
+        <td><code>bfs</code></td>
+        <td>Determined the blast radius&mdash;all entities reachable from the compromised host within 2 hops</td>
+        <td><a href="gentle-intro-ch06.html">Ch 6</a></td>
+      </tr>
+      <tr>
+        <td><strong>Shortest Path</strong></td>
+        <td><code>shortest_path</code></td>
+        <td>Identified the most likely attack path from the external C2 IP to the internal database</td>
+        <td><a href="gentle-intro-ch06.html">Ch 6</a></td>
+      </tr>
+      <tr>
+        <td><strong>Neighbor Queries</strong></td>
+        <td><code>neighbors</code></td>
+        <td>Enumerated all direct relationships of the compromised host for triage</td>
+        <td><a href="gentle-intro-ch06.html">Ch 6</a></td>
+      </tr>
+      <tr>
+        <td><strong>GQL Queries</strong></td>
+        <td><code>query</code></td>
+        <td>Pattern-matched complex attack chains across multiple entity types (technique to vulnerability to host to alert)</td>
+        <td><a href="gentle-intro-ch05.html">Ch 5</a></td>
+      </tr>
+      <tr>
+        <td><strong>Vector Search</strong></td>
+        <td><code>vector_search</code></td>
+        <td>Found semantically similar past threats using node embeddings</td>
+        <td><a href="gentle-intro-ch08.html">Ch 8</a></td>
+      </tr>
+      <tr>
+        <td><strong>Hybrid Search</strong></td>
+        <td><code>hybrid_search</code></td>
+        <td>Combined structural proximity and semantic similarity to surface the most relevant entities for lateral movement investigation</td>
+        <td><a href="gentle-intro-ch08.html">Ch 8</a></td>
+      </tr>
+      <tr>
+        <td><strong>GraphRAG</strong></td>
+        <td><code>graph_rag</code></td>
+        <td>Generated a complete analyst briefing by feeding the threat subgraph to an LLM</td>
+        <td><a href="gentle-intro-ch11.html">Ch 11</a></td>
+      </tr>
+      <tr>
+        <td><strong>Temporal Neighbors</strong></td>
+        <td><code>neighbors_at</code></td>
+        <td>Determined which connections and vulnerabilities were active at the exact time of the alert</td>
+        <td><a href="gentle-intro-ch09.html">Ch 9</a></td>
+      </tr>
+      <tr>
+        <td><strong>Temporal Shortest Path</strong></td>
+        <td><code>shortest_path_at</code></td>
+        <td>Proved that the attack path to the database did not exist before the C2 connection was established</td>
+        <td><a href="gentle-intro-ch09.html">Ch 9</a></td>
       </tr>
     </tbody>
   </table>
 
   <div class="info-box info">
-    <strong>Key Observation</strong>
-    The <code>svc-deploy</code> login at 03:15 UTC&mdash;7 minutes before the reverse shell alert&mdash;is suspicious. Was this a legitimate deployment, or did the attacker compromise the service account and use it to access the jumpbox? This is exactly the kind of temporal correlation that graph databases excel at revealing.
-  </div>
-
-  <!-- 15.5 Summary -->
-  <h2>15.5 Bringing It All Together</h2>
-
-  <p>
-    In this scenario, we used the following AstraeaDB features to investigate a cybersecurity breach:
-  </p>
-
-  <table>
-    <thead>
-      <tr><th>Feature</th><th>Chapter</th><th>How We Used It</th></tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Node and Edge creation</td>
-        <td>Ch 4</td>
-        <td>Built the threat graph with hosts, IPs, vulnerabilities, alerts, and users</td>
-      </tr>
-      <tr>
-        <td>BFS (Breadth-First Search)</td>
-        <td>Ch 10</td>
-        <td>Determined the blast radius of the compromised host</td>
-      </tr>
-      <tr>
-        <td>Shortest Path</td>
-        <td>Ch 10</td>
-        <td>Traced the attack path from external IP to database server</td>
-      </tr>
-      <tr>
-        <td>Neighbor Queries</td>
-        <td>Ch 6</td>
-        <td>Found vulnerabilities and alerts associated with the compromised host</td>
-      </tr>
-      <tr>
-        <td>GQL Queries</td>
-        <td>Ch 5</td>
-        <td>Pattern-matched across the graph for critical vulnerabilities and ATT&CK techniques</td>
-      </tr>
-      <tr>
-        <td>Vector Search</td>
-        <td>Ch 8</td>
-        <td>Found historically similar threats using embedding similarity</td>
-      </tr>
-      <tr>
-        <td>Hybrid Search</td>
-        <td>Ch 8</td>
-        <td>Combined structural proximity with semantic similarity</td>
-      </tr>
-      <tr>
-        <td>GraphRAG</td>
-        <td>Ch 11</td>
-        <td>Generated an AI-powered analyst briefing with actionable recommendations</td>
-      </tr>
-      <tr>
-        <td>Temporal Edges</td>
-        <td>Ch 9</td>
-        <td>Recorded when events occurred and queried the graph at specific points in time</td>
-      </tr>
-      <tr>
-        <td>Temporal Shortest Path</td>
-        <td>Ch 9</td>
-        <td>Computed the attack path as it existed during the incident window</td>
-      </tr>
-      <tr>
-        <td>Authentication (RBAC)</td>
-        <td>Ch 13</td>
-        <td>Connected with appropriate credentials for the investigation</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <p>
-    This scenario demonstrates why graph databases are uniquely suited for cybersecurity. The relationships between entities&mdash;network connections, vulnerability exposure, user logins, alert associations&mdash;are the core data. Relational databases would require dozens of JOIN operations to trace the attack path. AstraeaDB follows pointers directly, making multi-hop investigations interactive rather than batch operations.
-  </p>
-
-  <p>
-    The addition of vector embeddings and GraphRAG transforms AstraeaDB from a data store into an investigative partner. Instead of an analyst manually exploring each connection, the system can surface similar historical threats, correlate temporal patterns, and generate briefings that synthesize the entire neighborhood of the incident.
-  </p>
-
-  <div class="info-box tip">
     <strong>Where to go from here</strong>
-    This chapter only scratches the surface. Consider extending the threat graph with additional data sources: firewall logs (as temporal edges), DNS resolution records, file hash observations, and threat intelligence feeds. The richer the graph, the more powerful the investigation. Refer to the Appendices for complete API references (Appendix B), configuration options (Appendix C), and a GQL quick reference (Appendix A) to help you build your own threat graphs.
+    This chapter demonstrated a single investigation, but the same patterns apply to any domain where relationships matter: fraud detection (financial transaction graphs), supply chain analysis (vendor dependency graphs), network monitoring (infrastructure topology graphs), and knowledge management (organizational knowledge graphs). The techniques you have learned throughout this guide&mdash;from basic graph construction in <a href="gentle-intro-ch04.html">Chapter 4</a> to GraphRAG in <a href="gentle-intro-ch11.html">Chapter 11</a>&mdash;compose together to solve problems that are fundamentally difficult in relational databases. Explore the <a href="gentle-intro-appA.html">Appendices</a> for quick reference cards, or visit the <a href="https://github.com/jimeharrisjr/graph-astraeadb">GitHub repository</a> to start building.
   </div>
 
   <!-- Chapter Navigation -->
