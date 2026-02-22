@@ -1,4 +1,4 @@
-module github.com/jimeharrisjr/astraeadb-go
+module github.com/AstraeaDB/R-AstraeaDB
 
 go 1.22
 

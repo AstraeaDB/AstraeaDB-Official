@@ -1644,7 +1644,7 @@ const file_astraea_proto_rawDesc = "" +
 	"\fShortestPath\x12\x1c.astraea.ShortestPathRequest\x1a\x1d.astraea.ShortestPathResponse\x12K\n" +
 	"\fVectorSearch\x12\x1c.astraea.VectorSearchRequest\x1a\x1d.astraea.VectorSearchResponse\x126\n" +
 	"\x05Query\x12\x15.astraea.QueryRequest\x1a\x16.astraea.QueryResponse\x123\n" +
-	"\x04Ping\x12\x14.astraea.PingRequest\x1a\x15.astraea.PingResponseB1Z/github.com/jimeharrisjr/astraeadb-go/pb/astraeab\x06proto3"
+	"\x04Ping\x12\x14.astraea.PingRequest\x1a\x15.astraea.PingResponseB1Z/github.com/AstraeaDB/R-AstraeaDB/pb/astraeab\x06proto3"
 
 var (
 	file_astraea_proto_rawDescOnce sync.Once

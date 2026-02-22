@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package astraea;
 
-option go_package = "github.com/jimeharrisjr/astraeadb-go/pb/astraea";
+option go_package = "github.com/AstraeaDB/R-AstraeaDB/pb/astraea";
 
 import "google/protobuf/wrappers.proto";
 
