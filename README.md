@@ -830,7 +830,7 @@ A full-featured Go client is provided in the `go/astraeadb` package with three t
 **Installation:**
 
 ```bash
-go get github.com/AstraeaDB/R-AstraeaDB
+go get github.com/AstraeaDB/AstraeaDB-Official
 ```
 
 **Using the unified client:**
@@ -843,7 +843,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/AstraeaDB/R-AstraeaDB"
+    "github.com/AstraeaDB/AstraeaDB-Official"
 )
 
 func main() {
@@ -1424,7 +1424,7 @@ astraeadb/
 │       └── test_json_client.py # 23 unit tests
 ├── go/
 │   └── astraeadb/             # Go client library
-│       ├── go.mod             # Module: github.com/AstraeaDB/R-AstraeaDB
+│       ├── go.mod             # Module: github.com/AstraeaDB/AstraeaDB-Official
 │       ├── doc.go             # Package documentation
 │       ├── types.go           # Node, Edge, SearchResult, etc.
 │       ├── errors.go          # Sentinel errors (ErrNodeNotFound, etc.)

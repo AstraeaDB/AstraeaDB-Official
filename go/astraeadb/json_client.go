@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AstraeaDB/R-AstraeaDB/internal/protocol"
+	"github.com/AstraeaDB/AstraeaDB-Official/internal/protocol"
 )
 
 // JSONClient communicates with AstraeaDB over the newline-delimited JSON/TCP

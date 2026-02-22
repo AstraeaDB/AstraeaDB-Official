@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AstraeaDB/R-AstraeaDB/internal/protocol"
+	"github.com/AstraeaDB/AstraeaDB-Official/internal/protocol"
 )
 
 // mockServer creates a connected pair of JSONClient + server-side protocol.Conn

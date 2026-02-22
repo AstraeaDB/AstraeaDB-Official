@@ -68,7 +68,7 @@ See the docstrings in each client class for detailed API documentation.
 
 AstraeaDB also provides clients for other languages:
 
-- **Go** — `go get github.com/AstraeaDB/R-AstraeaDB` — JSON/TCP, gRPC, and unified client with auto-transport selection. See `go/astraeadb/`.
+- **Go** — `go get github.com/AstraeaDB/AstraeaDB-Official` — JSON/TCP, gRPC, and unified client with auto-transport selection. See `go/astraeadb/`.
 - **Java** — JSON/TCP, gRPC, Arrow Flight, and unified client with auto-transport selection. Requires Java 17+. See `java/astraeadb/`.
 - **R** — JSON/TCP and Arrow Flight client. See `examples/r_client.R`.
 - **Rust (embedded)** — Use AstraeaDB directly as a library with no network overhead.

@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	pb "github.com/AstraeaDB/R-AstraeaDB/pb/astraea"
+	pb "github.com/AstraeaDB/AstraeaDB-Official/pb/astraea"
 )
 
 // GRPCClient communicates with AstraeaDB over gRPC (default port 7688).

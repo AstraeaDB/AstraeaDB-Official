@@ -15,7 +15,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/AstraeaDB/R-AstraeaDB"
+	"github.com/AstraeaDB/AstraeaDB-Official"
 )
 
 func main() {

@@ -4,7 +4,7 @@
 
 Build a full-featured Go client library for AstraeaDB with feature parity to the existing Python and R clients. The client will support all three transport protocols (JSON/TCP, gRPC, Arrow Flight), provide idiomatic Go APIs with `context.Context` integration, and include comprehensive tests.
 
-**Module:** `github.com/AstraeaDB/R-AstraeaDB`
+**Module:** `github.com/AstraeaDB/AstraeaDB-Official`
 **Go Version:** 1.22+
 **License:** MIT
 
@@ -57,7 +57,7 @@ astraea-go/
 ### Dependencies (go.mod)
 
 ```
-module github.com/AstraeaDB/R-AstraeaDB
+module github.com/AstraeaDB/AstraeaDB-Official
 
 go 1.22
 
