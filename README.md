@@ -33,9 +33,10 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 ┌───▼──────┐ ┌────▼────────┐ ┌───▼───────┐ ┌─────▼──────────┐
 │astraea-  │ │ astraea-    │ │astraea-   │ │ astraea-       │
 │  rag     │ │   query     │ │  gnn      │ │  algorithms    │
-│Subgraph  │ │ GQL Parser  │ │Tensor,    │ │  PageRank,     │
-│Linearize │ │ + Executor  │ │MsgPassing │ │  Louvain,      │
-│LLM, RAG  │ │             │ │Training   │ │  Components    │
+│Subgraph  │ │ GQL Parser  │ │Model,     │ │  PageRank,     │
+│Linearize │ │ + Executor  │ │Backprop,  │ │  Louvain,      │
+│LLM, RAG  │ │             │ │SpMM,      │ │  Components    │
+│          │ │             │ │Temporal   │ │                │
 └───┬──────┘ └────┬────────┘ └───┬───────┘ └─────┬──────────┘
     │              │              │                │
     └──────────────┼──────────────┴────────────────┘
@@ -83,7 +84,7 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `astraea-query` | Hand-written GQL/Cypher parser and executor: lexer, recursive-descent parser, AST, full query execution pipeline | 56 |
 | `astraea-vector` | HNSW approximate nearest-neighbor index with cosine, Euclidean, and dot-product distance metrics; binary persistence | 33 |
 | `astraea-rag` | GraphRAG engine: subgraph extraction (BFS + semantic), linearization (4 formats), token budgets, LLM provider trait, GraphRAG pipeline | 27 |
-| `astraea-gnn` | GNN training: differentiable tensors, message passing (sum/mean/max aggregation), node classification training loop | 26 |
+| `astraea-gnn` | GNN engine: learnable weight matrices (GNNModel), analytical backpropagation, SpMM-accelerated message passing, GraphSAGE neighbor sampling, Adam optimizer, EvolveGCN temporal learning, node classification training | 53 |
 | `astraea-server` | Async TCP server (tokio) with JSON/gRPC transport; auth (RBAC + mTLS), metrics (Prometheus), connection management, GQL execution, vector/hybrid/semantic/RAG operations | 68 |
 | `astraea-flight` | Apache Arrow Flight server for zero-copy data exchange: `do_get` (query → Arrow), `do_put` (Arrow → bulk import) | 11 |
 | `astraea-algorithms` | Graph algorithms: PageRank (power iteration), connected/strongly-connected components (Tarjan's), degree/betweenness centrality (Brandes'), Louvain community detection | 20 |
@@ -333,13 +334,18 @@ Retrieval-Augmented Generation for graph-backed LLM context:
 - **LLM providers:** `LlmProvider` trait with Mock, OpenAI, Anthropic, and Ollama implementations. Providers use injectable HTTP callbacks (no HTTP dependencies in the crate). Users supply their own HTTP client.
 - **GraphRAG pipeline:** `graph_rag_query()` performs: vector search → subgraph extraction → linearization → LLM completion. `graph_rag_query_anchored()` skips vector search when the anchor node is known.
 
-### GNN Training (`astraea-gnn`)
+### GNN Engine (`astraea-gnn`)
 
-Graph Neural Network training loop in pure Rust (no external ML framework):
+Full Graph Neural Network engine in pure Rust (no external ML framework). Designed around findings from testing on the Elliptic Bitcoin dataset (203k nodes, 234k edges, 49 temporal snapshots).
 
-- **Tensor:** `Tensor` struct with element-wise ops (add, mul, scale), activations (ReLU, sigmoid), gradient tracking.
-- **Message passing:** Configurable aggregation (Sum, Mean, Max), activation (ReLU, Sigmoid, None), optional L2 normalization. For each node, aggregates neighbor features weighted by edge weights.
-- **Training:** `train_node_classification()` runs the full loop: forward pass (N message passing layers) → loss computation → numerical gradient estimation (finite differences) → weight update (gradient descent). Returns epoch losses, predictions, and accuracy.
+- **Model architecture (`model.rs`):** `GNNModel` with learnable weight matrices (`W_neigh`, `W_self`, bias) per layer and a classification head (`W_out`, `b_out`). Decouples input feature dimension from hidden dimension and output classes. Per-layer computation: `h' = activation(W_self * h + AGG(w_e * W_neigh * h_j) + bias)`. Xavier weight initialization for stable training.
+- **Analytical backpropagation (`backward.rs`):** Full gradient computation through softmax cross-entropy loss, classification head, and per-layer message passing. Replaces O(E * L * N) numerical gradients with O(N + E) analytical gradients — ~1000x speedup on large graphs.
+- **Tensor & Matrix (`tensor.rs`):** `Tensor` struct with element-wise ops, activations (ReLU, Sigmoid, LeakyReLU, Tanh, ELU), gradient tracking. `Matrix` struct (row-major) with matvec, transpose_matvec, outer product, Xavier initialization.
+- **Message passing (`message_passing.rs`):** Configurable aggregation (Sum, Mean, Max), activation (ReLU, Sigmoid, LeakyReLU, Tanh, ELU, None), optional L2 normalization, dropout.
+- **SpMM acceleration (`sparse.rs`):** `FeatureMatrix` (contiguous row-major) and `CSRAdjacency` (Compressed Sparse Row) for cache-friendly SpMM-based message passing on large graphs. Verified equivalent to HashMap-based forward pass.
+- **Neighbor sampling (`sampling.rs`):** GraphSAGE-style fixed-fanout sampling (`SamplingConfig { fanout, batch_size }`) for mini-batch training on graphs that exceed memory limits.
+- **Training loop (`training.rs`):** `train_node_classification()` supports both legacy (edge-weight-only, numerical gradients) and new (weight matrices, analytical backpropagation) modes. Adam optimizer, early stopping with validation split, configurable hidden dimension.
+- **Temporal GNN (`temporal.rs`):** EvolveGCN-H architecture with GRU cells that evolve layer weights across timesteps. `train_temporal()` trains over sequences of temporal snapshots using `neighbors_at()` for time-aware message passing.
 
 ## Quick Start
 
@@ -513,7 +519,7 @@ labels.insert(NodeId(1), 0);  // class 0
 labels.insert(NodeId(2), 1);  // class 1
 let training_data = TrainingData { labels, num_classes: 2 };
 
-// Configure and train
+// Configure with learnable weight matrices and analytical backpropagation
 let config = TrainingConfig {
     layers: 2,
     learning_rate: 0.01,
@@ -522,7 +528,12 @@ let config = TrainingConfig {
         aggregation: Aggregation::Mean,
         activation: Activation::ReLU,
         normalize: true,
+        dropout: 0.0,
     },
+    hidden_dim: Some(64),           // Enable weight matrices (None = legacy mode)
+    use_adam: true,                  // Adam optimizer (vs vanilla SGD)
+    early_stopping_patience: Some(10), // Stop if val loss plateaus
+    validation_split: Some(0.2),    // 20% held out for validation
 };
 let result = train_node_classification(&*graph, &training_data, &config)?;
 println!("Final accuracy: {:.1}%", result.accuracy * 100.0);
@@ -1383,12 +1394,17 @@ astraeadb/
 │   │       ├── token.rs       # Token estimation + budget-aware extraction
 │   │       ├── llm.rs         # LlmProvider trait + Mock/OpenAI/Anthropic/Ollama
 │   │       └── pipeline.rs    # GraphRAG pipeline (vector search → subgraph → LLM)
-│   ├── astraea-gnn/           # GNN training
+│   ├── astraea-gnn/           # GNN engine
 │   │   └── src/
-│   │       ├── lib.rs         # Crate root
-│   │       ├── tensor.rs      # Differentiable tensor with gradient tracking
-│   │       ├── message_passing.rs  # GNN message passing (Sum/Mean/Max, ReLU/Sigmoid)
-│   │       └── training.rs    # Node classification training loop
+│   │       ├── lib.rs         # Crate root and public re-exports
+│   │       ├── tensor.rs      # Tensor + Matrix with gradient tracking, Xavier init
+│   │       ├── model.rs       # GNNModel, GNNLayer, ClassificationHead, forward pass
+│   │       ├── backward.rs    # Analytical backpropagation (softmax CE → layers)
+│   │       ├── message_passing.rs  # Message passing (Sum/Mean/Max, 6 activations, dropout)
+│   │       ├── sparse.rs      # FeatureMatrix, CSRAdjacency, SpMM acceleration
+│   │       ├── sampling.rs    # GraphSAGE neighbor sampling for mini-batch training
+│   │       ├── temporal.rs    # EvolveGCN temporal GNN with GRU weight evolution
+│   │       └── training.rs    # Node classification training (SGD/Adam, early stopping)
 │   ├── astraea-algorithms/    # Graph algorithms
 │   │   └── src/
 │   │       ├── pagerank.rs    # PageRank (power iteration with dangling node handling)

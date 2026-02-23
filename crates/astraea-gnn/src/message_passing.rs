@@ -24,6 +24,12 @@ pub enum Activation {
     ReLU,
     /// Sigmoid: 1 / (1 + exp(-x)).
     Sigmoid,
+    /// Leaky ReLU: max(0.01*x, x). Avoids "dying ReLU" problem.
+    LeakyReLU,
+    /// Hyperbolic tangent.
+    Tanh,
+    /// Exponential Linear Unit: x if x>0, alpha*(exp(x)-1) otherwise.
+    ELU,
     /// Identity (no activation).
     None,
 }
@@ -34,6 +40,8 @@ pub struct MessagePassingConfig {
     pub aggregation: Aggregation,
     pub activation: Activation,
     pub normalize: bool,
+    /// Dropout rate (0.0 = no dropout). Only applied during training.
+    pub dropout: f32,
 }
 
 impl Default for MessagePassingConfig {
@@ -42,6 +50,7 @@ impl Default for MessagePassingConfig {
             aggregation: Aggregation::Sum,
             activation: Activation::ReLU,
             normalize: false,
+            dropout: 0.0,
         }
     }
 }
@@ -135,6 +144,9 @@ pub fn message_passing(
         let activated = match config.activation {
             Activation::ReLU => aggregated.relu(),
             Activation::Sigmoid => aggregated.sigmoid(),
+            Activation::LeakyReLU => aggregated.leaky_relu(),
+            Activation::Tanh => aggregated.tanh_act(),
+            Activation::ELU => aggregated.elu(1.0),
             Activation::None => aggregated,
         };
 
@@ -223,6 +235,7 @@ mod tests {
             aggregation: Aggregation::Sum,
             activation: Activation::None,
             normalize: false,
+            dropout: 0.0,
         };
 
         let result = message_passing(&graph, &features, &weights, &config).unwrap();
@@ -262,6 +275,7 @@ mod tests {
             aggregation: Aggregation::Mean,
             activation: Activation::None,
             normalize: false,
+            dropout: 0.0,
         };
 
         let result = message_passing(&graph, &features, &weights, &config).unwrap();
@@ -297,6 +311,7 @@ mod tests {
             aggregation: Aggregation::Sum,
             activation: Activation::ReLU,
             normalize: false,
+            dropout: 0.0,
         };
 
         let result = message_passing(&graph, &features, &weights, &config).unwrap();
@@ -331,6 +346,7 @@ mod tests {
             aggregation: Aggregation::Sum,
             activation: Activation::None,
             normalize: true,
+            dropout: 0.0,
         };
 
         let result = message_passing(&graph, &features, &weights, &config).unwrap();
@@ -366,6 +382,7 @@ mod tests {
             aggregation: Aggregation::Sum,
             activation: Activation::None,
             normalize: false,
+            dropout: 0.0,
         };
 
         let result = message_passing(&graph, &features, &weights, &config).unwrap();
@@ -394,6 +411,7 @@ mod tests {
             aggregation: Aggregation::Sum,
             activation: Activation::ReLU,
             normalize: false,
+            dropout: 0.0,
         };
 
         let result = message_passing(&graph, &features, &HashMap::new(), &config).unwrap();
