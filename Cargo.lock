@@ -547,6 +547,7 @@ dependencies = [
 name = "astraea-server"
 version = "0.1.0"
 dependencies = [
+ "astraea-algorithms",
  "astraea-core",
  "astraea-graph",
  "astraea-query",

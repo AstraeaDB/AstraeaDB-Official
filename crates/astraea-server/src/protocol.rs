@@ -147,6 +147,66 @@ pub enum Request {
         #[serde(default)]
         weighted: bool,
     },
+    /// Depth-first search traversal.
+    Dfs {
+        start: u64,
+        #[serde(default = "default_max_depth")]
+        max_depth: usize,
+    },
+    /// Depth-first search traversal at a specific point in time.
+    DfsAt {
+        start: u64,
+        #[serde(default = "default_max_depth")]
+        max_depth: usize,
+        timestamp: i64,
+    },
+    /// Find nodes by label.
+    FindByLabel { label: String },
+    /// Run PageRank algorithm.
+    RunPageRank {
+        #[serde(default)]
+        nodes: Option<Vec<u64>>,
+        #[serde(default = "default_damping")]
+        damping: f64,
+        #[serde(default = "default_max_iterations")]
+        max_iterations: usize,
+        #[serde(default = "default_tolerance")]
+        tolerance: f64,
+    },
+    /// Run Louvain community detection.
+    RunLouvain {
+        #[serde(default)]
+        nodes: Option<Vec<u64>>,
+    },
+    /// Run connected components detection.
+    RunConnectedComponents {
+        #[serde(default)]
+        nodes: Option<Vec<u64>>,
+        #[serde(default)]
+        strong: bool,
+    },
+    /// Run degree centrality.
+    RunDegreeCentrality {
+        #[serde(default)]
+        nodes: Option<Vec<u64>>,
+        #[serde(default = "default_direction")]
+        direction: String,
+    },
+    /// Run betweenness centrality.
+    RunBetweennessCentrality {
+        #[serde(default)]
+        nodes: Option<Vec<u64>>,
+    },
+    /// Get graph statistics.
+    GraphStats,
+    /// Get raw subgraph (nodes + edges) for visualization.
+    GetSubgraph {
+        center: u64,
+        #[serde(default = "default_max_depth")]
+        hops: usize,
+        #[serde(default = "default_max_context_nodes")]
+        max_nodes: usize,
+    },
     /// Server status / health check.
     Ping,
 }
@@ -203,6 +263,18 @@ fn default_direction() -> String {
 
 fn default_max_context_nodes() -> usize {
     50
+}
+
+fn default_damping() -> f64 {
+    0.85
+}
+
+fn default_max_iterations() -> usize {
+    100
+}
+
+fn default_tolerance() -> f64 {
+    1e-6
 }
 
 fn default_text_format() -> String {

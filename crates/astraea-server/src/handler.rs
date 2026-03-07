@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use astraea_core::traits::{GraphOps, VectorIndex};
@@ -474,6 +475,211 @@ impl RequestHandler {
                 }
             }
 
+            Request::Dfs { start, max_depth } => {
+                match self.graph.dfs(NodeId(start), max_depth) {
+                    Ok(nodes) => {
+                        let ids: Vec<u64> = nodes.into_iter().map(|n| n.0).collect();
+                        Response::ok(serde_json::json!({"nodes": ids}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::DfsAt {
+                start,
+                max_depth,
+                timestamp,
+            } => {
+                // DFS at a point in time using neighbors_at iteratively.
+                match dfs_at_impl(&*self.graph, NodeId(start), max_depth, timestamp) {
+                    Ok(nodes) => {
+                        let ids: Vec<u64> = nodes.into_iter().map(|n| n.0).collect();
+                        Response::ok(serde_json::json!({"nodes": ids, "timestamp": timestamp}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::FindByLabel { label } => {
+                match self.graph.find_by_label(&label) {
+                    Ok(ids) => {
+                        let node_ids: Vec<u64> = ids.into_iter().map(|n| n.0).collect();
+                        Response::ok(serde_json::json!({"node_ids": node_ids}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::RunPageRank {
+                nodes,
+                damping,
+                max_iterations,
+                tolerance,
+            } => {
+                let node_ids = match resolve_node_ids(&*self.graph, nodes) {
+                    Ok(ids) => ids,
+                    Err(e) => return Response::error(e.to_string()),
+                };
+
+                let config = astraea_algorithms::pagerank::PageRankConfig {
+                    damping,
+                    max_iterations,
+                    tolerance,
+                };
+
+                match astraea_algorithms::pagerank::pagerank(&*self.graph, &node_ids, &config) {
+                    Ok(scores) => {
+                        let map: HashMap<String, f64> =
+                            scores.into_iter().map(|(k, v)| (k.0.to_string(), v)).collect();
+                        Response::ok(serde_json::json!({"scores": map}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::RunLouvain { nodes } => {
+                let node_ids = match resolve_node_ids(&*self.graph, nodes) {
+                    Ok(ids) => ids,
+                    Err(e) => return Response::error(e.to_string()),
+                };
+
+                match astraea_algorithms::community::louvain(&*self.graph, &node_ids) {
+                    Ok(communities) => {
+                        let map: HashMap<String, usize> =
+                            communities.into_iter().map(|(k, v)| (k.0.to_string(), v)).collect();
+                        let num_communities = map.values().collect::<HashSet<_>>().len();
+                        Response::ok(serde_json::json!({
+                            "communities": map,
+                            "num_communities": num_communities,
+                        }))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::RunConnectedComponents { nodes, strong } => {
+                let node_ids = match resolve_node_ids(&*self.graph, nodes) {
+                    Ok(ids) => ids,
+                    Err(e) => return Response::error(e.to_string()),
+                };
+
+                let result = if strong {
+                    astraea_algorithms::components::strongly_connected_components(
+                        &*self.graph,
+                        &node_ids,
+                    )
+                } else {
+                    astraea_algorithms::components::connected_components(&*self.graph, &node_ids)
+                };
+
+                match result {
+                    Ok(components) => {
+                        let count = components.len();
+                        let comps: Vec<Vec<u64>> = components
+                            .into_iter()
+                            .map(|c| c.into_iter().map(|n| n.0).collect())
+                            .collect();
+                        Response::ok(serde_json::json!({
+                            "components": comps,
+                            "count": count,
+                        }))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::RunDegreeCentrality { nodes, direction } => {
+                let node_ids = match resolve_node_ids(&*self.graph, nodes) {
+                    Ok(ids) => ids,
+                    Err(e) => return Response::error(e.to_string()),
+                };
+
+                let dir = parse_direction(&direction);
+
+                match astraea_algorithms::centrality::degree_centrality(
+                    &*self.graph,
+                    &node_ids,
+                    dir,
+                ) {
+                    Ok(scores) => {
+                        let map: HashMap<String, f64> =
+                            scores.into_iter().map(|(k, v)| (k.0.to_string(), v)).collect();
+                        Response::ok(serde_json::json!({"scores": map}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::RunBetweennessCentrality { nodes } => {
+                let node_ids = match resolve_node_ids(&*self.graph, nodes) {
+                    Ok(ids) => ids,
+                    Err(e) => return Response::error(e.to_string()),
+                };
+
+                match astraea_algorithms::centrality::betweenness_centrality(
+                    &*self.graph,
+                    &node_ids,
+                ) {
+                    Ok(scores) => {
+                        let map: HashMap<String, f64> =
+                            scores.into_iter().map(|(k, v)| (k.0.to_string(), v)).collect();
+                        Response::ok(serde_json::json!({"scores": map}))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::GraphStats => {
+                match collect_graph_stats(&*self.graph, self.vector_index.as_deref()) {
+                    Ok(stats) => Response::ok(stats),
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
+            Request::GetSubgraph {
+                center,
+                hops,
+                max_nodes,
+            } => {
+                match astraea_rag::extract_subgraph(&*self.graph, NodeId(center), hops, max_nodes) {
+                    Ok(subgraph) => {
+                        let nodes: Vec<serde_json::Value> = subgraph
+                            .nodes
+                            .iter()
+                            .map(|n| {
+                                serde_json::json!({
+                                    "id": n.id.0,
+                                    "labels": n.labels,
+                                    "properties": n.properties,
+                                    "has_embedding": n.embedding.is_some(),
+                                })
+                            })
+                            .collect();
+                        let edges: Vec<serde_json::Value> = subgraph
+                            .edges
+                            .iter()
+                            .map(|e| {
+                                serde_json::json!({
+                                    "id": e.id.0,
+                                    "source": e.source.0,
+                                    "target": e.target.0,
+                                    "edge_type": e.edge_type,
+                                    "properties": e.properties,
+                                    "weight": e.weight,
+                                    "valid_from": e.validity.valid_from,
+                                    "valid_to": e.validity.valid_to,
+                                })
+                            })
+                            .collect();
+                        Response::ok(serde_json::json!({
+                            "nodes": nodes,
+                            "edges": edges,
+                        }))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
             Request::Ping => Response::ok(serde_json::json!({
                 "pong": true,
                 "version": env!("CARGO_PKG_VERSION"),
@@ -490,6 +696,116 @@ fn parse_text_format(s: &str) -> astraea_rag::TextFormat {
         "json" => astraea_rag::TextFormat::Json,
         _ => astraea_rag::TextFormat::Structured,
     }
+}
+
+/// Parse a direction string into a `Direction` enum value.
+fn parse_direction(s: &str) -> Direction {
+    match s {
+        "incoming" => Direction::Incoming,
+        "both" => Direction::Both,
+        _ => Direction::Outgoing,
+    }
+}
+
+/// Resolve node IDs for algorithm operations.
+///
+/// If `nodes` is `Some`, convert the provided IDs.
+/// If `None`, scan the graph for all existing node IDs (by probing IDs 1..10_000).
+fn resolve_node_ids(
+    graph: &dyn GraphOps,
+    nodes: Option<Vec<u64>>,
+) -> astraea_core::error::Result<Vec<NodeId>> {
+    if let Some(ids) = nodes {
+        Ok(ids.into_iter().map(NodeId).collect())
+    } else {
+        // Scan for existing nodes. This is a simple approach that probes
+        // sequential IDs. For large graphs, a dedicated scan method would be better.
+        let mut found = Vec::new();
+        for id in 1..10_000u64 {
+            if graph.get_node(NodeId(id))?.is_some() {
+                found.push(NodeId(id));
+            }
+        }
+        Ok(found)
+    }
+}
+
+/// Collect graph statistics by scanning node/edge ID space.
+fn collect_graph_stats(
+    graph: &dyn GraphOps,
+    vector_index: Option<&dyn VectorIndex>,
+) -> astraea_core::error::Result<serde_json::Value> {
+    let mut total_nodes: u64 = 0;
+    let mut total_edges: u64 = 0;
+    let mut label_counts: HashMap<String, u64> = HashMap::new();
+    let mut edge_type_counts: HashMap<String, u64> = HashMap::new();
+
+    // Scan nodes
+    for id in 1..10_000u64 {
+        if let Some(node) = graph.get_node(NodeId(id))? {
+            total_nodes += 1;
+            for label in &node.labels {
+                *label_counts.entry(label.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Scan edges
+    for id in 1..10_000u64 {
+        if let Some(edge) = graph.get_edge(EdgeId(id))? {
+            total_edges += 1;
+            *edge_type_counts.entry(edge.edge_type.clone()).or_insert(0) += 1;
+        }
+    }
+
+    let mut stats = serde_json::json!({
+        "total_nodes": total_nodes,
+        "total_edges": total_edges,
+        "labels": label_counts,
+        "edge_types": edge_type_counts,
+    });
+
+    if let Some(vi) = vector_index {
+        stats["vector_index"] = serde_json::json!({
+            "dimension": vi.dimension(),
+            "metric": format!("{:?}", vi.metric()),
+            "size": vi.len(),
+        });
+    }
+
+    Ok(stats)
+}
+
+/// DFS traversal at a specific point in time (temporal).
+///
+/// Uses `neighbors_at` to only follow edges valid at the given timestamp.
+fn dfs_at_impl(
+    graph: &dyn GraphOps,
+    start: NodeId,
+    max_depth: usize,
+    timestamp: i64,
+) -> astraea_core::error::Result<Vec<NodeId>> {
+    let mut visited = HashSet::new();
+    let mut result = Vec::new();
+    let mut stack: Vec<(NodeId, usize)> = vec![(start, 0)];
+
+    while let Some((node, depth)) = stack.pop() {
+        if !visited.insert(node) {
+            continue;
+        }
+        result.push(node);
+
+        if depth < max_depth {
+            let neighbors = graph.neighbors_at(node, Direction::Outgoing, timestamp)?;
+            for (_eid, nid) in neighbors {
+                if !visited.contains(&nid) {
+                    stack.push((nid, depth + 1));
+                }
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]

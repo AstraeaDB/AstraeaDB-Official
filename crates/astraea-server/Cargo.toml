@@ -10,6 +10,7 @@ astraea-graph = { workspace = true }
 astraea-query = { workspace = true }
 astraea-vector = { workspace = true }
 astraea-rag = { workspace = true }
+astraea-algorithms = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }

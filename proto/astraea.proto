@@ -32,6 +32,38 @@ service AstraeaService {
     // GQL query
     rpc Query(QueryRequest) returns (QueryResponse);
 
+    // Temporal traversals
+    rpc NeighborsAt(NeighborsAtRequest) returns (NeighborsResponse);
+    rpc BfsAt(BfsAtRequest) returns (BfsResponse);
+    rpc ShortestPathAt(ShortestPathAtRequest) returns (ShortestPathResponse);
+
+    // DFS traversal
+    rpc Dfs(DfsRequest) returns (DfsResponse);
+    rpc DfsAt(DfsAtRequest) returns (DfsResponse);
+
+    // Label lookup
+    rpc FindByLabel(FindByLabelRequest) returns (FindByLabelResponse);
+
+    // Vector / semantic search
+    rpc HybridSearch(HybridSearchRequest) returns (GenericJsonResponse);
+    rpc SemanticNeighbors(SemanticNeighborsRequest) returns (GenericJsonResponse);
+    rpc SemanticWalk(SemanticWalkRequest) returns (GenericJsonResponse);
+
+    // Graph algorithms
+    rpc RunPageRank(RunPageRankRequest) returns (GenericJsonResponse);
+    rpc RunLouvain(RunLouvainRequest) returns (GenericJsonResponse);
+    rpc RunConnectedComponents(RunConnectedComponentsRequest) returns (GenericJsonResponse);
+    rpc RunDegreeCentrality(RunDegreeCentralityRequest) returns (GenericJsonResponse);
+    rpc RunBetweennessCentrality(RunBetweennessCentralityRequest) returns (GenericJsonResponse);
+
+    // Graph stats & subgraph
+    rpc GraphStats(GraphStatsRequest) returns (GenericJsonResponse);
+    rpc GetSubgraph(GetSubgraphRequest) returns (GenericJsonResponse);
+
+    // RAG
+    rpc ExtractSubgraph(ExtractSubgraphRequest) returns (GenericJsonResponse);
+    rpc GraphRag(GraphRagRequest) returns (GenericJsonResponse);
+
     // Health check
     rpc Ping(PingRequest) returns (PingResponse);
 }
@@ -198,6 +230,163 @@ message QueryResponse {
     bool success = 1;
     string result_json = 2; // JSON-encoded query result
     string error = 15;
+}
+
+// ---------------------------------------------------------------------------
+// Health check messages
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Generic JSON response (used for algorithm / search results)
+// ---------------------------------------------------------------------------
+
+message GenericJsonResponse {
+    bool success = 1;
+    string result_json = 2; // JSON-encoded result data
+    string error = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Temporal traversal messages
+// ---------------------------------------------------------------------------
+
+message NeighborsAtRequest {
+    uint64 id = 1;
+    string direction = 2;
+    int64 timestamp = 3;
+    string edge_type = 4; // empty string means no filter
+}
+
+message BfsAtRequest {
+    uint64 start = 1;
+    uint32 max_depth = 2;
+    int64 timestamp = 3;
+}
+
+message ShortestPathAtRequest {
+    uint64 from = 1;
+    uint64 to = 2;
+    int64 timestamp = 3;
+    bool weighted = 4;
+}
+
+// ---------------------------------------------------------------------------
+// DFS messages
+// ---------------------------------------------------------------------------
+
+message DfsRequest {
+    uint64 start = 1;
+    uint32 max_depth = 2;
+}
+
+message DfsAtRequest {
+    uint64 start = 1;
+    uint32 max_depth = 2;
+    int64 timestamp = 3;
+}
+
+message DfsResponse {
+    repeated uint64 nodes = 1;
+    string error = 15;
+}
+
+// ---------------------------------------------------------------------------
+// Label lookup messages
+// ---------------------------------------------------------------------------
+
+message FindByLabelRequest {
+    string label = 1;
+}
+
+message FindByLabelResponse {
+    repeated uint64 node_ids = 1;
+    string error = 15;
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid / Semantic search messages
+// ---------------------------------------------------------------------------
+
+message HybridSearchRequest {
+    uint64 anchor = 1;
+    repeated float query = 2;
+    uint32 max_hops = 3;
+    uint32 k = 4;
+    float alpha = 5;
+}
+
+message SemanticNeighborsRequest {
+    uint64 id = 1;
+    repeated float concept = 2;
+    string direction = 3;
+    uint32 k = 4;
+}
+
+message SemanticWalkRequest {
+    uint64 start = 1;
+    repeated float concept = 2;
+    uint32 max_hops = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Graph algorithm messages
+// ---------------------------------------------------------------------------
+
+message RunPageRankRequest {
+    repeated uint64 nodes = 1;  // empty means all nodes
+    double damping = 2;
+    uint32 max_iterations = 3;
+    double tolerance = 4;
+}
+
+message RunLouvainRequest {
+    repeated uint64 nodes = 1;  // empty means all nodes
+}
+
+message RunConnectedComponentsRequest {
+    repeated uint64 nodes = 1;  // empty means all nodes
+    bool strong = 2;
+}
+
+message RunDegreeCentralityRequest {
+    repeated uint64 nodes = 1;  // empty means all nodes
+    string direction = 2;
+}
+
+message RunBetweennessCentralityRequest {
+    repeated uint64 nodes = 1;  // empty means all nodes
+}
+
+// ---------------------------------------------------------------------------
+// Graph stats & subgraph messages
+// ---------------------------------------------------------------------------
+
+message GraphStatsRequest {}
+
+message GetSubgraphRequest {
+    uint64 center = 1;
+    uint32 hops = 2;
+    uint32 max_nodes = 3;
+}
+
+// ---------------------------------------------------------------------------
+// RAG messages
+// ---------------------------------------------------------------------------
+
+message ExtractSubgraphRequest {
+    uint64 center = 1;
+    uint32 hops = 2;
+    uint32 max_nodes = 3;
+    string format = 4;  // "prose", "structured", "triples", "json"
+}
+
+message GraphRagRequest {
+    string question = 1;
+    repeated float question_embedding = 2;  // optional; empty means not provided
+    uint64 anchor = 3;                      // 0 means not provided
+    uint32 hops = 4;
+    uint32 max_nodes = 5;
+    string format = 6;
 }
 
 // ---------------------------------------------------------------------------

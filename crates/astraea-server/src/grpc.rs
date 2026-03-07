@@ -545,6 +545,355 @@ impl AstraeaService for AstraeaGrpcService {
         }))
     }
 
+    // -- Temporal traversals -----------------------------------------------
+
+    async fn neighbors_at(
+        &self,
+        request: tonic::Request<NeighborsAtRequest>,
+    ) -> Result<tonic::Response<NeighborsResponse>, Status> {
+        let req = request.into_inner();
+        let edge_type = if req.edge_type.is_empty() {
+            None
+        } else {
+            Some(req.edge_type)
+        };
+        let internal = Request::NeighborsAt {
+            id: req.id,
+            direction: if req.direction.is_empty() { "outgoing".into() } else { req.direction },
+            timestamp: req.timestamp,
+            edge_type,
+        };
+        let resp = self.handler.handle(internal);
+        match resp {
+            Response::Ok { data } => {
+                let neighbors = data
+                    .get("neighbors")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .map(|entry| NeighborEntry {
+                                edge_id: entry.get("edge_id").and_then(|v| v.as_u64()).unwrap_or(0),
+                                node_id: entry.get("node_id").and_then(|v| v.as_u64()).unwrap_or(0),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                Ok(tonic::Response::new(NeighborsResponse { neighbors, error: String::new() }))
+            }
+            Response::Error { message } => {
+                Ok(tonic::Response::new(NeighborsResponse { neighbors: vec![], error: message }))
+            }
+        }
+    }
+
+    async fn bfs_at(
+        &self,
+        request: tonic::Request<BfsAtRequest>,
+    ) -> Result<tonic::Response<BfsResponse>, Status> {
+        let req = request.into_inner();
+        let max_depth = if req.max_depth == 0 { 3 } else { req.max_depth as usize };
+        let internal = Request::BfsAt {
+            start: req.start,
+            max_depth,
+            timestamp: req.timestamp,
+        };
+        let resp = self.handler.handle(internal);
+        match resp {
+            Response::Ok { data } => {
+                let nodes = data
+                    .get("nodes")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .map(|entry| BfsEntry {
+                                node_id: entry.get("node_id").and_then(|v| v.as_u64()).unwrap_or(0),
+                                depth: entry.get("depth").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                Ok(tonic::Response::new(BfsResponse { nodes, error: String::new() }))
+            }
+            Response::Error { message } => {
+                Ok(tonic::Response::new(BfsResponse { nodes: vec![], error: message }))
+            }
+        }
+    }
+
+    async fn shortest_path_at(
+        &self,
+        request: tonic::Request<ShortestPathAtRequest>,
+    ) -> Result<tonic::Response<ShortestPathResponse>, Status> {
+        let req = request.into_inner();
+        let internal = Request::ShortestPathAt {
+            from: req.from,
+            to: req.to,
+            timestamp: req.timestamp,
+            weighted: req.weighted,
+        };
+        let resp = self.handler.handle(internal);
+        match resp {
+            Response::Ok { data } => {
+                let path: Vec<u64> = data
+                    .get("path")
+                    .and_then(|v| if v.is_null() { None } else { v.as_array().map(|arr| arr.iter().filter_map(|val| val.as_u64()).collect()) })
+                    .unwrap_or_default();
+                let found = !path.is_empty();
+                let length = data.get("length").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let cost = data.get("cost").and_then(|v| v.as_f64());
+                Ok(tonic::Response::new(ShortestPathResponse { found, path, length, cost, error: String::new() }))
+            }
+            Response::Error { message } => {
+                Ok(tonic::Response::new(ShortestPathResponse { found: false, path: vec![], length: 0, cost: None, error: message }))
+            }
+        }
+    }
+
+    // -- DFS ---------------------------------------------------------------
+
+    async fn dfs(
+        &self,
+        request: tonic::Request<DfsRequest>,
+    ) -> Result<tonic::Response<DfsResponse>, Status> {
+        let req = request.into_inner();
+        let max_depth = if req.max_depth == 0 { 3 } else { req.max_depth as usize };
+        let internal = Request::Dfs { start: req.start, max_depth };
+        let resp = self.handler.handle(internal);
+        match resp {
+            Response::Ok { data } => {
+                let nodes: Vec<u64> = data
+                    .get("nodes")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+                    .unwrap_or_default();
+                Ok(tonic::Response::new(DfsResponse { nodes, error: String::new() }))
+            }
+            Response::Error { message } => {
+                Ok(tonic::Response::new(DfsResponse { nodes: vec![], error: message }))
+            }
+        }
+    }
+
+    async fn dfs_at(
+        &self,
+        request: tonic::Request<DfsAtRequest>,
+    ) -> Result<tonic::Response<DfsResponse>, Status> {
+        let req = request.into_inner();
+        let max_depth = if req.max_depth == 0 { 3 } else { req.max_depth as usize };
+        let internal = Request::DfsAt { start: req.start, max_depth, timestamp: req.timestamp };
+        let resp = self.handler.handle(internal);
+        match resp {
+            Response::Ok { data } => {
+                let nodes: Vec<u64> = data
+                    .get("nodes")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+                    .unwrap_or_default();
+                Ok(tonic::Response::new(DfsResponse { nodes, error: String::new() }))
+            }
+            Response::Error { message } => {
+                Ok(tonic::Response::new(DfsResponse { nodes: vec![], error: message }))
+            }
+        }
+    }
+
+    // -- Label lookup ------------------------------------------------------
+
+    async fn find_by_label(
+        &self,
+        request: tonic::Request<FindByLabelRequest>,
+    ) -> Result<tonic::Response<FindByLabelResponse>, Status> {
+        let req = request.into_inner();
+        let internal = Request::FindByLabel { label: req.label };
+        let resp = self.handler.handle(internal);
+        match resp {
+            Response::Ok { data } => {
+                let node_ids: Vec<u64> = data
+                    .get("node_ids")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+                    .unwrap_or_default();
+                Ok(tonic::Response::new(FindByLabelResponse { node_ids, error: String::new() }))
+            }
+            Response::Error { message } => {
+                Ok(tonic::Response::new(FindByLabelResponse { node_ids: vec![], error: message }))
+            }
+        }
+    }
+
+    // -- Hybrid / Semantic search ------------------------------------------
+
+    async fn hybrid_search(
+        &self,
+        request: tonic::Request<HybridSearchRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let internal = Request::HybridSearch {
+            anchor: req.anchor,
+            query: req.query,
+            max_hops: if req.max_hops == 0 { 3 } else { req.max_hops as usize },
+            k: if req.k == 0 { 10 } else { req.k as usize },
+            alpha: if req.alpha == 0.0 { 0.5 } else { req.alpha },
+        };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    async fn semantic_neighbors(
+        &self,
+        request: tonic::Request<SemanticNeighborsRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let internal = Request::SemanticNeighbors {
+            id: req.id,
+            concept: req.concept,
+            direction: if req.direction.is_empty() { "outgoing".into() } else { req.direction },
+            k: if req.k == 0 { 10 } else { req.k as usize },
+        };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    async fn semantic_walk(
+        &self,
+        request: tonic::Request<SemanticWalkRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let internal = Request::SemanticWalk {
+            start: req.start,
+            concept: req.concept,
+            max_hops: if req.max_hops == 0 { 3 } else { req.max_hops as usize },
+        };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    // -- Graph algorithms --------------------------------------------------
+
+    async fn run_page_rank(
+        &self,
+        request: tonic::Request<RunPageRankRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let internal = Request::RunPageRank {
+            nodes,
+            damping: if req.damping == 0.0 { 0.85 } else { req.damping },
+            max_iterations: if req.max_iterations == 0 { 100 } else { req.max_iterations as usize },
+            tolerance: if req.tolerance == 0.0 { 1e-6 } else { req.tolerance },
+        };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    async fn run_louvain(
+        &self,
+        request: tonic::Request<RunLouvainRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let internal = Request::RunLouvain { nodes };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    async fn run_connected_components(
+        &self,
+        request: tonic::Request<RunConnectedComponentsRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let internal = Request::RunConnectedComponents { nodes, strong: req.strong };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    async fn run_degree_centrality(
+        &self,
+        request: tonic::Request<RunDegreeCentralityRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let internal = Request::RunDegreeCentrality {
+            nodes,
+            direction: if req.direction.is_empty() { "both".into() } else { req.direction },
+        };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    async fn run_betweenness_centrality(
+        &self,
+        request: tonic::Request<RunBetweennessCentralityRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let internal = Request::RunBetweennessCentrality { nodes };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    // -- Graph stats & subgraph --------------------------------------------
+
+    async fn graph_stats(
+        &self,
+        _request: tonic::Request<GraphStatsRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let internal = Request::GraphStats;
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    async fn get_subgraph(
+        &self,
+        request: tonic::Request<GetSubgraphRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let internal = Request::GetSubgraph {
+            center: req.center,
+            hops: if req.hops == 0 { 3 } else { req.hops as usize },
+            max_nodes: if req.max_nodes == 0 { 50 } else { req.max_nodes as usize },
+        };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    // -- RAG ---------------------------------------------------------------
+
+    async fn extract_subgraph(
+        &self,
+        request: tonic::Request<ExtractSubgraphRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let internal = Request::ExtractSubgraph {
+            center: req.center,
+            hops: if req.hops == 0 { 3 } else { req.hops as usize },
+            max_nodes: if req.max_nodes == 0 { 50 } else { req.max_nodes as usize },
+            format: if req.format.is_empty() { "structured".into() } else { req.format },
+        };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
+    async fn graph_rag(
+        &self,
+        request: tonic::Request<GraphRagRequest>,
+    ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
+        let req = request.into_inner();
+        let question_embedding = if req.question_embedding.is_empty() { None } else { Some(req.question_embedding) };
+        let anchor = if req.anchor == 0 { None } else { Some(req.anchor) };
+        let internal = Request::GraphRag {
+            question: req.question,
+            question_embedding,
+            anchor,
+            hops: if req.hops == 0 { 3 } else { req.hops as usize },
+            max_nodes: if req.max_nodes == 0 { 50 } else { req.max_nodes as usize },
+            format: if req.format.is_empty() { "structured".into() } else { req.format },
+        };
+        let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
+        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+    }
+
     // -- Health check ------------------------------------------------------
 
     async fn ping(

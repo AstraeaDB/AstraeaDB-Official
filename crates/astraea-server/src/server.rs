@@ -395,6 +395,16 @@ fn request_type_name(request: &Request) -> &'static str {
         Request::Query { .. } => "Query",
         Request::ExtractSubgraph { .. } => "ExtractSubgraph",
         Request::GraphRag { .. } => "GraphRag",
+        Request::Dfs { .. } => "Dfs",
+        Request::DfsAt { .. } => "DfsAt",
+        Request::FindByLabel { .. } => "FindByLabel",
+        Request::RunPageRank { .. } => "RunPageRank",
+        Request::RunLouvain { .. } => "RunLouvain",
+        Request::RunConnectedComponents { .. } => "RunConnectedComponents",
+        Request::RunDegreeCentrality { .. } => "RunDegreeCentrality",
+        Request::RunBetweennessCentrality { .. } => "RunBetweennessCentrality",
+        Request::GraphStats => "GraphStats",
+        Request::GetSubgraph { .. } => "GetSubgraph",
         Request::Ping => "Ping",
     }
 }
