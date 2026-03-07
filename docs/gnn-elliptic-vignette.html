@@ -171,7 +171,7 @@ tr:nth-child(even) { background: var(--table-stripe); }
 
 <p>This vignette walks through a real-world stress test of AstraeaDB's graph intelligence capabilities: loading 200,000 Bitcoin transactions from the <strong>Elliptic dataset</strong>, querying them with time-travel and hybrid search, and training a graph neural network to classify illicit transactions&mdash;all without the data ever leaving the database.</p>
 
-<p>It demonstrates what makes AstraeaDB unique: a <strong>property graph</strong>, a <strong>vector index</strong>, and a <strong>GNN engine</strong> working together in a single system. No ETL pipelines, no external ML frameworks, no data export.</p>
+<p>It demonstrates what makes AstraeaDB unique: a <strong>property graph</strong>, a <strong>vector index</strong>, and a <strong>GNN engine</strong> working together in a single system. No ETL pipelines, no external ML frameworks, no data export. The full source code for this experiment is available on GitHub at <a href="https://github.com/AstraeaDB/GNN-test-and-improve">AstraeaDB/GNN-test-and-improve</a>.</p>
 
 <div class="info">
 <strong>Three phases, one database:</strong> (1) Ingest the full transaction network and test temporal queries, (2) Use vector search and graph traversal together to surface suspects, and (3) Train a neural network <em>inside</em> the database to classify transactions automatically.
@@ -611,6 +611,7 @@ graph.<span class="fn">create_edge</span>(
 Experiment conducted February 2026 using the
 <a href="https://www.kaggle.com/datasets/ellipticco/elliptic-data-set">Elliptic Bitcoin Dataset</a>
 (203,769 nodes, 234,355 edges, 49 time steps).
+Full source code: <a href="https://github.com/AstraeaDB/GNN-test-and-improve">AstraeaDB/GNN-test-and-improve</a>.
 </p>
 
 <!-- ============================================================ -->
