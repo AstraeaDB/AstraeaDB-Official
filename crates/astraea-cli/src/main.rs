@@ -87,6 +87,17 @@ enum Commands {
         #[arg(short, long, default_value = "127.0.0.1:7687")]
         address: String,
     },
+
+    /// Start an MCP (Model Context Protocol) server for LLM tool integration.
+    Mcp {
+        /// AstraeaDB server address for proxy mode.
+        #[arg(short, long, default_value = "127.0.0.1:7687")]
+        address: String,
+
+        /// Auth token for connecting to the AstraeaDB server.
+        #[arg(long)]
+        auth_token: Option<String>,
+    },
 }
 
 /// Configuration file structure.
@@ -958,6 +969,27 @@ async fn main() {
 
         Commands::Status { address } => {
             run_status(&address).await;
+        }
+
+        Commands::Mcp {
+            address,
+            auth_token,
+        } => {
+            // MCP server: all user-visible output goes to stderr.
+            // stdout is reserved for the JSON-RPC protocol.
+            eprintln!("Starting AstraeaDB MCP server (proxy mode -> {address})");
+
+            let config = astraea_mcp::McpConfig {
+                address,
+                auth_token,
+            };
+            let mut server = astraea_mcp::McpServer::new(config);
+            let mut transport = astraea_mcp::transport::stdio::StdioTransport::new();
+
+            if let Err(e) = server.run(&mut transport).await {
+                eprintln!("MCP server error: {e}");
+                std::process::exit(1);
+            }
         }
     }
 }

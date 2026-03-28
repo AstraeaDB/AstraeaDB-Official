@@ -687,6 +687,11 @@ client<span class="kw">$</span><span class="fn">close</span>()</pre>
     Start with <code>hops=2</code> and <code>max_nodes=50</code>. If the LLM's answers lack context, increase hops. If responses are slow or token costs are high, reduce max_nodes or switch to <code>"triples"</code> format. The goal is to include enough context for accurate answers without overwhelming the LLM's context window.
   </div>
 
+  <div class="info-box info">
+    <strong>MCP Integration</strong>
+    AstraeaDB's MCP (Model Context Protocol) server exposes <code>graph_rag</code> and <code>extract_subgraph</code> as tools that LLM clients can call directly. When using Claude Desktop, Claude Code, or Cursor with AstraeaDB's MCP server, you can simply ask questions like <em>"Use GraphRAG to answer: who leads the Phoenix project?"</em> and the LLM will call the <code>graph_rag</code> tool automatically. See <a href="gentle-intro-ch07.html">Chapter 7</a> for MCP setup instructions.
+  </div>
+
   <!-- Chapter Navigation -->
   <div class="chapter-nav">
     <a href="gentle-intro-ch10.html">&larr; Chapter 10: Graph Algorithms</a>

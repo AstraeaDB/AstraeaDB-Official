@@ -167,7 +167,7 @@ cargo test --workspace -- --test-threads=<span class="num">1</span></pre>
   <pre>cargo run -p astraea-cli -- serve --bind <span class="num">0.0.0.0</span> --port <span class="num">7687</span></pre>
 
   <h3>Default Ports</h3>
-  <p>AstraeaDB listens on three ports, each serving a different protocol:</p>
+  <p>AstraeaDB listens on three network ports, plus supports MCP over stdio for LLM integration:</p>
   <table>
     <thead>
       <tr><th>Port</th><th>Protocol</th><th>Use Case</th></tr>
@@ -176,8 +176,10 @@ cargo test --workspace -- --test-threads=<span class="num">1</span></pre>
       <tr><td><code>7687</code></td><td>JSON-TCP</td><td>Primary client connections (Python, R, Go, Java SDKs)</td></tr>
       <tr><td><code>7688</code></td><td>gRPC</td><td>High-performance RPC for microservice architectures</td></tr>
       <tr><td><code>7689</code></td><td>Apache Arrow Flight</td><td>Zero-copy bulk data transfer for analytics (Polars, Pandas)</td></tr>
+      <tr><td><code>stdio</code></td><td>MCP / JSON-RPC 2.0</td><td>LLM integration (Claude Desktop, Claude Code, Cursor)</td></tr>
     </tbody>
   </table>
+  <p>To start the MCP server for use with LLM clients: <code>astraeadb mcp --address 127.0.0.1:7687</code></p>
 
   <h3>Configuration via TOML</h3>
   <p>For production deployments, use a TOML configuration file instead of command-line flags. Create a file called <code>astraeadb.toml</code>:</p>

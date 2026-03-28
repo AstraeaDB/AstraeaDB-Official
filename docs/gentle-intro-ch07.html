@@ -67,12 +67,12 @@
 
   <h1>Chapter 7: Transport Protocols</h1>
   <p class="subtitle">
-    AstraeaDB exposes three network protocols, each optimized for a different use case. This chapter walks through all three&mdash;JSON over TCP, gRPC, and Apache Arrow Flight&mdash;so you can choose the right tool for every situation.
+    AstraeaDB exposes four transport protocols, each optimized for a different use case. This chapter walks through all four&mdash;JSON over TCP, gRPC, Apache Arrow Flight, and MCP for LLM integration&mdash;so you can choose the right tool for every situation.
   </p>
 
   <div class="info-box info">
     <strong>Key takeaway</strong>
-    You do not need to master all three protocols. JSON-TCP is the easiest way to get started and is perfectly adequate for development and light workloads. Move to gRPC or Arrow Flight when your application demands type safety, streaming, or zero-copy analytics.
+    You do not need to master all four protocols. JSON-TCP is the easiest way to get started and is perfectly adequate for development and light workloads. Move to gRPC or Arrow Flight when your application demands type safety, streaming, or zero-copy analytics. Use MCP when you want an LLM (like Claude) to interact with your graph database via natural language.
   </div>
 
   <!-- ================================================================== -->
@@ -555,60 +555,70 @@ client<span class="kw">$</span><span class="fn">put</span>(new_people)</pre>
       <th>JSON-TCP</th>
       <th>gRPC</th>
       <th>Arrow Flight</th>
+      <th>MCP</th>
     </tr>
     <tr>
       <td>Default port</td>
       <td><code>7687</code></td>
       <td><code>7688</code></td>
       <td><code>7689</code></td>
+      <td><code>stdio</code></td>
     </tr>
     <tr>
       <td>Setup complexity</td>
       <td>Lowest</td>
       <td>Medium</td>
       <td>Highest</td>
+      <td>Low</td>
     </tr>
     <tr>
       <td>Dependencies</td>
       <td>None</td>
       <td>protobuf</td>
       <td>pyarrow / arrow</td>
+      <td>None</td>
     </tr>
     <tr>
       <td>Wire format</td>
       <td>JSON text</td>
       <td>Binary (protobuf)</td>
       <td>Binary (Arrow IPC)</td>
+      <td>JSON-RPC 2.0</td>
     </tr>
     <tr>
       <td>Performance</td>
       <td>Good</td>
       <td>Better</td>
       <td>Best (analytics)</td>
+      <td>Good</td>
     </tr>
     <tr>
       <td>Debugging</td>
       <td>Easy (human-readable)</td>
       <td>Hard (binary)</td>
       <td>Hard (binary)</td>
+      <td>Easy (JSON)</td>
     </tr>
     <tr>
       <td>Type safety</td>
       <td>None (schemaless JSON)</td>
       <td>Strong (proto schema)</td>
       <td>Strong (Arrow schema)</td>
+      <td>JSON Schema</td>
     </tr>
     <tr>
       <td>Streaming</td>
       <td>No</td>
       <td>Yes</td>
       <td>Yes</td>
+      <td>No</td>
     </tr>
     <tr>
       <td>Best for</td>
       <td>Development, scripts</td>
       <td>Production, microservices</td>
       <td>Analytics, DataFrames</td>
+      <td>LLM integration</td>
     </tr>
   </table>
 
@@ -699,6 +709,116 @@ results <span class="kw">&lt;-</span> client<span class="kw">$</span><span class
   <div class="info-box info">
     <strong>Recommendation</strong>
     Use <code>UnifiedClient</code> / <code>AstraeaClient(auto=TRUE)</code> in application code. This future-proofs your application: if you later install <code>pyarrow</code> or deploy a gRPC-enabled server, your code automatically benefits without any changes.
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- 7.5 MCP -->
+  <!-- ================================================================== -->
+  <h2>7.5 Model Context Protocol (MCP)</h2>
+
+  <p>
+    The fourth transport is different from the other three: it is designed for <strong>LLM integration</strong>, not programmatic client libraries. The <strong>Model Context Protocol</strong> (MCP) lets AI assistants like Claude, GPT-4, or local models (via Ollama) discover and invoke AstraeaDB operations as <em>tools</em>.
+  </p>
+
+  <h3>What is MCP?</h3>
+  <p>
+    MCP is a JSON-RPC 2.0 based protocol standardized for communication between LLM clients and external systems. When you configure Claude Desktop, Claude Code, or Cursor to use AstraeaDB's MCP server, the LLM can:
+  </p>
+  <ul>
+    <li><strong>Discover tools</strong> &mdash; AstraeaDB exposes 29 tools (CRUD, traversals, search, algorithms, RAG, etc.) with JSON Schema definitions</li>
+    <li><strong>Call tools</strong> &mdash; The LLM decides when to create nodes, run PageRank, search vectors, or execute GQL queries</li>
+    <li><strong>Read resources</strong> &mdash; Fetch node data, subgraph context, or statistics via <code>astraea://</code> URIs</li>
+    <li><strong>Use prompt templates</strong> &mdash; 6 predefined templates for common graph analysis workflows</li>
+  </ul>
+
+  <h3>How it works</h3>
+  <p>
+    The MCP server (<code>astraeadb mcp</code>) runs as a subprocess of the LLM client. It communicates over <strong>stdio</strong> (stdin/stdout) using JSON-RPC 2.0 messages. In proxy mode, it connects to a running AstraeaDB server over TCP:
+  </p>
+
+<pre><span class="cm"># Terminal 1: Start AstraeaDB</span>
+astraeadb serve
+
+<span class="cm"># The MCP server is started automatically by your LLM client</span>
+<span class="cm"># (Claude Desktop, Claude Code, or Cursor)</span>
+<span class="cm"># You just need to configure the client once</span></pre>
+
+  <h3>Configuration for Claude Desktop</h3>
+  <p>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows):</p>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>, <span class="str">"--address"</span>, <span class="str">"127.0.0.1:7687"</span>]
+    }
+  }
+}</pre>
+
+  <h3>Configuration for Claude Code</h3>
+  <p>Edit <code>.claude/settings.json</code> in your project directory:</p>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>]
+    }
+  }
+}</pre>
+
+  <h3>Configuration for Cursor</h3>
+  <p>Edit <code>.cursor/mcp.json</code> in your project root:</p>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>, <span class="str">"--address"</span>, <span class="str">"127.0.0.1:7687"</span>]
+    }
+  }
+}</pre>
+
+  <h3>Available tools</h3>
+  <table>
+    <tr><th>Category</th><th>Tools</th></tr>
+    <tr><td>CRUD</td><td><code>create_node</code>, <code>create_edge</code>, <code>get_node</code>, <code>get_edge</code>, <code>update_node</code>, <code>update_edge</code>, <code>delete_node</code>, <code>delete_edge</code></td></tr>
+    <tr><td>Traversal</td><td><code>neighbors</code>, <code>bfs</code>, <code>dfs</code>, <code>shortest_path</code></td></tr>
+    <tr><td>Search</td><td><code>vector_search</code>, <code>hybrid_search</code>, <code>find_by_label</code></td></tr>
+    <tr><td>Algorithms</td><td><code>run_pagerank</code>, <code>run_louvain</code>, <code>run_connected_components</code>, <code>run_degree_centrality</code>, <code>run_betweenness_centrality</code></td></tr>
+    <tr><td>Temporal</td><td><code>neighbors_at</code>, <code>bfs_at</code>, <code>dfs_at</code>, <code>shortest_path_at</code></td></tr>
+    <tr><td>RAG</td><td><code>graph_rag</code>, <code>extract_subgraph</code></td></tr>
+    <tr><td>Admin</td><td><code>query</code> (GQL), <code>graph_stats</code>, <code>ping</code></td></tr>
+  </table>
+
+  <h3>Example conversation</h3>
+  <p>Once configured, you can interact with your graph database through natural language. For example:</p>
+  <ul>
+    <li><strong>You:</strong> <em>"Create a graph about the solar system. Add the Sun, Earth, Mars, and Jupiter as nodes, then connect Earth and Mars to the Sun with ORBITS edges."</em></li>
+    <li><strong>Claude:</strong> (calls <code>create_node</code> 4 times, then <code>create_edge</code> 2 times, reports the results)</li>
+    <li><strong>You:</strong> <em>"Who are the neighbors of the Sun?"</em></li>
+    <li><strong>Claude:</strong> (calls <code>find_by_label</code> to find Sun, then <code>neighbors</code>, reports Earth and Mars)</li>
+    <li><strong>You:</strong> <em>"Run PageRank on the graph. Which node is most important?"</em></li>
+    <li><strong>Claude:</strong> (calls <code>run_pagerank</code>, interprets the scores, explains that the Sun has the highest centrality)</li>
+  </ul>
+
+  <h3>Remote server setup</h3>
+  <p>
+    If AstraeaDB runs on a remote machine, pass the address and an optional auth token:
+  </p>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>, <span class="str">"--address"</span>, <span class="str">"db.example.com:7687"</span>, <span class="str">"--auth-token"</span>, <span class="str">"my-secret-key"</span>]
+    }
+  }
+}</pre>
+
+  <div class="info-box info">
+    <strong>MCP vs. other protocols</strong>
+    MCP is not a replacement for the Python, Go, or Java clients. It is specifically designed for <em>LLM-driven interaction</em> where a human describes what they want in natural language and the AI decides which operations to perform. For programmatic, high-throughput workloads, use the traditional client libraries over JSON-TCP, gRPC, or Arrow Flight.
   </div>
 
   <!-- Chapter Navigation -->

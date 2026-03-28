@@ -11,20 +11,23 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 ## Architecture
 
 ```
-                    ┌─────────────────────────────────┐
-                    │         astraea-cli              │
-                    │   serve | shell | import | export│
-                    └──────────────┬──────────────────┘
-                                   │
-          ┌────────────────────────┼────────────────────────┐
-          │                        │                        │
-┌─────────▼──────────┐  ┌─────────▼──────────┐  ┌─────────▼──────────┐
-│  astraea-server    │  │  astraea-flight    │  │  Client Libraries  │
-│  JSON-TCP (7687)   │  │  Arrow Flight      │  │  Python, R, Go,    │
-│  gRPC (7688)       │  │  do_get / do_put   │  │  Java — JSON +     │
-│  Auth, Metrics     │  │                    │  │  gRPC + Flight     │
-│  Connection Mgmt   │  │                    │  │                    │
-└──────┬─────────────┘  └──────┬─────────────┘  └────────────────────┘
+                    ┌──────────────────────────────────────────┐
+                    │              astraea-cli                  │
+                    │   serve | shell | import | export | mcp  │
+                    └──────────────────┬───────────────────────┘
+                                       │
+     ┌──────────────┬──────────────────┼───────────────────────┐
+     │              │                  │                        │
+┌────▼─────────┐ ┌─▼────────────────┐ ┌▼─────────────────┐ ┌──▼─────────────────┐
+│ astraea-mcp  │ │  astraea-server  │ │  astraea-flight  │ │  Client Libraries  │
+│ MCP/JSON-RPC │ │  JSON-TCP (7687) │ │  Arrow Flight    │ │  Python, R, Go,    │
+│ stdio / SSE  │ │  gRPC (7688)     │ │  do_get / do_put │ │  Java — JSON +     │
+│ Tools,       │ │  Auth, Metrics   │ │                  │ │  gRPC + Flight     │
+│ Resources,   │ │  Connection Mgmt │ │                  │ │                    │
+│ Prompts      │ │                  │ │                  │ │                    │
+└──────┬───────┘ └──────┬───────────┘ └──────┬───────────┘ └────────────────────┘
+       │                │                     │
+       └────────────────┴─────────────────────┘
        │                       │
        └───────────┬───────────┘
                    │
@@ -91,11 +94,12 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `astraea-crypto` | Homomorphic encryption foundation: key generation, encrypted labels/values/nodes, server-side encrypted label matching | 31 |
 | `astraea-gpu` | GPU acceleration framework: CSR matrix representation, GpuBackend trait, CPU fallback (PageRank, BFS, SSSP) | 16 |
 | `astraea-cluster` | Distributed processing foundation: hash/range partitioning, shard management, cluster coordinator trait | 19 |
-| `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export` | - |
+| `astraea-mcp` | Model Context Protocol (MCP) server: JSON-RPC 2.0, stdio/SSE transports, 29 tools, 4 resource templates, 6 prompt templates. Proxy mode (TCP to running server) or embedded mode | 23 |
+| `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export`, `mcp` | - |
 | `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
 | `go/astraeadb` | Go client: JSON/TCP, gRPC (protobuf), unified client with auto-transport selection | 30 |
 | `java/astraeadb` | Java client: JSON/TCP, gRPC (protobuf), Arrow Flight, unified client with auto-transport selection | 113 |
-| **Rust Total** | | **441** |
+| **Rust Total** | | **464** |
 | **Python Total** | | **23** |
 | **Go Total** | | **30** |
 | **Java Total** | | **113** |
@@ -241,13 +245,14 @@ let results = index.search(&query_vector, 10)?;
 // results: Vec<SimilarityResult { node_id, distance }>
 ```
 
-### Network Server (`astraea-server` + `astraea-flight`)
+### Network Server (`astraea-server` + `astraea-flight` + `astraea-mcp`)
 
-Three transport layers for different use cases:
+Four transport layers for different use cases:
 
 1. **JSON-over-TCP** (port 7687): Newline-delimited JSON wire protocol. Each request/response is a single JSON line, debuggable with `telnet` or `netcat`.
 2. **gRPC/Protobuf** (port 7688): Schema-enforced API via `tonic`/`prost` with 14 RPCs. Better performance and type safety for production clients.
 3. **Arrow Flight** (port 7689): Zero-copy data exchange via Apache Arrow Flight. `do_get` streams GQL query results as Arrow RecordBatches; `do_put` accepts Arrow tables for bulk node/edge import. Ideal for Python/Polars/Pandas integration.
+4. **MCP/JSON-RPC** (stdio/SSE): Model Context Protocol server for LLM integration. Exposes 29 tools, 4 resource templates, and 6 prompt templates. Any MCP-compatible client (Claude Desktop, Claude Code, Cursor) can discover and invoke AstraeaDB operations.
 
 JSON and gRPC transports delegate to the same `RequestHandler` and `Executor`. The Flight server wraps the same `Graph` + `Executor` with Arrow serialization.
 
@@ -297,6 +302,69 @@ JSON and gRPC transports delegate to the same `RequestHandler` and `Executor`. T
 | `Query` | Execute a GQL query string (fully functional) |
 | `Ping` | Health check |
 
+All of these requests are also available as MCP tools via `astraeadb mcp`, allowing LLMs to call them directly.
+
+### MCP Server (`astraea-mcp`)
+
+The **Model Context Protocol (MCP)** server exposes AstraeaDB to LLM clients (Claude Desktop, Claude Code, Cursor, VS Code Copilot, etc.) as a set of tools, resources, and prompt templates via JSON-RPC 2.0. Any MCP-compatible client can discover and invoke AstraeaDB's capabilities without custom integration code.
+
+**29 tools** mapped from the protocol:
+
+| Category | Tools |
+|---|---|
+| CRUD | `create_node`, `create_edge`, `get_node`, `get_edge`, `update_node`, `update_edge`, `delete_node`, `delete_edge` |
+| Traversal | `neighbors`, `bfs`, `dfs`, `shortest_path` |
+| Search | `vector_search`, `hybrid_search`, `find_by_label` |
+| Algorithms | `run_pagerank`, `run_louvain`, `run_connected_components`, `run_degree_centrality`, `run_betweenness_centrality` |
+| Temporal | `neighbors_at`, `bfs_at`, `dfs_at`, `shortest_path_at` |
+| RAG | `graph_rag`, `extract_subgraph` |
+| Admin | `query` (GQL), `graph_stats`, `ping` |
+
+**4 resource templates** via `astraea://` URIs:
+
+| URI | Description |
+|---|---|
+| `astraea://stats` | Graph statistics (node/edge counts, labels) |
+| `astraea://node/{id}` | Full node data |
+| `astraea://subgraph/{nodeId}?hops=2&max=50` | Linearized subgraph context |
+| `astraea://label/{label}` | All nodes matching a label |
+
+**6 prompt templates:** `analyze-node`, `explain-path`, `explore-community`, `summarize-graph`, `temporal-diff`, `rag-query`
+
+**Usage:**
+
+```bash
+# Start AstraeaDB server, then start MCP server in proxy mode
+astraeadb serve &
+astraeadb mcp --address 127.0.0.1:7687
+```
+
+**Client configuration (Claude Desktop):**
+
+```json
+{
+  "mcpServers": {
+    "astraeadb": {
+      "command": "astraeadb",
+      "args": ["mcp", "--address", "127.0.0.1:7687"]
+    }
+  }
+}
+```
+
+**Client configuration (Claude Code):**
+
+```json
+{
+  "mcpServers": {
+    "astraeadb": {
+      "command": "astraeadb",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
 ### CLI (`astraea-cli`)
 
 ```
@@ -305,6 +373,7 @@ astraeadb shell [--address 127.0.0.1:7687]
 astraeadb status [--address 127.0.0.1:7687]
 astraeadb import --file data.json --format json --data-dir ./data
 astraeadb export --file dump.json --format json --data-dir ./data
+astraeadb mcp [--address 127.0.0.1:7687] [--auth-token TOKEN]
 ```
 
 **Configuration** is loaded from a TOML file (default `config.toml`):
@@ -1299,7 +1368,7 @@ All Phase 3 items have been implemented.
 
 ### Phase 4 (Advanced / Research) — COMPLETED
 
-All Phase 4 items have been implemented. 408 Rust tests pass across the workspace.
+All Phase 4 items have been implemented.
 
 | Feature | Status | Description |
 |---|---|---|
@@ -1308,6 +1377,14 @@ All Phase 4 items have been implemented. 408 Rust tests pass across the workspac
 | **Homomorphic Encryption** | Done | `astraea-crypto` crate: key generation, encrypted labels (deterministic tags), encrypted values (randomized), `EncryptedQueryEngine` for server-side label matching. 31 tests. |
 | **GPU Acceleration** | Done | `astraea-gpu` crate: CSR matrix with SpMV/transpose, `GpuBackend` trait, `CpuBackend` (PageRank, BFS, SSSP with Bellman-Ford). 16 tests. |
 | **Sharding / MPP** | Done | `astraea-cluster` crate: hash/range partitioning, shard map, `ClusterCoordinator` trait with `LocalCoordinator`. 19 tests. |
+
+### Phase 5 (LLM Integration) — IN PROGRESS
+
+| Feature | Status | Description |
+|---|---|---|
+| **MCP Server (Phase 1)** | Done | `astraea-mcp` crate: JSON-RPC 2.0 over stdio, proxy mode to running AstraeaDB server, 29 tools, 4 resource templates, 6 prompt templates. CLI `mcp` subcommand. 23 tests. |
+| **MCP Embedded Mode** | Planned | Direct storage access without separate server process. |
+| **MCP SSE Transport** | Planned | HTTP/SSE transport for remote/networked MCP clients. |
 
 ### Production Readiness — COMPLETED
 
@@ -1426,9 +1503,26 @@ astraeadb/
 │   │       ├── partition.rs   # Hash + Range partitioning strategies
 │   │       ├── shard.rs       # ShardId, ShardMap, ShardInfo
 │   │       └── coordinator.rs # ClusterCoordinator trait, LocalCoordinator
+│   ├── astraea-mcp/           # MCP server for LLM integration
+│   │   └── src/
+│   │       ├── server.rs      # JSON-RPC 2.0 dispatcher, MCP lifecycle
+│   │       ├── client.rs      # TCP proxy client to AstraeaDB server
+│   │       ├── errors.rs      # MCP error types and JSON-RPC error codes
+│   │       ├── resources.rs   # MCP resource definitions and URI parser
+│   │       ├── prompts.rs     # 6 prompt templates
+│   │       ├── transport/
+│   │       │   └── stdio.rs   # stdin/stdout transport for MCP
+│   │       └── tools/
+│   │           ├── crud.rs    # 8 CRUD tool handlers
+│   │           ├── traversal.rs # 4 traversal tool handlers
+│   │           ├── search.rs  # 3 search tool handlers
+│   │           ├── algorithms.rs # 5 algorithm tool handlers
+│   │           ├── temporal.rs # 4 temporal tool handlers
+│   │           ├── rag.rs     # 2 RAG tool handlers
+│   │           └── admin.rs   # 3 admin tool handlers (query, stats, ping)
 │   └── astraea-cli/           # CLI binary
 │       └── src/
-│           └── main.rs        # serve, shell (REPL), status, import, export
+│           └── main.rs        # serve, shell (REPL), status, import, export, mcp
 ├── python/
 │   ├── pyproject.toml         # Package config (optional [arrow] extra)
 │   ├── astraeadb/

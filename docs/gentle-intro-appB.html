@@ -457,6 +457,7 @@
         <th>JSON-TCP</th>
         <th>gRPC</th>
         <th>Arrow Flight</th>
+        <th>MCP</th>
       </tr>
     </thead>
     <tbody>
@@ -465,24 +466,35 @@
         <td><code>JsonClient</code></td>
         <td>&mdash;</td>
         <td><code>ArrowClient</code></td>
+        <td>&mdash;</td>
       </tr>
       <tr>
         <td><strong>R</strong></td>
         <td><code>AstraeaClient</code></td>
         <td>&mdash;</td>
         <td><code>ArrowClient</code></td>
+        <td>&mdash;</td>
       </tr>
       <tr>
         <td><strong>Go</strong></td>
         <td><code>JSONClient</code></td>
         <td><code>GRPCClient</code></td>
         <td>Planned</td>
+        <td>&mdash;</td>
       </tr>
       <tr>
         <td><strong>Java</strong></td>
         <td><code>JsonClient</code></td>
         <td><code>GrpcClient</code></td>
         <td><code>FlightClient</code></td>
+        <td>&mdash;</td>
+      </tr>
+      <tr>
+        <td><strong>LLM Clients</strong></td>
+        <td>&mdash;</td>
+        <td>&mdash;</td>
+        <td>&mdash;</td>
+        <td><code>astraeadb mcp</code></td>
       </tr>
     </tbody>
   </table>
@@ -493,6 +505,7 @@
       <li><strong>JSON-TCP</strong> is the simplest protocol and is available in every language. Best for development and small workloads.</li>
       <li><strong>gRPC</strong> offers efficient binary serialization and HTTP/2 multiplexing. Ideal for production microservices in Go and Java.</li>
       <li><strong>Arrow Flight</strong> provides zero-copy data transfer using Apache Arrow columnar format. Best for analytical workloads and large result sets in Python, R, and Java.</li>
+      <li><strong>MCP</strong> (Model Context Protocol) exposes AstraeaDB as tools for LLM clients. Use with Claude Desktop, Claude Code, or Cursor. Run <code>astraeadb mcp</code> to start the server.</li>
     </ul>
   </div>
 

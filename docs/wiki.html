@@ -146,6 +146,7 @@ td code { font-size: 0.85em; }
 <a href="#clustering">Clustering &amp; Sharding</a>
 <div class="sep"></div>
 <a href="#cli">CLI Reference</a>
+<a href="#mcp">MCP (LLM Integration)</a>
 <a href="#python-client">Python Client</a>
 <a href="#r-client">R Client</a>
 <a href="#go-client">Go Client</a>
@@ -303,7 +304,8 @@ astraea&gt; .quit</pre>
 <tr><td><code>astraea-crypto</code></td><td>Encrypted labels/values/nodes, server-side encrypted label matching</td><td>31</td></tr>
 <tr><td><code>astraea-gpu</code></td><td>CSR matrix, GpuBackend trait, CpuBackend (PageRank, BFS, SSSP)</td><td>16</td></tr>
 <tr><td><code>astraea-cluster</code></td><td>Hash/range partitioning, shard management, cluster coordinator</td><td>19</td></tr>
-<tr><td><code>astraea-cli</code></td><td><code>serve</code>, <code>shell</code>, <code>status</code>, <code>import</code>, <code>export</code></td><td>&mdash;</td></tr>
+<tr><td><code>astraea-mcp</code></td><td>MCP server: JSON-RPC 2.0, stdio transport, 29 tools, 4 resource templates, 6 prompt templates</td><td>23</td></tr>
+<tr><td><code>astraea-cli</code></td><td><code>serve</code>, <code>shell</code>, <code>status</code>, <code>import</code>, <code>export</code>, <code>mcp</code></td><td>&mdash;</td></tr>
 </table>
 
 <!-- ============================================================ -->
@@ -779,7 +781,7 @@ CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span
 <!-- ============================================================ -->
 <h2 id="server">Network Server</h2>
 
-<p>AstraeaDB provides three transport layers for different use cases.</p>
+<p>AstraeaDB provides four transport layers for different use cases.</p>
 
 <h3>Transport Layers</h3>
 <table>
@@ -787,6 +789,7 @@ CREATE (a:Person {name: <span class="str">"Alice"</span>})-[:KNOWS {since: <span
 <tr><td>JSON-over-TCP</td><td>7687</td><td>Newline-delimited JSON</td><td>Debugging, scripting, <code>netcat</code></td></tr>
 <tr><td>gRPC / Protobuf</td><td>7688</td><td>Protocol Buffers</td><td>Production clients, type safety</td></tr>
 <tr><td>Arrow Flight</td><td>7689</td><td>Apache Arrow</td><td>Python/Pandas, bulk operations</td></tr>
+<tr><td>MCP / JSON-RPC</td><td>stdio</td><td>JSON-RPC 2.0</td><td>LLM integration (Claude, Cursor, etc.)</td></tr>
 </table>
 
 <h3>Supported Request Types</h3>
@@ -1055,7 +1058,10 @@ astraeadb status [--address 127.0.0.1:7687]
 astraeadb import --file data.json --format json --data-dir ./data
 
 <span class="cm"># Export data to JSON</span>
-astraeadb export --file dump.json --format json --data-dir ./data</pre>
+astraeadb export --file dump.json --format json --data-dir ./data
+
+<span class="cm"># Start MCP server for LLM integration (proxy mode)</span>
+astraeadb mcp [--address 127.0.0.1:7687] [--auth-token TOKEN]</pre>
 
 <h3>Configuration File (config.toml)</h3>
 <pre>[server]
@@ -1074,6 +1080,219 @@ wal_dir = <span class="str">"data/wal"</span></pre>
 <li>Table-formatted output for query results</li>
 <li>Dot-commands: <code>.help</code>, <code>.quit</code>, <code>.status</code></li>
 </ul>
+
+<!-- ============================================================ -->
+<h2 id="mcp">MCP (LLM Integration)</h2>
+
+<p>The <strong>Model Context Protocol (MCP)</strong> server (<code>astraea-mcp</code>) exposes AstraeaDB to LLM clients through a standardized JSON-RPC 2.0 interface. Any MCP-compatible client &mdash; Claude Desktop, Claude Code, Cursor, VS Code Copilot, and others &mdash; can discover and invoke AstraeaDB's full capabilities as <strong>tools</strong>, read graph data as <strong>resources</strong>, and use predefined <strong>prompt templates</strong>.</p>
+
+<h3>How It Works</h3>
+
+<p>The MCP server runs as a subprocess launched by the LLM client. It communicates over <strong>stdio</strong> (stdin/stdout) using JSON-RPC 2.0 messages. In <strong>proxy mode</strong> (default), it connects to a running AstraeaDB TCP server and translates MCP tool calls into AstraeaDB protocol requests.</p>
+
+<pre>
+┌──────────────┐    JSON-RPC/stdio     ┌──────────────┐    NDJSON/TCP    ┌──────────────┐
+│  LLM Client  │ &lt;──────────────────&gt; │  astraea-mcp │ &lt;──────────────&gt; │  AstraeaDB   │
+│ (Claude, etc)│                       │  (MCP server)│                  │  (TCP server) │
+└──────────────┘                       └──────────────┘                  └──────────────┘
+</pre>
+
+<h3>Available Tools (29)</h3>
+
+<table>
+<tr><th>Category</th><th>Tools</th><th>Description</th></tr>
+<tr><td><strong>CRUD</strong></td><td><code>create_node</code>, <code>create_edge</code>, <code>get_node</code>, <code>get_edge</code>, <code>update_node</code>, <code>update_edge</code>, <code>delete_node</code>, <code>delete_edge</code></td><td>Full graph CRUD operations</td></tr>
+<tr><td><strong>Traversal</strong></td><td><code>neighbors</code>, <code>bfs</code>, <code>dfs</code>, <code>shortest_path</code></td><td>Graph traversal and pathfinding</td></tr>
+<tr><td><strong>Search</strong></td><td><code>vector_search</code>, <code>hybrid_search</code>, <code>find_by_label</code></td><td>Vector similarity and label-based search</td></tr>
+<tr><td><strong>Algorithms</strong></td><td><code>run_pagerank</code>, <code>run_louvain</code>, <code>run_connected_components</code>, <code>run_degree_centrality</code>, <code>run_betweenness_centrality</code></td><td>Graph analytics and community detection</td></tr>
+<tr><td><strong>Temporal</strong></td><td><code>neighbors_at</code>, <code>bfs_at</code>, <code>dfs_at</code>, <code>shortest_path_at</code></td><td>Time-travel queries on temporal edges</td></tr>
+<tr><td><strong>RAG</strong></td><td><code>graph_rag</code>, <code>extract_subgraph</code></td><td>Graph-augmented retrieval for LLM context</td></tr>
+<tr><td><strong>Admin</strong></td><td><code>query</code>, <code>graph_stats</code>, <code>ping</code></td><td>GQL queries, statistics, health check</td></tr>
+</table>
+
+<h3>Resources</h3>
+
+<p>Resources provide read-only graph data that LLM clients can fetch and include as context.</p>
+
+<table>
+<tr><th>URI</th><th>Description</th><th>MIME Type</th></tr>
+<tr><td><code>astraea://stats</code></td><td>Graph statistics (node/edge counts, labels)</td><td>application/json</td></tr>
+<tr><td><code>astraea://node/{id}</code></td><td>Full node data (labels, properties, embedding)</td><td>application/json</td></tr>
+<tr><td><code>astraea://edge/{id}</code></td><td>Full edge data (type, properties, weight, validity)</td><td>application/json</td></tr>
+<tr><td><code>astraea://subgraph/{nodeId}?hops=2&amp;max=50</code></td><td>Linearized subgraph context around a node</td><td>text/plain</td></tr>
+<tr><td><code>astraea://label/{label}</code></td><td>All node IDs matching a label</td><td>application/json</td></tr>
+</table>
+
+<h3>Prompt Templates</h3>
+
+<p>Predefined prompt templates that LLM clients can discover and fill in.</p>
+
+<table>
+<tr><th>Name</th><th>Arguments</th><th>Description</th></tr>
+<tr><td><code>analyze-node</code></td><td><code>node_id</code></td><td>Analyze a node's properties, connections, and role in the graph</td></tr>
+<tr><td><code>explain-path</code></td><td><code>from</code>, <code>to</code></td><td>Find and explain the shortest path between two nodes</td></tr>
+<tr><td><code>explore-community</code></td><td><code>node_id</code></td><td>Run community detection and describe the community containing a node</td></tr>
+<tr><td><code>summarize-graph</code></td><td><em>(none)</em></td><td>High-level summary of the graph: size, labels, structure</td></tr>
+<tr><td><code>temporal-diff</code></td><td><code>node_id</code>, <code>t1</code>, <code>t2</code></td><td>Compare a node's neighborhood at two points in time</td></tr>
+<tr><td><code>rag-query</code></td><td><code>question</code></td><td>Answer a question using graph-augmented retrieval</td></tr>
+</table>
+
+<h3>Setup: Local Model (Ollama)</h3>
+
+<p>Use AstraeaDB with a locally-running LLM via Ollama. The MCP server connects to AstraeaDB's TCP port, while the LLM runs locally. The MCP client (Claude Desktop, Cursor, etc.) orchestrates tool calls between the LLM and AstraeaDB.</p>
+
+<h4>Step 1: Start AstraeaDB</h4>
+<pre><span class="cm"># Terminal 1: Start the database server</span>
+cargo run -p astraea-cli -- serve --port <span class="num">7687</span></pre>
+
+<h4>Step 2: (Optional) Start Ollama for GraphRAG</h4>
+<pre><span class="cm"># If you want the graph_rag tool to use a local LLM for answering questions,</span>
+<span class="cm"># start Ollama with a model. This is only needed for the graph_rag tool itself.</span>
+ollama serve
+ollama pull llama3.1</pre>
+
+<h4>Step 3: Configure your MCP client</h4>
+
+<p><strong>Claude Desktop</strong> &mdash; edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows):</p>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>, <span class="str">"--address"</span>, <span class="str">"127.0.0.1:7687"</span>]
+    }
+  }
+}</pre>
+
+<p><strong>Claude Code</strong> &mdash; edit <code>.claude/settings.json</code> in your project or <code>~/.claude/settings.json</code> globally:</p>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>]
+    }
+  }
+}</pre>
+
+<p><strong>Cursor</strong> &mdash; edit <code>.cursor/mcp.json</code> in your project root:</p>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>, <span class="str">"--address"</span>, <span class="str">"127.0.0.1:7687"</span>]
+    }
+  }
+}</pre>
+
+<h4>Step 4: Use it</h4>
+
+<p>Once configured, the LLM can see all 29 tools. Example prompts you can give Claude:</p>
+
+<ul>
+<li><em>"Create a knowledge graph about the solar system with planets and their moons"</em> &mdash; Claude will call <code>create_node</code> and <code>create_edge</code> to build the graph.</li>
+<li><em>"Find all Person nodes and show me their connections"</em> &mdash; Claude will call <code>find_by_label</code>, then <code>neighbors</code> on each result.</li>
+<li><em>"What communities exist in the graph?"</em> &mdash; Claude will call <code>run_louvain</code> and interpret the results.</li>
+<li><em>"Run PageRank and tell me which nodes are most important"</em> &mdash; Claude will call <code>run_pagerank</code>.</li>
+<li><em>"Compare the neighborhood of node 5 between January and March"</em> &mdash; Claude will call <code>neighbors_at</code> with two timestamps.</li>
+</ul>
+
+<h3>Setup: Cloud Model (Claude API, OpenAI)</h3>
+
+<p>When using a cloud-hosted model, the MCP server still runs locally (or on the same machine as AstraeaDB), but the LLM client connects to a remote API. The architecture is:</p>
+
+<pre>
+┌────────────────┐                      ┌──────────────┐     ┌──────────────┐
+│  Cloud LLM API │ &lt;── internet ──&gt;    │  MCP Client  │ &lt;─&gt; │  astraea-mcp │
+│  (Claude,      │                      │  (Claude     │     │  (local)     │
+│   GPT-4, etc.) │                      │   Desktop)   │     │              │
+└────────────────┘                      └──────────────┘     └──────┬───────┘
+                                                                     │ TCP
+                                                             ┌───────▼──────┐
+                                                             │  AstraeaDB   │
+                                                             │  (local or   │
+                                                             │   remote)    │
+                                                             └──────────────┘
+</pre>
+
+<h4>Option A: AstraeaDB on the same machine</h4>
+
+<p>This is the simplest setup. Both the MCP server and AstraeaDB run locally. The cloud LLM connects through your MCP client.</p>
+
+<pre><span class="cm"># Terminal 1: Start AstraeaDB</span>
+astraeadb serve
+
+<span class="cm"># Configure Claude Desktop/Code/Cursor as shown above — same config</span>
+<span class="cm"># The MCP server auto-connects to 127.0.0.1:7687</span></pre>
+
+<h4>Option B: AstraeaDB on a remote server</h4>
+
+<p>If AstraeaDB runs on a different machine (e.g., a cloud VM), point the MCP server at the remote address. Optionally use an auth token for access control.</p>
+
+<pre><span class="cm"># AstraeaDB is running on db.example.com:7687</span>
+<span class="cm"># Configure the MCP client to pass the remote address:</span></pre>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>, <span class="str">"--address"</span>, <span class="str">"db.example.com:7687"</span>, <span class="str">"--auth-token"</span>, <span class="str">"my-secret-key"</span>]
+    }
+  }
+}</pre>
+
+<p>For production deployments, enable TLS on the AstraeaDB server and use a strong auth token.</p>
+
+<h4>Option C: Using environment variables</h4>
+
+<p>You can also pass the server address and auth token via environment variables in the MCP client configuration:</p>
+
+<pre>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"astraeadb"</span>: {
+      <span class="str">"command"</span>: <span class="str">"astraeadb"</span>,
+      <span class="str">"args"</span>: [<span class="str">"mcp"</span>],
+      <span class="str">"env"</span>: {
+        <span class="str">"ASTRAEA_HOST"</span>: <span class="str">"db.example.com"</span>,
+        <span class="str">"ASTRAEA_PORT"</span>: <span class="str">"7687"</span>,
+        <span class="str">"ASTRAEA_AUTH_TOKEN"</span>: <span class="str">"my-secret-key"</span>
+      }
+    }
+  }
+}</pre>
+
+<h3>Example: Building a Knowledge Graph with Claude</h3>
+
+<p>Here is a complete example workflow using Claude Desktop with AstraeaDB MCP:</p>
+
+<p><strong>You:</strong> <em>"I want to build a knowledge graph about cybersecurity threats. Create nodes for the MITRE ATT&amp;CK tactics: Initial Access, Execution, Persistence, Privilege Escalation, and Defense Evasion. Then connect them in their typical attack chain order."</em></p>
+
+<p><strong>Claude:</strong> (calls <code>create_node</code> 5 times, then <code>create_edge</code> 4 times)</p>
+
+<p><strong>You:</strong> <em>"Now run PageRank to see which tactic is most central."</em></p>
+
+<p><strong>Claude:</strong> (calls <code>run_pagerank</code>, interprets the scores)</p>
+
+<p><strong>You:</strong> <em>"Show me the full graph structure."</em></p>
+
+<p><strong>Claude:</strong> (calls <code>graph_stats</code>, then <code>extract_subgraph</code> on the first node with <code>hops=3</code>)</p>
+
+<p><strong>You:</strong> <em>"Query for all tactics connected to Execution."</em></p>
+
+<p><strong>Claude:</strong> (calls <code>find_by_label</code> to find Execution, then <code>neighbors</code> with <code>direction=both</code>)</p>
+
+<h3>Verifying the MCP Connection</h3>
+
+<p>To test that the MCP server is working correctly, you can run it directly and send JSON-RPC messages:</p>
+
+<pre><span class="cm"># Start AstraeaDB server in one terminal</span>
+astraeadb serve
+
+<span class="cm"># In another terminal, test the MCP server manually</span>
+echo <span class="str">'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'</span> | astraeadb mcp</pre>
+
+<p>You should see a JSON response with the server capabilities, tool list, and protocol version.</p>
 
 <!-- ============================================================ -->
 <h2 id="python-client">Python Client</h2>
@@ -1850,6 +2069,10 @@ python3 examples/cybersecurity_demo.py</pre>
   <td><strong>Log Sequence Number</strong> &mdash; A monotonically increasing identifier for each entry in the write-ahead log. Used for recovery and replication.</td>
 </tr>
 <tr>
+  <td><strong>MCP</strong></td>
+  <td><strong>Model Context Protocol</strong> &mdash; A JSON-RPC 2.0 based protocol that allows LLM clients (Claude Desktop, Cursor, etc.) to discover and invoke external tools, read resources, and use prompt templates through a standardized interface.</td>
+</tr>
+<tr>
   <td><strong>mTLS</strong></td>
   <td><strong>Mutual TLS</strong> &mdash; Two-way TLS authentication where both client and server present certificates. Provides strong identity verification for both parties.</td>
 </tr>
@@ -1897,7 +2120,7 @@ python3 examples/cybersecurity_demo.py</pre>
 
 <div style="margin-top:60px; padding-top:20px; border-top:1px solid var(--border); color:#888; font-size:0.85em;">
 <p>AstraeaDB &mdash; Cloud-Native, AI-First Graph Database &mdash; MIT License</p>
-<p>441 Rust tests &bull; 23 Python tests &bull; 113 Java tests &bull; 14 crates &bull; Edition 2024</p>
+<p>464 Rust tests &bull; 23 Python tests &bull; 113 Java tests &bull; 15 crates &bull; Edition 2024</p>
 </div>
 
 </main>

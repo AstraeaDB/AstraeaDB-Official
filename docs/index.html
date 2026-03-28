@@ -217,15 +217,15 @@ footer a { color: rgba(255,255,255,0.7); }
 <!-- Stats bar -->
 <div class="stats">
   <div class="stat">
-    <div class="stat-num">14</div>
+    <div class="stat-num">15</div>
     <div class="stat-label">Rust Crates</div>
   </div>
   <div class="stat">
-    <div class="stat-num">441+</div>
+    <div class="stat-num">464+</div>
     <div class="stat-label">Tests</div>
   </div>
   <div class="stat">
-    <div class="stat-num">3</div>
+    <div class="stat-num">4</div>
     <div class="stat-label">Transport Protocols</div>
   </div>
   <div class="stat">
@@ -295,6 +295,12 @@ footer a { color: rgba(255,255,255,0.7); }
         <span class="feature-icon">&#x1F680;</span>
         <h3>Zero-Copy Data Exchange</h3>
         <p>Apache Arrow Flight server for zero-copy data transfer. Stream GQL results directly into Pandas or Polars DataFrames without serialization overhead. JSON-TCP and gRPC transports also available.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F916;</span>
+        <h3>MCP (LLM Integration)</h3>
+        <p>Model Context Protocol server exposes 29 tools, 4 resource templates, and 6 prompt templates via JSON-RPC 2.0. Any MCP-compatible client&mdash;Claude Desktop, Claude Code, Cursor&mdash;can discover and invoke AstraeaDB's full capabilities.</p>
       </div>
 
     </div>
@@ -396,7 +402,7 @@ footer a { color: rgba(255,255,255,0.7); }
 <span class="cm"># Build the entire workspace</span>
 cargo build --workspace
 
-<span class="cm"># Run all 441+ tests</span>
+<span class="cm"># Run all 464+ tests</span>
 cargo test --workspace
 
 <span class="cm"># Start the server (JSON-TCP :7687, gRPC :7688, Arrow Flight :7689)</span>
@@ -579,6 +585,10 @@ result, _ := client.<span class="fn">Query</span>(ctx, <span class="str">"MATCH 
       <div class="feature-card">
         <h3>Rust (Embedded)</h3>
         <p>Use AstraeaDB as a library with no network overhead. Direct access to <code>Graph</code>, <code>StorageEngine</code>, and <code>VectorIndex</code> traits.</p>
+      </div>
+      <div class="feature-card">
+        <h3>MCP (LLM Clients)</h3>
+        <p>Model Context Protocol server for Claude Desktop, Claude Code, Cursor, and other MCP-compatible LLM clients. 29 tools, resources, and prompt templates. <code>astraeadb mcp</code> to start.</p>
       </div>
     </div>
   </div>

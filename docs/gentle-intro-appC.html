@@ -327,6 +327,11 @@ request_timeout_seconds = <span class="num">30</span>     <span class="cm"># Max
         <td>Check the health of a running server. Returns node/edge counts, uptime, and memory usage.</td>
         <td><code>astraeadb status --port 7687</code></td>
       </tr>
+      <tr>
+        <td><code>mcp</code></td>
+        <td>Start an MCP (Model Context Protocol) server for LLM integration. Runs over stdio in proxy mode, connecting to a running AstraeaDB server. Used by Claude Desktop, Claude Code, Cursor, and other MCP clients.</td>
+        <td><code>astraeadb mcp --address 127.0.0.1:7687</code></td>
+      </tr>
     </tbody>
   </table>
 

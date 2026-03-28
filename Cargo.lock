@@ -415,6 +415,7 @@ version = "0.1.0"
 dependencies = [
  "astraea-core",
  "astraea-graph",
+ "astraea-mcp",
  "astraea-server",
  "astraea-vector",
  "clap",
@@ -516,6 +517,20 @@ dependencies = [
  "smallvec",
  "tempfile",
  "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "astraea-mcp"
+version = "0.1.0"
+dependencies = [
+ "astraea-core",
+ "astraea-server",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 
