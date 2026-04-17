@@ -54,22 +54,20 @@ pub fn pagerank(
     // Current ranks.
     let mut ranks: HashMap<NodeId, f64> = nodes.iter().map(|&id| (id, initial_rank)).collect();
 
-    // Pre-compute out-degrees so we only query the graph once per node.
-    let mut out_degree: HashMap<NodeId, usize> = HashMap::with_capacity(n);
-    for &node in nodes {
-        let neighbors = graph.neighbors(node, Direction::Outgoing)?;
-        out_degree.insert(node, neighbors.len());
-    }
-
-    // Pre-compute the incoming neighbor lists (only over the node set).
-    // For each node, store the list of (source, out_degree_of_source).
+    // Pre-compute out-degrees AND incoming-neighbor lists in a single
+    // pass. astraeadb-issues.md #22 — the previous version called
+    // graph.neighbors(...) twice per node (once for out_degree, once for
+    // incoming), which doubled the I/O on disk- or network-backed graph
+    // stores.
     let node_set: std::collections::HashSet<NodeId> = nodes.iter().copied().collect();
+    let mut out_degree: HashMap<NodeId, usize> = HashMap::with_capacity(n);
     let mut incoming: HashMap<NodeId, Vec<NodeId>> = HashMap::with_capacity(n);
     for &node in nodes {
         incoming.insert(node, Vec::new());
     }
     for &node in nodes {
         let neighbors = graph.neighbors(node, Direction::Outgoing)?;
+        out_degree.insert(node, neighbors.len());
         for (_edge_id, target) in neighbors {
             if node_set.contains(&target) {
                 incoming.get_mut(&target).unwrap().push(node);

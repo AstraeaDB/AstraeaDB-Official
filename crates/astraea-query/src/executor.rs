@@ -361,26 +361,30 @@ impl Executor {
     }
 
     /// Find the NodeId of the most recently bound node in the pattern before
-    /// the given edge element. This is used to know which node to expand from.
+    /// the given edge element. Used to know which node to expand from.
+    ///
+    /// astraeadb-issues.md #21. The previous version iterated
+    /// `entities.values()` — HashMap's iteration order is unspecified and
+    /// varies across runs, so the same query on the same data could
+    /// bind a different source node non-deterministically. Now we pick
+    /// the lexically-greatest key among node bindings, which is both
+    /// deterministic and aligned with the common convention of using
+    /// sequential variable names (`a`, `b`, `c`, ...) that sort in the
+    /// same order as their position in the pattern.
     fn find_previous_node_id(
         &self,
         entities: &HashMap<String, BoundEntity>,
         _pattern: &[PatternElement],
         _edge_elem: &PatternElement,
     ) -> Result<NodeId> {
-        // The previous node is the last node variable that was bound.
-        // We find it by looking at the entity map for node bindings.
-        // Since we process left to right, the last inserted node variable
-        // is the previous node.
-        let mut last_node_id = None;
-        for entity in entities.values() {
-            if let BoundEntity::Node(nid) = entity {
-                // Take the most recently added one. Since HashMap doesn't
-                // guarantee order, we just pick any node -- in simple
-                // single-path patterns there's typically only one trailing node.
-                last_node_id = Some(*nid);
-            }
-        }
+        let last_node_id = entities
+            .iter()
+            .filter_map(|(k, v)| match v {
+                BoundEntity::Node(nid) => Some((k, *nid)),
+                _ => None,
+            })
+            .max_by(|(a, _), (b, _)| a.cmp(b))
+            .map(|(_, nid)| nid);
 
         last_node_id.ok_or_else(|| {
             AstraeaError::QueryExecution(
