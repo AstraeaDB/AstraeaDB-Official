@@ -137,11 +137,18 @@ pub fn graph_rag_query_anchored(
         }
     }
 
-    // Step 4: Build the full prompt.
-    let full_prompt = build_prompt(question, &context_text, config);
+    // Step 4: Build the user prompt (question only) and the system-side
+    // context (config.system_prompt + linearized graph context).
+    //
+    // astraeadb-issues.md #16 used to inline `context_text` into
+    // `full_prompt` AND pass it again as the `context` argument, which
+    // the OpenAI/Anthropic providers route into the system message —
+    // context went out twice. Now each piece has one home.
+    let user_prompt = build_prompt(question, config);
+    let llm_context = build_llm_context(&context_text, config);
 
     // Step 5: Call the LLM.
-    let answer = llm.complete(&full_prompt, &context_text)?;
+    let answer = llm.complete(&user_prompt, &llm_context)?;
 
     Ok(GraphRagResult {
         answer,
@@ -152,20 +159,25 @@ pub fn graph_rag_query_anchored(
     })
 }
 
-/// Build the full prompt from the system prompt, graph context, and question.
-fn build_prompt(question: &str, context_text: &str, config: &GraphRagConfig) -> String {
-    let mut parts = Vec::new();
+/// Build the **user prompt** — just the question framing, no context.
+/// Graph context is placed separately via [`build_llm_context`] and passed
+/// as the `context` argument to [`LlmProvider::complete`]. This split is
+/// what fixes astraeadb-issues.md #16.
+fn build_prompt(question: &str, _config: &GraphRagConfig) -> String {
+    format!("Answer the question: {question}")
+}
 
-    if let Some(ref system_prompt) = config.system_prompt {
-        parts.push(system_prompt.clone());
+/// Build the **system-side context** — config.system_prompt plus the
+/// linearized graph context, joined by a blank line. Every provider puts
+/// this into the system role (OpenAI), the system field (Anthropic), or
+/// prepends it to the prompt (Ollama).
+fn build_llm_context(context_text: &str, config: &GraphRagConfig) -> String {
+    match &config.system_prompt {
+        Some(sp) if !sp.is_empty() => {
+            format!("{sp}\n\nGiven the following graph context:\n\n{context_text}")
+        }
+        _ => format!("Given the following graph context:\n\n{context_text}"),
     }
-
-    parts.push(format!(
-        "Given the following graph context:\n\n{context_text}"
-    ));
-    parts.push(format!("Answer the question: {question}"));
-
-    parts.join("\n\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -348,27 +360,49 @@ mod tests {
     }
 
     #[test]
-    fn test_build_prompt_with_system_prompt() {
+    fn test_build_prompt_is_question_only() {
+        let config = GraphRagConfig::default();
+        let p = build_prompt("What is this?", &config);
+        // The question is framed, but context is NOT inlined — that's the
+        // whole point of the #16 fix.
+        assert_eq!(p, "Answer the question: What is this?");
+        assert!(!p.contains("Given the following graph context"));
+    }
+
+    #[test]
+    fn test_build_llm_context_with_system_prompt() {
         let config = GraphRagConfig {
             system_prompt: Some("You are a graph expert.".into()),
             ..GraphRagConfig::default()
         };
-
-        let prompt = build_prompt("What is this?", "Node [A] -> [B]", &config);
-        assert!(prompt.contains("You are a graph expert."));
-        assert!(prompt.contains("Given the following graph context:"));
-        assert!(prompt.contains("Node [A] -> [B]"));
-        assert!(prompt.contains("Answer the question: What is this?"));
+        let ctx = build_llm_context("Node [A] -> [B]", &config);
+        assert!(ctx.starts_with("You are a graph expert."));
+        assert!(ctx.contains("Given the following graph context:"));
+        assert!(ctx.contains("Node [A] -> [B]"));
     }
 
     #[test]
-    fn test_build_prompt_without_system_prompt() {
+    fn test_build_llm_context_without_system_prompt() {
         let config = GraphRagConfig::default();
+        let ctx = build_llm_context("context here", &config);
+        assert!(!ctx.contains("You are"));
+        assert!(ctx.starts_with("Given the following graph context:"));
+        assert!(ctx.contains("context here"));
+    }
 
-        let prompt = build_prompt("What?", "context here", &config);
-        assert!(!prompt.contains("You are"));
-        assert!(prompt.contains("Given the following graph context:"));
-        assert!(prompt.contains("context here"));
-        assert!(prompt.contains("Answer the question: What?"));
+    #[test]
+    fn test_no_duplicate_context() {
+        // #16 regression guard: the user prompt passed to the LLM must not
+        // contain the graph context text — context goes through the `context`
+        // argument only.
+        let config = GraphRagConfig {
+            system_prompt: Some("sys".into()),
+            ..GraphRagConfig::default()
+        };
+        let context_text = "UNIQUE_CONTEXT_MARKER_9f4c";
+        let user = build_prompt("q?", &config);
+        let ctx = build_llm_context(context_text, &config);
+        assert!(!user.contains(context_text));
+        assert!(ctx.contains(context_text));
     }
 }

@@ -53,6 +53,23 @@ impl HnswVectorIndex {
         }
     }
 
+    /// Create a new HNSW vector index with a fixed RNG seed for reproducible
+    /// level sampling — useful for tests and benchmarks where the exact
+    /// graph layout needs to be deterministic. Uses the same default
+    /// parameters as [`Self::new`] otherwise. astraeadb-issues.md #18.
+    pub fn with_seed(dimension: usize, metric: DistanceMetric, seed: u64) -> Self {
+        Self {
+            inner: RwLock::new(HnswIndex::with_seed(
+                dimension,
+                metric,
+                DEFAULT_M,
+                DEFAULT_EF_CONSTRUCTION,
+                seed,
+            )),
+            ef_search: DEFAULT_EF_SEARCH,
+        }
+    }
+
     /// Persist the index to the given file path.
     ///
     /// Acquires a read lock on the inner index and writes the full

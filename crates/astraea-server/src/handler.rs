@@ -258,9 +258,22 @@ impl RequestHandler {
                 match &self.vector_index {
                     Some(vi) => match vi.search(&query, k) {
                         Ok(results) => {
+                            // astraeadb-issues.md #6: the TCP path emitted
+                            // `distance`, the proto declared `score`, and
+                            // the gRPC bridge silently defaulted to 0.0
+                            // when it couldn't find `score`. Emit BOTH
+                            // keys with the same value (lower = more
+                            // similar) so every client sees real numbers,
+                            // regardless of which name it expects.
                             let items: Vec<serde_json::Value> = results
                                 .into_iter()
-                                .map(|r| serde_json::json!({"node_id": r.node_id.0, "distance": r.distance}))
+                                .map(|r| {
+                                    serde_json::json!({
+                                        "node_id": r.node_id.0,
+                                        "distance": r.distance,
+                                        "score": r.distance,
+                                    })
+                                })
                                 .collect();
                             Response::ok(serde_json::json!({"results": items}))
                         }
@@ -680,10 +693,21 @@ impl RequestHandler {
                 }
             }
 
-            Request::Ping => Response::ok(serde_json::json!({
-                "pong": true,
-                "version": env!("CARGO_PKG_VERSION"),
-            })),
+            Request::Ping => {
+                // Expose the vector-index dimension and metric here (in
+                // addition to GraphStats) so clients can check before
+                // attempting an insert with the wrong-size embedding.
+                // astraeadb-issues.md #7.
+                let mut payload = serde_json::json!({
+                    "pong": true,
+                    "version": env!("CARGO_PKG_VERSION"),
+                });
+                if let Some(vi) = self.vector_index.as_deref() {
+                    payload["vector_dim"] = serde_json::json!(vi.dimension());
+                    payload["vector_metric"] = serde_json::json!(format!("{:?}", vi.metric()));
+                }
+                Response::ok(payload)
+            }
         }
     }
 }

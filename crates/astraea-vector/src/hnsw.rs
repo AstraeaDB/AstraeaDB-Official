@@ -11,7 +11,8 @@
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use ordered_float::OrderedFloat;
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use astraea_core::error::{AstraeaError, Result};
@@ -99,6 +100,13 @@ pub struct HnswIndex {
     max_level: usize,
     /// For each node, the highest layer it appears in.
     node_levels: HashMap<NodeId, usize>,
+
+    /// Deterministic RNG for `random_level`. When `None`, falls back to
+    /// `thread_rng` — the default for back-compat. astraeadb-issues.md #18.
+    /// Not persisted: seed state is for build reproducibility, not for
+    /// resuming an index across serialize / deserialize.
+    #[serde(skip, default)]
+    rng: Option<StdRng>,
 }
 
 impl HnswIndex {
@@ -109,9 +117,38 @@ impl HnswIndex {
     /// - `metric`: the distance metric to use
     /// - `m`: max connections per node per layer (default recommendation: 16)
     /// - `ef_construction`: beam width during insertion (default recommendation: 200)
+    ///
+    /// Uses `thread_rng` for level sampling. For reproducible index builds
+    /// (tests, benchmarks), use [`HnswIndex::with_seed`] instead.
     pub fn new(dimension: usize, metric: DistanceMetric, m: usize, ef_construction: usize) -> Self {
+        Self::with_optional_seed(dimension, metric, m, ef_construction, None)
+    }
+
+    /// Create a new, empty HNSW index with a fixed RNG seed for reproducible
+    /// level sampling. Same parameters as [`HnswIndex::new`] plus a `seed`
+    /// value used to initialize a [`StdRng`]. Two indexes built with the
+    /// same seed and the same insert sequence will produce byte-identical
+    /// graph structure. astraeadb-issues.md #18.
+    pub fn with_seed(
+        dimension: usize,
+        metric: DistanceMetric,
+        m: usize,
+        ef_construction: usize,
+        seed: u64,
+    ) -> Self {
+        Self::with_optional_seed(dimension, metric, m, ef_construction, Some(seed))
+    }
+
+    fn with_optional_seed(
+        dimension: usize,
+        metric: DistanceMetric,
+        m: usize,
+        ef_construction: usize,
+        seed: Option<u64>,
+    ) -> Self {
         let m_max0 = m * 2;
         let ml = 1.0 / (m as f64).ln();
+        let rng = seed.map(StdRng::seed_from_u64);
 
         Self {
             dimension,
@@ -125,6 +162,7 @@ impl HnswIndex {
             entry_point: None,
             max_level: 0,
             node_levels: HashMap::new(),
+            rng,
         }
     }
 
@@ -531,13 +569,17 @@ impl HnswIndex {
     /// Generate a random level using an exponential distribution.
     ///
     /// level = floor(-ln(uniform(0,1)) * ml)
-    fn random_level(&self) -> usize {
-        let mut rng = rand::thread_rng();
-        let r: f64 = rng.r#gen::<f64>();
+    ///
+    /// Uses the seeded [`StdRng`] if the index was constructed with
+    /// [`Self::with_seed`]; otherwise falls back to `thread_rng`.
+    fn random_level(&mut self) -> usize {
+        let r: f64 = match &mut self.rng {
+            Some(rng) => rng.r#gen::<f64>(),
+            None => rand::thread_rng().r#gen::<f64>(),
+        };
         // Avoid ln(0) which is -infinity.
         let r = r.max(1e-10);
-        let level = (-r.ln() * self.ml).floor() as usize;
-        level
+        (-r.ln() * self.ml).floor() as usize
     }
 }
 
@@ -674,6 +716,35 @@ mod tests {
             recall >= 4,
             "recall should be at least 4/5, got {recall}/5"
         );
+    }
+
+    #[test]
+    fn test_seeded_random_level_is_deterministic() {
+        // astraeadb-issues.md #18. Two indexes built with the same seed +
+        // the same insert sequence produce byte-identical node_levels.
+        let build = || {
+            let mut idx = HnswIndex::with_seed(4, DistanceMetric::Euclidean, 16, 200, 42);
+            for i in 1..=25u64 {
+                let v: Vec<f32> =
+                    vec![(i as f32).sin(), (i as f32).cos(), i as f32 * 0.1, 0.5];
+                idx.insert(NodeId(i), &v).unwrap();
+            }
+            idx
+        };
+        let a = build();
+        let b = build();
+        assert_eq!(a.node_levels, b.node_levels, "level assignment must match");
+        assert_eq!(a.max_level, b.max_level);
+    }
+
+    #[test]
+    fn test_unseeded_index_still_builds() {
+        // Back-compat: unseeded indexes still work via thread_rng.
+        let mut idx = make_index(3);
+        for i in 1..=10u64 {
+            idx.insert(NodeId(i), &[i as f32, 0.0, 0.0]).unwrap();
+        }
+        assert_eq!(idx.len(), 10);
     }
 
     #[test]

@@ -97,10 +97,22 @@ impl GraphOps for Graph {
         self.storage.put_node(&node)?;
 
         // Auto-index embedding in vector index if present.
+        //
+        // astraeadb-issues.md #20: failures used to be logged and swallowed,
+        // leaving the vector index silently out of sync with the graph.
+        // We now roll back the node insert so storage and vector stay
+        // consistent, and propagate the error to the caller.
         if let (Some(vi), Some(emb)) = (&self.vector_index, &node.embedding) {
-            // Don't fail node creation if vector indexing fails; just log the error.
             if let Err(e) = vi.insert(node.id, emb) {
-                tracing::warn!("failed to index embedding for node {}: {}", node.id, e);
+                tracing::error!(
+                    "vector index insert failed for node {}: {}; rolling back storage put",
+                    node.id,
+                    e
+                );
+                // Best-effort rollback; if this fails we have bigger problems
+                // and the original vector error is the more informative one.
+                let _ = self.storage.delete_node(node.id);
+                return Err(e);
             }
         }
 
@@ -171,9 +183,14 @@ impl GraphOps for Graph {
     }
 
     fn delete_node(&self, id: NodeId) -> Result<()> {
-        // Remove from vector index if present (ignore errors; node may not have had an embedding).
+        // Remove from vector index if present. A not-in-index error is
+        // expected (node may have had no embedding), so we log at error
+        // level and continue. astraeadb-issues.md #20: the previous
+        // `let _ = ...` hid real index-corruption errors entirely.
         if let Some(ref vi) = self.vector_index {
-            let _ = vi.remove(id);
+            if let Err(e) = vi.remove(id) {
+                tracing::error!("vector index remove failed for node {}: {}", id, e);
+            }
         }
 
         // Delete all connected edges first (both directions).

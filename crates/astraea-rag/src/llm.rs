@@ -50,8 +50,19 @@ pub trait LlmProvider: Send + Sync {
     /// separately for logging and debugging purposes.
     fn complete(&self, prompt: &str, context: &str) -> Result<String>;
 
-    /// The maximum context window size in tokens.
-    fn context_window_tokens(&self) -> usize;
+    /// Maximum number of tokens this provider will emit in a single
+    /// completion (the *output* cap, typically 4096–16k for modern models).
+    /// astraeadb-issues.md #17 — this was named `context_window_tokens`;
+    /// the old name promised the input budget, which it never delivered.
+    fn max_output_tokens(&self) -> usize;
+
+    /// Maximum tokens the model accepts in a single prompt (the *input*
+    /// window, typically 128k+ for modern models). Callers sizing
+    /// retrieval budgets should use this, not `max_output_tokens`.
+    /// Default: 32k as a conservative assumption.
+    fn input_context_tokens(&self) -> usize {
+        32_000
+    }
 
     /// The provider name for logging.
     fn name(&self) -> &str;
@@ -82,7 +93,11 @@ impl LlmProvider for MockProvider {
         ))
     }
 
-    fn context_window_tokens(&self) -> usize {
+    fn max_output_tokens(&self) -> usize {
+        self.context_window
+    }
+
+    fn input_context_tokens(&self) -> usize {
         self.context_window
     }
 
@@ -183,8 +198,14 @@ impl LlmProvider for OpenAiProvider {
         Self::parse_response(&response_body)
     }
 
-    fn context_window_tokens(&self) -> usize {
+    fn max_output_tokens(&self) -> usize {
         self.config.max_tokens
+    }
+
+    fn input_context_tokens(&self) -> usize {
+        // Conservative — most current OpenAI-compatible models accept 128k+,
+        // but we don't know which model the config names.
+        128_000
     }
 
     fn name(&self) -> &str {
@@ -276,8 +297,13 @@ impl LlmProvider for AnthropicProvider {
         Self::parse_response(&response_body)
     }
 
-    fn context_window_tokens(&self) -> usize {
+    fn max_output_tokens(&self) -> usize {
         self.config.max_tokens
+    }
+
+    fn input_context_tokens(&self) -> usize {
+        // Claude 3.5+ models accept 200k tokens in.
+        200_000
     }
 
     fn name(&self) -> &str {
@@ -375,8 +401,16 @@ impl LlmProvider for OllamaProvider {
         Self::parse_response(&response_body)
     }
 
-    fn context_window_tokens(&self) -> usize {
+    fn max_output_tokens(&self) -> usize {
         self.config.max_tokens
+    }
+
+    fn input_context_tokens(&self) -> usize {
+        // Ollama exposes whatever the locally-loaded model allows. Without
+        // querying the model at runtime we guess — 8k is a safe floor for
+        // most small local models; override by implementing this method on
+        // a custom provider if you know the model's real context.
+        8_000
     }
 
     fn name(&self) -> &str {
@@ -409,7 +443,8 @@ mod tests {
             response_prefix: "Test".to_string(),
             context_window: 4096,
         };
-        assert_eq!(provider.context_window_tokens(), 4096);
+        assert_eq!(provider.max_output_tokens(), 4096);
+        assert_eq!(provider.input_context_tokens(), 4096);
         assert_eq!(provider.name(), "mock");
     }
 

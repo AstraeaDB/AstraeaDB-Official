@@ -506,8 +506,15 @@ impl AstraeaService for AstraeaGrpcService {
                                     .get("node_id")
                                     .and_then(|v| v.as_u64())
                                     .unwrap_or(0),
+                                // Read `distance` (the canonical name);
+                                // fall back to `score` for older servers.
+                                // The proto field is still named `score`
+                                // for API compatibility, but carries the
+                                // distance value (lower = better match).
+                                // astraeadb-issues.md #6.
                                 score: entry
-                                    .get("score")
+                                    .get("distance")
+                                    .or_else(|| entry.get("score"))
                                     .and_then(|v| v.as_f64())
                                     .unwrap_or(0.0)
                                     as f32,
