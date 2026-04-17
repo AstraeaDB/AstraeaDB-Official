@@ -3,6 +3,13 @@ name = "astraea-cli"
 version.workspace = true
 edition.workspace = true
 
+# astraeadb-issues.md #10: the package/binary was named `astraea-cli` but
+# the command defined `#[command(name = "astraeadb")]`. Rename the binary
+# so `--help`, scripts, and the produced executable all agree.
+[[bin]]
+name = "astraeadb"
+path = "src/main.rs"
+
 [dependencies]
 astraea-core = { workspace = true }
 astraea-graph = { workspace = true, features = ["test-utils"] }

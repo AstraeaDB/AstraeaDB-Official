@@ -255,8 +255,19 @@ impl FlightService for AstraeaFlightService {
 impl AstraeaFlightService {
     /// Import nodes from a RecordBatch with the node schema.
     ///
-    /// Expected columns: `id` (ignored -- we auto-assign), `labels` (Utf8 JSON array),
-    /// `properties` (Utf8 JSON), `has_embedding` (ignored for now).
+    /// Expected columns:
+    ///  - `id` (UInt64, optional): if present and non-zero the node is
+    ///    inserted at that exact id via
+    ///    [`GraphOps::create_node_with_id`], so a `do_get → do_put`
+    ///    round-trip preserves identifiers and edge references.
+    ///    astraeadb-issues.md #14.
+    ///  - `labels` (Utf8 JSON array)
+    ///  - `properties` (Utf8 JSON)
+    ///  - `has_embedding` (still ignored — embeddings aren't carried
+    ///    through Flight yet; tracked separately).
+    ///
+    /// If the `id` column is missing, every row gets an auto-assigned
+    /// id (the legacy behavior).
     fn import_nodes(&self, batch: &RecordBatch) -> Result<u64, Status> {
         let labels_col = batch
             .column_by_name("labels")
@@ -273,6 +284,13 @@ impl AstraeaFlightService {
             .as_any()
             .downcast_ref::<StringArray>()
             .ok_or_else(|| Status::invalid_argument("'properties' column must be Utf8"))?;
+
+        // Optional `id` column. When present and non-zero, we honor it.
+        // (Zero is treated as "unset" — common Arrow idiom for absent
+        // values in a non-nullable column.)
+        let id_arr = batch
+            .column_by_name("id")
+            .and_then(|c| c.as_any().downcast_ref::<UInt64Array>());
 
         let mut count = 0u64;
         for row_idx in 0..batch.num_rows() {
@@ -300,9 +318,31 @@ impl AstraeaFlightService {
                 })?
             };
 
-            self.graph
-                .create_node(labels, properties, None)
-                .map_err(|e| Status::internal(format!("failed to create node: {e}")))?;
+            let supplied_id = id_arr.and_then(|arr| {
+                if arr.is_null(row_idx) {
+                    None
+                } else {
+                    let v = arr.value(row_idx);
+                    if v == 0 { None } else { Some(NodeId(v)) }
+                }
+            });
+
+            match supplied_id {
+                Some(id) => {
+                    self.graph
+                        .create_node_with_id(id, labels, properties, None)
+                        .map_err(|e| {
+                            Status::internal(format!(
+                                "failed to create node at id {id}: {e}"
+                            ))
+                        })?;
+                }
+                None => {
+                    self.graph
+                        .create_node(labels, properties, None)
+                        .map_err(|e| Status::internal(format!("failed to create node: {e}")))?;
+                }
+            }
             count += 1;
         }
 

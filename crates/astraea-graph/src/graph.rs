@@ -119,6 +119,49 @@ impl GraphOps for Graph {
         Ok(id)
     }
 
+    fn create_node_with_id(
+        &self,
+        id: NodeId,
+        labels: Vec<String>,
+        properties: serde_json::Value,
+        embedding: Option<Vec<f32>>,
+    ) -> Result<NodeId> {
+        // astraeadb-issues.md #14. Refuse if the id is already in use —
+        // accept-and-overwrite would be surprising for an import path.
+        if self.storage.get_node(id)?.is_some() {
+            return Err(AstraeaError::DuplicateNode(id));
+        }
+
+        let node = Node {
+            id,
+            labels,
+            properties,
+            embedding,
+        };
+        self.storage.put_node(&node)?;
+
+        // Auto-index embedding (same rollback discipline as `create_node`).
+        if let (Some(vi), Some(emb)) = (&self.vector_index, &node.embedding) {
+            if let Err(e) = vi.insert(node.id, emb) {
+                tracing::error!(
+                    "vector index insert failed for node {}: {}; rolling back storage put",
+                    node.id,
+                    e
+                );
+                let _ = self.storage.delete_node(node.id);
+                return Err(e);
+            }
+        }
+
+        // Bump the auto-allocator past this id so subsequent
+        // `create_node` calls don't collide.
+        let next = id.0.saturating_add(1);
+        self.next_node_id
+            .fetch_max(next, std::sync::atomic::Ordering::SeqCst);
+
+        Ok(id)
+    }
+
     fn create_edge(
         &self,
         source: NodeId,
@@ -994,4 +1037,38 @@ mod semantic_tests {
         assert_eq!(path[0].0, n1);
         assert_eq!(path[1].0, n2);
     }
+
+    #[test]
+    fn test_create_node_with_id_roundtrip() {
+        // astraeadb-issues.md #14. Mimics a Flight export+import:
+        // original graph has ids 1, 2, 3 with edge 1->2 and 2->3.
+        // Re-imported into a fresh graph via create_node_with_id, the
+        // ids survive so the edges still resolve.
+        let dst = Graph::new(Box::new(InMemoryStorage::new()));
+        for id in [1u64, 2, 3] {
+            dst.create_node_with_id(
+                NodeId(id),
+                vec!["Person".into()],
+                serde_json::json!({ "imported": id }),
+                None,
+            )
+            .unwrap();
+        }
+        // Edges reference the imported ids — they must resolve.
+        dst.create_edge(NodeId(1), NodeId(2), "KNOWS".into(), serde_json::json!({}), 1.0, None, None).unwrap();
+        dst.create_edge(NodeId(2), NodeId(3), "KNOWS".into(), serde_json::json!({}), 1.0, None, None).unwrap();
+
+        // Subsequent auto-assignment must pick an id strictly greater
+        // than the max we supplied (3).
+        let next = dst.create_node(vec![], serde_json::json!({}), None).unwrap();
+        assert!(next.0 > 3, "next auto id {} must exceed supplied max 3", next.0);
+
+        // Re-importing the same id must fail with DuplicateNode rather
+        // than silently overwriting.
+        let err = dst
+            .create_node_with_id(NodeId(2), vec![], serde_json::json!({}), None)
+            .unwrap_err();
+        assert!(matches!(err, AstraeaError::DuplicateNode(NodeId(2))));
+    }
+
 }

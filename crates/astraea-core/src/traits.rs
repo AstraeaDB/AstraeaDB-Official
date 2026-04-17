@@ -79,6 +79,27 @@ pub trait GraphOps: Send + Sync {
         embedding: Option<Vec<f32>>,
     ) -> Result<NodeId>;
 
+    /// Create a node at a caller-supplied id. Used by import paths
+    /// (Flight `do_put`, JSON `import`) that need to preserve client-side
+    /// identifiers across an export/import roundtrip.
+    /// astraeadb-issues.md #14.
+    ///
+    /// Implementations must (a) fail with [`AstraeaError::DuplicateNode`]
+    /// if `id` is already in use, and (b) advance the id allocator past
+    /// `id` so subsequent [`create_node`] calls don't collide.
+    ///
+    /// The default falls back to auto-assignment via [`create_node`] —
+    /// override if your implementation can actually honor the id.
+    fn create_node_with_id(
+        &self,
+        _id: NodeId,
+        labels: Vec<String>,
+        properties: serde_json::Value,
+        embedding: Option<Vec<f32>>,
+    ) -> Result<NodeId> {
+        self.create_node(labels, properties, embedding)
+    }
+
     /// Create a new edge between two nodes.
     /// Returns the assigned EdgeId.
     /// `valid_from` and `valid_to` are optional epoch-millisecond bounds for temporal validity.
