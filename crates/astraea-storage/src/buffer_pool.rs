@@ -194,7 +194,7 @@ impl BufferPool {
         }
 
         // Not in pool — need to find a free frame or evict.
-        let frame_id = self.find_or_evict_frame()?;
+        let frame_id = self.find_or_evict_frame(page_id)?;
 
         // Load the page from disk.
         let page_data = self.page_io.read_page(page_id)?;
@@ -229,7 +229,7 @@ impl BufferPool {
         // Write the initial data to disk.
         self.page_io.write_page(page_id, page_data)?;
 
-        let frame_id = self.find_or_evict_frame()?;
+        let frame_id = self.find_or_evict_frame(page_id)?;
 
         {
             let mut frames = self.inner.frames.write();
@@ -394,11 +394,74 @@ impl BufferPool {
         hot_pages.len()
     }
 
+    /// Install `page_data` into the pool at an existing `page_id`.
+    ///
+    /// Unlike [`Self::pin_new_page`], this does NOT call `allocate_page` on
+    /// the underlying [`PageIO`] — the caller supplies the page id, typically
+    /// one that was previously freed by compaction. Any old data at `page_id`
+    /// (in the pool or on disk) is overwritten. Returns a pinned
+    /// [`PageGuard`] for subsequent writes.
+    pub fn pin_recycled_page(
+        &self,
+        page_id: PageId,
+        page_data: &[u8; PAGE_SIZE],
+    ) -> Result<PageGuard> {
+        // Reuse an existing frame for this page id if the pool already holds
+        // one; otherwise find or evict a frame.
+        let existing = {
+            let page_table = self.inner.page_table.read();
+            page_table.get(&page_id).copied()
+        };
+        let frame_id = match existing {
+            Some(fid) => fid,
+            None => self.find_or_evict_frame(page_id)?,
+        };
+
+        // Overwrite on-disk content first so any later eviction of this frame
+        // cannot race with stale bytes on disk.
+        self.page_io.write_page(page_id, page_data)?;
+
+        {
+            let mut frames = self.inner.frames.write();
+            let frame = &mut frames[frame_id];
+            frame.page_id = Some(page_id);
+            frame.dirty = false; // in-pool content matches disk
+            frame.pin_count = 1;
+            frame.data.copy_from_slice(page_data);
+            frame.access_count = 0;
+            frame.swizzled = false;
+        }
+        {
+            let mut page_table = self.inner.page_table.write();
+            page_table.insert(page_id, frame_id);
+        }
+        // Pinned frames are not in the LRU.
+        {
+            let mut lru = self.inner.lru.write();
+            lru.retain(|&fid| fid != frame_id);
+        }
+        // A recycled page id should not remain in the hot set across a
+        // free/reuse cycle.
+        {
+            let mut hot = self.inner.hot_pages.write();
+            hot.remove(&page_id);
+        }
+
+        Ok(PageGuard {
+            frame_id,
+            page_id,
+            pool: Arc::clone(&self.inner),
+        })
+    }
+
     /// Find a free frame or evict the least recently used unpinned frame.
+    ///
+    /// `requested_page_id` is the page we ultimately want to load into the
+    /// returned frame — only used for error reporting when the pool is full.
     ///
     /// Swizzled frames are never evicted. They should not appear in the LRU,
     /// but a safety check skips them if they are found there.
-    fn find_or_evict_frame(&self) -> Result<FrameId> {
+    fn find_or_evict_frame(&self, requested_page_id: PageId) -> Result<FrameId> {
         let mut lru = self.inner.lru.write();
 
         // Try to find an unused frame first (one with no page loaded).
@@ -478,7 +541,7 @@ impl BufferPool {
         }
 
         // No free or unpinned frames available.
-        Err(AstraeaError::BufferPoolFull(PageId(0)))
+        Err(AstraeaError::BufferPoolFull(requested_page_id))
     }
 }
 

@@ -4,9 +4,10 @@
 use astraea_core::error::{AstraeaError, Result};
 use astraea_core::traits::{StorageEngine, TransactionalEngine};
 use astraea_core::types::*;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::buffer_pool::BufferPool;
@@ -15,7 +16,7 @@ use crate::label_index::LabelIndex;
 use crate::mvcc::{TransactionManager, WriteOp};
 use crate::page::*;
 use crate::page_io::PageIO;
-use crate::wal::{WalRecord, WalWriter};
+use crate::wal::{WalReader, WalRecord, WalWriter};
 
 /// Default buffer pool size (number of page frames).
 const DEFAULT_POOL_SIZE: usize = 1024;
@@ -127,6 +128,19 @@ pub struct DiskStorageEngine {
     /// Path to the data directory (for diagnostics).
     #[allow(dead_code)]
     data_dir: PathBuf,
+
+    /// True while `open()` is replaying the WAL to rebuild in-memory indexes.
+    /// During replay, mutation methods skip their `self.wal.append(...)` call
+    /// so the log does not double-grow on every restart.
+    replaying: AtomicBool,
+
+    /// Pages whose live record has been deleted or overwritten. Reused by
+    /// subsequent `write_record` calls before allocating new pages — this is
+    /// our incremental compaction path (astraeadb-issues.md #15).
+    ///
+    /// Not persisted: after a restart, any unreferenced pages on disk are
+    /// effectively leaked until a future full-file compaction runs.
+    free_pages: Mutex<Vec<PageId>>,
 }
 
 impl DiskStorageEngine {
@@ -157,7 +171,99 @@ impl DiskStorageEngine {
             label_index: RwLock::new(LabelIndex::new()),
             txn_manager: TransactionManager::new(),
             data_dir,
+            replaying: AtomicBool::new(false),
+            free_pages: Mutex::new(Vec::new()),
         })
+    }
+
+    /// How many previously-allocated pages are currently available for reuse
+    /// by the next [`write_record`] call. Useful for tests and metrics.
+    pub fn free_page_count(&self) -> usize {
+        self.free_pages.lock().len()
+    }
+
+    /// Open a storage engine at `data_dir`, creating it if missing, and
+    /// replay the WAL to rebuild the in-memory indexes.
+    ///
+    /// Returns `(engine, max_node_id, max_edge_id)` so a caller like
+    /// [`astraea_graph::Graph::with_start_ids`] can resume id allocation
+    /// from where the previous run left off.
+    ///
+    /// For a fresh `data_dir` (empty or absent WAL), this is equivalent to
+    /// [`DiskStorageEngine::new`] with `max_node_id == max_edge_id == 0`.
+    pub fn open<P: AsRef<Path>>(data_dir: P) -> Result<(Self, u64, u64)> {
+        let path = data_dir.as_ref().to_path_buf();
+        let engine = Self::new(&path)?;
+        let wal_path = path.join("astraea.wal");
+
+        // A brand-new data dir has no WAL yet; skip replay.
+        if !wal_path.exists() {
+            return Ok((engine, 0, 0));
+        }
+
+        let reader = WalReader::new(&wal_path);
+        let records = reader.read_from(Lsn(0))?;
+
+        engine.replaying.store(true, Ordering::SeqCst);
+        let mut max_node_id = 0u64;
+        let mut max_edge_id = 0u64;
+        let mut inserts = 0usize;
+        let mut deletes = 0usize;
+        let mut skipped = 0usize;
+
+        for (_lsn, record) in records {
+            match record {
+                WalRecord::InsertNode(node) => {
+                    max_node_id = max_node_id.max(node.id.0);
+                    engine.put_node(&node)?;
+                    inserts += 1;
+                }
+                WalRecord::InsertEdge(edge) => {
+                    max_edge_id = max_edge_id.max(edge.id.0);
+                    engine.put_edge(&edge)?;
+                    inserts += 1;
+                }
+                WalRecord::DeleteNode(id) => {
+                    engine.delete_node(id)?;
+                    deletes += 1;
+                }
+                WalRecord::DeleteEdge(id) => {
+                    engine.delete_edge(id)?;
+                    deletes += 1;
+                }
+                WalRecord::UpdateNodeProperties(..)
+                | WalRecord::Checkpoint(_)
+                | WalRecord::BeginTransaction(_)
+                | WalRecord::CommitTransaction(_)
+                | WalRecord::AbortTransaction(_) => {
+                    // Node/edge identity is re-established by InsertNode /
+                    // InsertEdge. Property updates and transaction markers do
+                    // not affect index rebuild.
+                    skipped += 1;
+                }
+            }
+        }
+        engine.replaying.store(false, Ordering::SeqCst);
+
+        tracing::info!(
+            "WAL replay: {} inserts, {} deletes, {} skipped; next_node_id={}, next_edge_id={}",
+            inserts,
+            deletes,
+            skipped,
+            max_node_id + 1,
+            max_edge_id + 1,
+        );
+        Ok((engine, max_node_id, max_edge_id))
+    }
+
+    /// Append a record to the WAL unless replay is in progress.
+    #[inline]
+    fn wal_append(&self, record: &WalRecord) -> Result<()> {
+        if self.replaying.load(Ordering::Relaxed) {
+            Ok(())
+        } else {
+            self.wal.append(record).map(|_| ())
+        }
     }
 
     /// Serialize a node into bytes for storage in a page.
@@ -210,7 +316,8 @@ impl DiskStorageEngine {
         })
     }
 
-    /// Write a record (node or edge) into a page. Allocates a new page if needed.
+    /// Write a record (node or edge) into a page. Reuses a previously freed
+    /// page if one is available, otherwise allocates a new one.
     /// Returns the page ID where the record was written.
     fn write_record(
         &self,
@@ -220,10 +327,21 @@ impl DiskStorageEngine {
     ) -> Result<PageId> {
         let total_size = NODE_RECORD_HEADER_SIZE + data.len();
 
-        // Try to find an existing page with enough space, or allocate a new one.
-        let page_buf = init_page(PageId(0), page_type);
-        let guard = self.buffer_pool.pin_new_page(&page_buf)?;
-        let page_id = guard.page_id();
+        // Prefer recycling a freed page; fall back to allocating a new one.
+        let recycled = self.free_pages.lock().pop();
+        let (guard, page_id) = match recycled {
+            Some(pid) => {
+                let page_buf = init_page(pid, page_type);
+                let g = self.buffer_pool.pin_recycled_page(pid, &page_buf)?;
+                (g, pid)
+            }
+            None => {
+                let page_buf = init_page(PageId(0), page_type);
+                let g = self.buffer_pool.pin_new_page(&page_buf)?;
+                let pid = g.page_id();
+                (g, pid)
+            }
+        };
 
         // Read the current page data.
         let mut buf = guard.data().0;
@@ -300,22 +418,27 @@ impl DiskStorageEngine {
 
 impl StorageEngine for DiskStorageEngine {
     fn put_node(&self, node: &Node) -> Result<()> {
-        // Log to WAL first.
-        self.wal.append(&WalRecord::InsertNode(node.clone()))?;
+        // Log to WAL first (unless we are replaying — see `open`).
+        self.wal_append(&WalRecord::InsertNode(node.clone()))?;
 
         // If this node already exists, remove its old labels from the index
-        // before inserting the new ones (handles label changes on update).
+        // before inserting the new ones, and mark its previous page as free
+        // so future writes can reuse that slot.
         if let Ok(Some(old_node)) = self.get_node(node.id) {
             let mut li = self.label_index.write();
             li.remove_node(node.id, &old_node.labels);
+            drop(li);
+            let old_page = self.node_index.read().get(&node.id).copied();
+            if let Some(pid) = old_page {
+                self.free_pages.lock().push(pid);
+            }
         }
 
         // Serialize.
         let data = Self::serialize_node(node)?;
 
-        // Check if this node already exists (update case).
-        // For simplicity, we always write to a new page and update the index.
-        // A more sophisticated engine would do in-place updates when the record fits.
+        // Write to a recycled page if available, otherwise a freshly allocated
+        // one. `write_record` consults `self.free_pages` first.
         let page_id = self.write_record(node.id.0, &data, PageType::NodePage)?;
 
         // Update the in-memory index.
@@ -351,19 +474,37 @@ impl StorageEngine for DiskStorageEngine {
             li.remove_node(id, &node.labels);
         }
 
-        // Log to WAL.
-        self.wal.append(&WalRecord::DeleteNode(id))?;
+        // Log to WAL (unless replaying).
+        self.wal_append(&WalRecord::DeleteNode(id))?;
 
         let mut index = self.node_index.write();
-        let existed = index.remove(&id).is_some();
-        // Note: we don't reclaim the page space here. A compaction process
-        // would handle that in a production system.
-        Ok(existed)
+        let removed_page = index.remove(&id);
+        drop(index);
+        if let Some(page_id) = removed_page {
+            // Incremental compaction: the page that held this node is now
+            // free for reuse by the next write.
+            self.free_pages.lock().push(page_id);
+        }
+        Ok(removed_page.is_some())
     }
 
     fn put_edge(&self, edge: &Edge) -> Result<()> {
-        // Log to WAL.
-        self.wal.append(&WalRecord::InsertEdge(edge.clone()))?;
+        // Log to WAL (unless replaying).
+        self.wal_append(&WalRecord::InsertEdge(edge.clone()))?;
+
+        // Update path: if this edge already exists, free its previous page
+        // and drop its old adjacency entries before re-inserting.
+        let old_edge_page = self.edge_index.read().get(&edge.id).copied();
+        if old_edge_page.is_some() {
+            // Read the old edge so we can rewrite adjacency correctly.
+            if let Ok(Some(old_edge)) = self.get_edge(edge.id) {
+                let mut adj = self.adjacency.write();
+                adj.remove_edge(edge.id, old_edge.source, old_edge.target);
+            }
+            if let Some(pid) = old_edge_page {
+                self.free_pages.lock().push(pid);
+            }
+        }
 
         // Serialize.
         let data = Self::serialize_edge(edge)?;
@@ -402,18 +543,24 @@ impl StorageEngine for DiskStorageEngine {
         // We need the edge data to update adjacency.
         let edge = self.get_edge(id)?;
 
-        // Log to WAL.
-        self.wal.append(&WalRecord::DeleteEdge(id))?;
+        // Log to WAL (unless replaying).
+        self.wal_append(&WalRecord::DeleteEdge(id))?;
 
-        let mut index = self.edge_index.write();
-        let existed = index.remove(&id).is_some();
+        let removed_page = {
+            let mut index = self.edge_index.write();
+            index.remove(&id)
+        };
+        if let Some(pid) = removed_page {
+            // Incremental compaction: the page is free for reuse.
+            self.free_pages.lock().push(pid);
+        }
 
         if let Some(edge) = edge {
             let mut adj = self.adjacency.write();
             adj.remove_edge(id, edge.source, edge.target);
         }
 
-        Ok(existed)
+        Ok(removed_page.is_some())
     }
 
     fn get_edges(&self, node_id: NodeId, direction: Direction) -> Result<Vec<Edge>> {
@@ -741,5 +888,126 @@ mod tests {
         // txn1 can still commit.
         engine.commit_transaction(txn1).unwrap();
         assert!(engine.get_node(NodeId(7)).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_open_replays_wal() {
+        // Issue astraeadb-issues.md #1: server restart used to lose the
+        // graph. Fixed by wiring DiskStorageEngine::open + WAL replay.
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // Phase 1: write some state.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 64).unwrap();
+            engine.put_node(&test_node(1)).unwrap();
+            engine.put_node(&test_node(2)).unwrap();
+            engine.put_node(&test_node(3)).unwrap();
+            engine.put_edge(&test_edge(10, 1, 2)).unwrap();
+            engine.put_edge(&test_edge(11, 2, 3)).unwrap();
+            engine.delete_node(NodeId(2)).unwrap();
+            // Drop without flush — mimics an unclean shutdown.
+        }
+
+        // Phase 2: reopen and verify state survived via WAL replay.
+        let (engine, max_node_id, max_edge_id) = DiskStorageEngine::open(data_dir).unwrap();
+        assert_eq!(max_node_id, 3, "max_node_id should be 3");
+        assert_eq!(max_edge_id, 11, "max_edge_id should be 11");
+
+        assert!(engine.get_node(NodeId(1)).unwrap().is_some(), "node 1 should survive");
+        assert!(engine.get_node(NodeId(2)).unwrap().is_none(), "node 2 was deleted");
+        assert!(engine.get_node(NodeId(3)).unwrap().is_some(), "node 3 should survive");
+        assert!(engine.get_edge(EdgeId(10)).unwrap().is_some(), "edge 10 should survive");
+        assert!(engine.get_edge(EdgeId(11)).unwrap().is_some(), "edge 11 should survive");
+
+        // Label index rebuilt — find_nodes_by_label should return node 1 and 3.
+        let persons = engine.find_nodes_by_label("Person").unwrap();
+        assert_eq!(persons.len(), 2, "two Persons survive");
+        assert!(persons.contains(&NodeId(1)));
+        assert!(persons.contains(&NodeId(3)));
+
+        // Further mutations after reopen must not double-grow the WAL
+        // (replay does not re-append, but new writes do).
+        engine.put_node(&test_node(4)).unwrap();
+        assert!(engine.get_node(NodeId(4)).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_compaction_reclaims_pages() {
+        // astraeadb-issues.md #15: writes used to leak pages under churn.
+        // After this fix, delete + write reuses the freed page slot.
+        let (engine, _tmp) = make_engine();
+
+        // Insert 5 nodes — 5 fresh pages allocated.
+        for i in 1..=5 {
+            engine.put_node(&test_node(i)).unwrap();
+        }
+        let page_count_after_inserts = engine.file_manager.page_count().unwrap();
+        assert_eq!(engine.free_page_count(), 0);
+
+        // Delete 3 nodes — 3 pages become free.
+        engine.delete_node(NodeId(2)).unwrap();
+        engine.delete_node(NodeId(3)).unwrap();
+        engine.delete_node(NodeId(4)).unwrap();
+        assert_eq!(engine.free_page_count(), 3, "deletes populate the free list");
+
+        // Insert 3 more nodes — all 3 should come from the free list, so
+        // the underlying file does NOT grow.
+        engine.put_node(&test_node(6)).unwrap();
+        engine.put_node(&test_node(7)).unwrap();
+        engine.put_node(&test_node(8)).unwrap();
+
+        assert_eq!(engine.free_page_count(), 0, "free list drained by reuse");
+        let page_count_after_reuse = engine.file_manager.page_count().unwrap();
+        assert_eq!(
+            page_count_after_reuse, page_count_after_inserts,
+            "page file did not grow after replacing deleted nodes"
+        );
+
+        // All five live nodes (1, 5, 6, 7, 8) are still readable.
+        for id in [1, 5, 6, 7, 8] {
+            assert!(
+                engine.get_node(NodeId(id)).unwrap().is_some(),
+                "node {} should be present after compaction reuse",
+                id
+            );
+        }
+        // Deleted ones stay gone.
+        for id in [2, 3, 4] {
+            assert!(
+                engine.get_node(NodeId(id)).unwrap().is_none(),
+                "node {} should still be deleted",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_update_frees_old_page() {
+        let (engine, _tmp) = make_engine();
+        engine.put_node(&test_node(1)).unwrap();
+        let before = engine.file_manager.page_count().unwrap();
+        // Overwrite the same node — old page should be freed, new page
+        // allocated from it (so total page_count stays put).
+        engine.put_node(&Node {
+            id: NodeId(1),
+            labels: vec!["Updated".to_string()],
+            properties: serde_json::json!({"new": "content"}),
+            embedding: None,
+        }).unwrap();
+        let after = engine.file_manager.page_count().unwrap();
+        assert_eq!(after, before, "update should reuse the freed page");
+        let got = engine.get_node(NodeId(1)).unwrap().unwrap();
+        assert_eq!(got.labels, vec!["Updated"]);
+    }
+
+    #[test]
+    fn test_open_on_fresh_dir() {
+        let tmp = TempDir::new().unwrap();
+        let (engine, max_node, max_edge) = DiskStorageEngine::open(tmp.path()).unwrap();
+        assert_eq!(max_node, 0);
+        assert_eq!(max_edge, 0);
+        engine.put_node(&test_node(1)).unwrap();
+        assert!(engine.get_node(NodeId(1)).unwrap().is_some());
     }
 }

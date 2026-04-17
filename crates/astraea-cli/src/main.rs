@@ -862,14 +862,30 @@ async fn main() {
                 astraea_vector::HnswVectorIndex::new(128, astraea_core::types::DistanceMetric::Cosine),
             );
 
-            // Create the in-memory graph with vector index (will use DiskStorageEngine later).
-            let storage = astraea_graph::test_utils::InMemoryStorage::new();
-            let graph = astraea_graph::Graph::with_vector_index(
+            // Open the disk storage engine at the configured data dir. This
+            // replays the WAL to rebuild in-memory indexes and returns the
+            // highest node/edge ids so id allocation resumes correctly.
+            let (storage, max_node_id, max_edge_id) =
+                astraea_storage::DiskStorageEngine::open(&cfg.storage.data_dir)
+                    .expect("Failed to open storage engine");
+            if max_node_id > 0 || max_edge_id > 0 {
+                println!(
+                    "Recovered from WAL: next node_id={}, next edge_id={}",
+                    max_node_id + 1,
+                    max_edge_id + 1
+                );
+            }
+
+            let mut graph_inner = astraea_graph::Graph::with_start_ids(
                 Box::new(storage),
+                max_node_id + 1,
+                max_edge_id + 1,
+            );
+            graph_inner.set_vector_index(
                 std::sync::Arc::clone(&vector_index) as std::sync::Arc<dyn astraea_core::traits::VectorIndex>,
             );
             let graph: std::sync::Arc<dyn astraea_core::traits::GraphOps> =
-                std::sync::Arc::new(graph);
+                std::sync::Arc::new(graph_inner);
 
             // Build two handlers that share the same underlying graph.
             // AstraeaServer::new takes an owned RequestHandler (wraps it in

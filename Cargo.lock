@@ -417,6 +417,7 @@ dependencies = [
  "astraea-graph",
  "astraea-mcp",
  "astraea-server",
+ "astraea-storage",
  "astraea-vector",
  "clap",
  "rustyline",
