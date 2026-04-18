@@ -1,7 +1,5 @@
 use astraea_core::types::NodeId;
 use crate::shard::ShardId;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 /// Strategy for partitioning nodes across shards.
 pub trait PartitionStrategy: Send + Sync {
@@ -15,7 +13,13 @@ pub trait PartitionStrategy: Send + Sync {
     fn num_shards(&self) -> usize;
 }
 
-/// Hash-based partitioning: shard_id = hash(node_id) % num_shards
+/// Hash-based partitioning: shard_id = hash(node_id) % num_shards.
+///
+/// Uses FNV-1a (64-bit) — a fixed, bitwise-specified hash. astraeadb-issues.md
+/// #23. The previous implementation used `std::collections::hash_map::DefaultHasher`,
+/// which is documented as **not** stable across Rust versions: a shard
+/// assignment persisted to disk (or shared between nodes built with
+/// different rustc versions) could silently move under the cluster.
 pub struct HashPartitioner {
     num_shards: usize,
 }
@@ -27,11 +31,24 @@ impl HashPartitioner {
     }
 }
 
+/// FNV-1a 64-bit hash. Specified by the FNV-1a standard; stable across
+/// compiler versions, platforms, and releases.
+fn fnv1a_u64(mut input: u64) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let mut hash: u64 = FNV_OFFSET;
+    for _ in 0..8 {
+        let byte = (input & 0xff) as u64;
+        hash ^= byte;
+        hash = hash.wrapping_mul(FNV_PRIME);
+        input >>= 8;
+    }
+    hash
+}
+
 impl PartitionStrategy for HashPartitioner {
     fn shard_for_node(&self, node_id: NodeId) -> ShardId {
-        let mut hasher = DefaultHasher::new();
-        node_id.0.hash(&mut hasher);
-        ShardId(hasher.finish() as usize % self.num_shards)
+        ShardId((fnv1a_u64(node_id.0) as usize) % self.num_shards)
     }
 
     fn shard_for_edge(&self, source: NodeId) -> ShardId {
@@ -163,5 +180,20 @@ mod tests {
     #[should_panic(expected = "need at least 2 boundaries")]
     fn range_partitioner_too_few_boundaries_panics() {
         RangePartitioner::from_boundaries(vec![0]);
+    }
+
+    #[test]
+    fn hash_partitioner_stable_across_runs() {
+        // astraeadb-issues.md #23. The FNV-1a hash is bitwise-specified,
+        // so the shard assignment for any given (node_id, num_shards) is
+        // a known constant — not subject to rustc version drift.
+        let p = HashPartitioner::new(8);
+        // Golden values: if these ever change, any persisted shard
+        // assignment in production would silently relocate. Treat that
+        // as a breaking change requiring a migration plan.
+        assert_eq!(p.shard_for_node(NodeId(0)), ShardId(5));
+        assert_eq!(p.shard_for_node(NodeId(1)), ShardId(4));
+        assert_eq!(p.shard_for_node(NodeId(42)), ShardId(7));
+        assert_eq!(p.shard_for_node(NodeId(u64::MAX)), ShardId(5));
     }
 }
