@@ -1,3 +1,18 @@
+//! Command-line entry point for AstraeaDB.
+//!
+//! Single `[[bin]]` crate (binary name `astraeadb`) exposing six clap
+//! subcommands: `Serve`, `Import`, `Export`, `Shell`, `Status`, and
+//! `Mcp`. `Serve` runs the TCP `AstraeaServer` and
+//! `grpc::run_grpc_server` concurrently over a shared
+//! `Arc<dyn GraphOps>` plus `Arc<dyn VectorIndex>`; `Mcp` runs
+//! `astraea_mcp::McpServer` over `StdioTransport`.
+//!
+//! `Serve` opens a [`astraea_storage::DiskStorageEngine`] at
+//! `cfg.storage.data_dir` via `open()` so the WAL is replayed and
+//! node/edge id allocation resumes from the highest id seen. The
+//! vector index is hardcoded to 128-dim cosine — configurable dim is
+//! still tracked as astraedb-issues.md #7.
+
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use std::path::PathBuf;

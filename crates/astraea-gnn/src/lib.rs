@@ -1,3 +1,20 @@
+//! Pure-Rust graph neural network primitives over `astraea_core::GraphOps`.
+//!
+//! Provides a minimal tensor stack (`Tensor`, `Matrix`), `GNNLayer` /
+//! `GNNModel` / `ClassificationHead`, message passing
+//! (`message_passing`, `MessagePassingConfig`, `Aggregation`,
+//! `Activation`), sparse adjacency (`CSRAdjacency`, `FeatureMatrix`),
+//! GraphSAGE-style `sampling`, Adam-driven `training`, and a
+//! `TemporalGNNModel` with `GRUCell` for time-evolving graphs.
+//!
+//! Invariants: `Tensor` is 1D only and `Matrix` is row-major
+//! `[output_dim x input_dim]`; shape mismatches panic via `assert_eq!`.
+//! `train_node_classification` has two paths — `hidden_dim = Some(_)`
+//! triggers analytical backprop, `None` triggers the legacy
+//! finite-difference path that only tunes edge weights. Training is
+//! single-threaded by design (`Tensor::grad` is a `RefCell`, not
+//! thread-safe).
+
 pub mod backward;
 pub mod message_passing;
 pub mod model;
