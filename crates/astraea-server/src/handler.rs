@@ -523,6 +523,31 @@ impl RequestHandler {
                 }
             }
 
+            // astraeadb-issues.md #4. Bulk-delete every node with the
+            // given label (and its edges). Previously clients had to
+            // FindByLabel -> per-node DeleteNode, which round-tripped
+            // once per match.
+            Request::DeleteByLabel { label } => {
+                match self.graph.find_by_label(&label) {
+                    Ok(ids) => {
+                        let total = ids.len();
+                        let mut deleted = 0u64;
+                        for id in ids {
+                            match self.graph.delete_node(id) {
+                                Ok(()) => deleted += 1,
+                                Err(e) => {
+                                    return Response::error(format!(
+                                        "DeleteByLabel '{label}': deleted {deleted}/{total} before error at {id}: {e}"
+                                    ));
+                                }
+                            }
+                        }
+                        Response::ok(serde_json::json!({ "deleted": deleted }))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
             Request::RunPageRank {
                 nodes,
                 damping,
@@ -1265,6 +1290,73 @@ mod tests {
                 );
             }
             Response::Error { message } => panic!("search failed after delete: {}", message),
+        }
+    }
+
+    #[test]
+    fn test_delete_by_label_removes_matches() {
+        // astraeadb-issues.md #4.
+        let (handler, _vi) = handler_with_vector_index(2);
+
+        // Create three Widget nodes and one Gadget node.
+        for _ in 0..3 {
+            match handler.handle(Request::CreateNode {
+                labels: vec!["Widget".into()],
+                properties: serde_json::json!({}),
+                embedding: None,
+            }) {
+                Response::Ok { .. } => {}
+                Response::Error { message } => panic!("create failed: {message}"),
+            }
+        }
+        match handler.handle(Request::CreateNode {
+            labels: vec!["Gadget".into()],
+            properties: serde_json::json!({}),
+            embedding: None,
+        }) {
+            Response::Ok { .. } => {}
+            Response::Error { message } => panic!("create failed: {message}"),
+        }
+
+        // Delete by Widget — expect 3 deleted.
+        let resp = handler.handle(Request::DeleteByLabel {
+            label: "Widget".into(),
+        });
+        match resp {
+            Response::Ok { data } => {
+                assert_eq!(data.get("deleted").unwrap().as_u64().unwrap(), 3);
+            }
+            Response::Error { message } => panic!("DeleteByLabel failed: {message}"),
+        }
+
+        // Widgets gone; Gadget still there.
+        match handler.handle(Request::FindByLabel {
+            label: "Widget".into(),
+        }) {
+            Response::Ok { data } => {
+                let ids = data.get("node_ids").unwrap().as_array().unwrap();
+                assert!(ids.is_empty(), "expected no Widgets, got {:?}", ids);
+            }
+            Response::Error { message } => panic!("FindByLabel failed: {message}"),
+        }
+        match handler.handle(Request::FindByLabel {
+            label: "Gadget".into(),
+        }) {
+            Response::Ok { data } => {
+                let ids = data.get("node_ids").unwrap().as_array().unwrap();
+                assert_eq!(ids.len(), 1, "Gadget should still be present");
+            }
+            Response::Error { message } => panic!("FindByLabel failed: {message}"),
+        }
+
+        // DeleteByLabel of an absent label returns deleted=0 cleanly.
+        match handler.handle(Request::DeleteByLabel {
+            label: "Nonexistent".into(),
+        }) {
+            Response::Ok { data } => {
+                assert_eq!(data.get("deleted").unwrap().as_u64().unwrap(), 0);
+            }
+            Response::Error { message } => panic!("unexpected error: {message}"),
         }
     }
 }

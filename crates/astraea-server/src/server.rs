@@ -398,6 +398,7 @@ fn request_type_name(request: &Request) -> &'static str {
         Request::Dfs { .. } => "Dfs",
         Request::DfsAt { .. } => "DfsAt",
         Request::FindByLabel { .. } => "FindByLabel",
+        Request::DeleteByLabel { .. } => "DeleteByLabel",
         Request::RunPageRank { .. } => "RunPageRank",
         Request::RunLouvain { .. } => "RunLouvain",
         Request::RunConnectedComponents { .. } => "RunConnectedComponents",

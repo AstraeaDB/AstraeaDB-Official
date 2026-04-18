@@ -162,6 +162,9 @@ pub enum Request {
     },
     /// Find nodes by label.
     FindByLabel { label: String },
+    /// Delete every node carrying the given label (and all its edges).
+    /// Returns `{"deleted": N}`. astraeadb-issues.md #4.
+    DeleteByLabel { label: String },
     /// Run PageRank algorithm.
     RunPageRank {
         #[serde(default)]
