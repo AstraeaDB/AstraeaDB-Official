@@ -6,8 +6,12 @@
 //! callback function.
 //!
 //! A [`MockProvider`] is included for testing.
+//!
+//! See also [`crate::embedding`] for the [`EmbeddingProvider`](crate::embedding::EmbeddingProvider)
+//! trait and the [`OllamaProvider`] embedding implementation.
 
 use astraea_core::error::{AstraeaError, Result};
+use crate::embedding::EmbeddingProvider;
 
 /// Configuration for an LLM provider.
 #[derive(Debug, Clone)]
@@ -319,16 +323,57 @@ impl LlmProvider for AnthropicProvider {
 ///
 /// Defaults to `http://localhost:11434` as the endpoint. Like the other
 /// providers, this requires an injected HTTP handler.
+///
+/// In addition to chat completions via [`LlmProvider`], this struct also
+/// implements [`EmbeddingProvider`]. The chat model (`config.model`) and the
+/// embedding model (`embedding_model`) are configured independently so that
+/// different Ollama models can be used for each task.
+///
+/// # Embedding usage
+///
+/// ```rust,ignore
+/// use astraea_rag::llm::{LlmConfig, OllamaProvider, ProviderType};
+/// use astraea_rag::embedding::EmbeddingProvider;
+///
+/// let config = LlmConfig {
+///     provider: ProviderType::Ollama,
+///     model: "llama3".into(),
+///     api_key: None,
+///     endpoint: String::new(),
+///     temperature: 0.7,
+///     max_tokens: 1000,
+/// };
+///
+/// let provider = OllamaProvider::new(config)
+///     .with_embedding_model("embeddinggemma")
+///     .with_embedding_dim(768)
+///     .with_embed_http_fn(my_http_fn);
+///
+/// let vectors = provider.embed(&["hello world"]).unwrap();
+/// ```
 pub struct OllamaProvider {
     config: LlmConfig,
-    /// Optional HTTP handler for actual API calls.
+    /// Optional HTTP handler for chat completion API calls.
     http_fn: Option<Box<dyn Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync>>,
+    /// The Ollama model to use for embedding. Defaults to `"embeddinggemma"`.
+    embedding_model: String,
+    /// Dimension of the vectors the configured embedding model returns.
+    ///
+    /// This is a caller-supplied hint — the provider does not query the model
+    /// at construction time. Default is `768` (correct for `embeddinggemma`).
+    /// Update via [`with_embedding_dim`](OllamaProvider::with_embedding_dim) if
+    /// you use a different model.
+    embedding_dim: usize,
+    /// Optional HTTP handler for embedding API calls (`POST /api/embed`).
+    embed_http_fn: Option<Box<dyn Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync>>,
 }
 
 impl OllamaProvider {
     /// Create a new Ollama provider with the given configuration.
     ///
     /// If the config endpoint is empty, defaults to `http://localhost:11434`.
+    ///
+    /// Embedding defaults: model = `"embeddinggemma"`, dim = `768`.
     pub fn new(mut config: LlmConfig) -> Self {
         if config.endpoint.is_empty() {
             config.endpoint = "http://localhost:11434".to_string();
@@ -336,10 +381,13 @@ impl OllamaProvider {
         Self {
             config,
             http_fn: None,
+            embedding_model: "embeddinggemma".to_string(),
+            embedding_dim: 768,
+            embed_http_fn: None,
         }
     }
 
-    /// Set a custom HTTP handler for API calls.
+    /// Set a custom HTTP handler for chat completion API calls.
     ///
     /// The handler receives `(endpoint_url, request_body_json)` and returns
     /// the response body as a string.
@@ -348,6 +396,39 @@ impl OllamaProvider {
         f: impl Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync + 'static,
     ) -> Self {
         self.http_fn = Some(Box::new(f));
+        self
+    }
+
+    /// Set the Ollama model to use for text embedding.
+    ///
+    /// Defaults to `"embeddinggemma"`. The embedding model is separate from
+    /// the chat model (`config.model`) so you can use different models for
+    /// each task.
+    pub fn with_embedding_model(mut self, model: impl Into<String>) -> Self {
+        self.embedding_model = model.into();
+        self
+    }
+
+    /// Set the vector dimension for the configured embedding model.
+    ///
+    /// The provider does not query Ollama at construction time to discover
+    /// the actual dimension. Callers must supply the correct value for the
+    /// model they are using. Default is `768` (correct for `embeddinggemma`).
+    pub fn with_embedding_dim(mut self, dim: usize) -> Self {
+        self.embedding_dim = dim;
+        self
+    }
+
+    /// Set a custom HTTP handler for embedding API calls (`POST /api/embed`).
+    ///
+    /// The handler receives `(endpoint_url, request_body_json)` and returns
+    /// the response body as a string. If not set, [`embed`](EmbeddingProvider::embed)
+    /// returns an [`AstraeaError::Config`] error.
+    pub fn with_embed_http_fn(
+        mut self,
+        f: impl Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync + 'static,
+    ) -> Self {
+        self.embed_http_fn = Some(Box::new(f));
         self
     }
 
@@ -418,6 +499,77 @@ impl LlmProvider for OllamaProvider {
     }
 }
 
+impl EmbeddingProvider for OllamaProvider {
+    /// Embed a batch of texts using Ollama's `/api/embed` endpoint.
+    ///
+    /// Requires an embed HTTP handler to be set via
+    /// [`with_embed_http_fn`](OllamaProvider::with_embed_http_fn). Returns
+    /// [`AstraeaError::Config`] if no handler is configured.
+    ///
+    /// Ollama request body: `{"model": "<embedding_model>", "input": [...]}`
+    /// Ollama response: `{"embeddings": [[f32, ...], ...]}`
+    fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        let http_fn = self.embed_http_fn.as_ref().ok_or_else(|| {
+            AstraeaError::Config(
+                "Ollama provider has no embed HTTP handler configured. \
+                 Call with_embed_http_fn() to provide an HTTP client callback."
+                    .into(),
+            )
+        })?;
+
+        let url = format!("{}/api/embed", self.config.endpoint.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": self.embedding_model,
+            "input": texts
+        });
+
+        let response_body = http_fn(&url, &body)?;
+
+        let parsed: serde_json::Value = serde_json::from_str(&response_body).map_err(|e| {
+            AstraeaError::QueryExecution(format!("failed to parse Ollama embed response: {e}"))
+        })?;
+
+        let embeddings = parsed["embeddings"].as_array().ok_or_else(|| {
+            AstraeaError::QueryExecution(
+                "Ollama embed response missing 'embeddings' field".into(),
+            )
+        })?;
+
+        embeddings
+            .iter()
+            .enumerate()
+            .map(|(i, vec_val)| {
+                let arr = vec_val.as_array().ok_or_else(|| {
+                    AstraeaError::QueryExecution(format!(
+                        "Ollama embed response: embeddings[{i}] is not an array"
+                    ))
+                })?;
+                arr.iter()
+                    .enumerate()
+                    .map(|(j, v)| {
+                        v.as_f64()
+                            .map(|f| f as f32)
+                            .ok_or_else(|| {
+                                AstraeaError::QueryExecution(format!(
+                                    "Ollama embed response: embeddings[{i}][{j}] is not a number"
+                                ))
+                            })
+                    })
+                    .collect::<Result<Vec<f32>>>()
+            })
+            .collect::<Result<Vec<Vec<f32>>>>()
+    }
+
+    /// Return the vector dimension this provider is configured to produce.
+    ///
+    /// This is the value set via [`with_embedding_dim`](OllamaProvider::with_embedding_dim)
+    /// (default: `768` for `embeddinggemma`). The provider does not make a
+    /// live API call to discover the actual dimension.
+    fn embedding_dim(&self) -> usize {
+        self.embedding_dim
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -425,6 +577,7 @@ impl LlmProvider for OllamaProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::embedding::EmbeddingProvider;
 
     #[test]
     fn test_mock_provider_complete() {
@@ -596,5 +749,183 @@ mod tests {
         assert_eq!(ProviderType::OpenAi, ProviderType::OpenAi);
         assert_ne!(ProviderType::OpenAi, ProviderType::Anthropic);
         assert_ne!(ProviderType::Ollama, ProviderType::Mock);
+    }
+
+    // -----------------------------------------------------------------------
+    // OllamaProvider embedding tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_ollama_embed_no_http_fn() {
+        let config = LlmConfig {
+            provider: ProviderType::Ollama,
+            model: "llama3".into(),
+            api_key: None,
+            endpoint: String::new(),
+            temperature: 0.7,
+            max_tokens: 1000,
+        };
+
+        let provider = OllamaProvider::new(config);
+        // No embed_http_fn set — should return a Config error.
+        let result = provider.embed(&["hello"]);
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("no embed HTTP handler configured"),
+            "unexpected error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_ollama_embed_with_http_fn() {
+        let config = LlmConfig {
+            provider: ProviderType::Ollama,
+            model: "llama3".into(),
+            api_key: None,
+            endpoint: "http://localhost:11434".into(),
+            temperature: 0.7,
+            max_tokens: 1000,
+        };
+
+        let provider = OllamaProvider::new(config)
+            .with_embedding_model("embeddinggemma")
+            .with_embed_http_fn(|url, body| {
+                assert!(url.ends_with("/api/embed"), "unexpected url: {url}");
+                assert_eq!(body["model"], "embeddinggemma");
+                // Return two canned 4-dimensional embeddings.
+                Ok(serde_json::json!({
+                    "embeddings": [
+                        [0.1, 0.2, 0.3, 0.4],
+                        [0.5, 0.6, 0.7, 0.8]
+                    ]
+                })
+                .to_string())
+            });
+
+        let texts = &["hello", "world"];
+        let result = provider.embed(texts).unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].len(), 4);
+        assert!((result[0][0] - 0.1f32).abs() < 1e-5);
+        assert!((result[1][3] - 0.8f32).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_ollama_embed_dim_default() {
+        let config = LlmConfig {
+            provider: ProviderType::Ollama,
+            model: "llama3".into(),
+            api_key: None,
+            endpoint: String::new(),
+            temperature: 0.0,
+            max_tokens: 100,
+        };
+
+        let provider = OllamaProvider::new(config);
+        // Default dimension for embeddinggemma is 768.
+        assert_eq!(provider.embedding_dim(), 768);
+    }
+
+    #[test]
+    fn test_ollama_embed_dim_custom() {
+        let config = LlmConfig {
+            provider: ProviderType::Ollama,
+            model: "llama3".into(),
+            api_key: None,
+            endpoint: String::new(),
+            temperature: 0.0,
+            max_tokens: 100,
+        };
+
+        let provider = OllamaProvider::new(config)
+            .with_embedding_dim(128);
+        assert_eq!(provider.embedding_dim(), 128);
+    }
+
+    #[test]
+    fn test_ollama_embed_url_uses_endpoint() {
+        let config = LlmConfig {
+            provider: ProviderType::Ollama,
+            model: "llama3".into(),
+            api_key: None,
+            endpoint: "http://my-ollama-host:8080".into(),
+            temperature: 0.0,
+            max_tokens: 100,
+        };
+
+        let provider = OllamaProvider::new(config)
+            .with_embed_http_fn(|url, _body| {
+                assert_eq!(url, "http://my-ollama-host:8080/api/embed");
+                Ok(serde_json::json!({"embeddings": [[1.0, 2.0]]}).to_string())
+            });
+
+        let result = provider.embed(&["test"]).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], vec![1.0f32, 2.0f32]);
+    }
+
+    /// Integration test — requires a live Ollama instance.
+    ///
+    /// Run with:
+    /// ```text
+    /// OLLAMA_URL=http://localhost:11434 \
+    ///   cargo test -p astraea-rag --lib -- --ignored --test-threads=1 test_ollama_embed_roundtrip
+    /// ```
+    #[test]
+    #[ignore]
+    fn test_ollama_embed_roundtrip() {
+        let base_url = std::env::var("OLLAMA_URL")
+            .unwrap_or_else(|_| "http://localhost:11434".to_string());
+
+        let config = LlmConfig {
+            provider: ProviderType::Ollama,
+            model: "llama3".into(),
+            api_key: None,
+            endpoint: base_url,
+            temperature: 0.0,
+            max_tokens: 100,
+        };
+
+        // Use a simple blocking HTTP call via ureq if available; otherwise
+        // replicate the callback pattern with std::process::Command as a
+        // last resort. For CI-less manual testing the simplest approach is
+        // to shell out to curl and parse the result.
+        //
+        // This test just checks the shape — length of the returned vector
+        // should match embedding_dim().
+        let provider = OllamaProvider::new(config)
+            .with_embedding_model("embeddinggemma")
+            .with_embedding_dim(768)
+            .with_embed_http_fn(|url, body| {
+                // Naive sync HTTP using std — requires the test environment
+                // to have curl available. This is intentionally simple.
+                let body_str = serde_json::to_string(body).unwrap();
+                let output = std::process::Command::new("curl")
+                    .args([
+                        "-s", "-X", "POST", url,
+                        "-H", "Content-Type: application/json",
+                        "-d", &body_str,
+                    ])
+                    .output()
+                    .map_err(|e| {
+                        AstraeaError::QueryExecution(format!("curl failed: {e}"))
+                    })?;
+                String::from_utf8(output.stdout).map_err(|e| {
+                    AstraeaError::QueryExecution(format!("curl output not utf-8: {e}"))
+                })
+            });
+
+        let texts = &["The quick brown fox jumps over the lazy dog."];
+        let result = provider.embed(texts).expect("embed should succeed with live Ollama");
+
+        assert_eq!(result.len(), 1, "one vector per input");
+        assert_eq!(
+            result[0].len(),
+            provider.embedding_dim(),
+            "vector length should match embedding_dim()"
+        );
     }
 }

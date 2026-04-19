@@ -13,13 +13,17 @@
 //!    Ollama) with no baked-in HTTP dependencies.
 //! 5. **GraphRAG pipeline** -- End-to-end pipeline: vector search -> subgraph
 //!    extraction -> linearization -> LLM completion.
+//! 6. **Embedding providers** -- Pluggable text-embedding abstraction ([`EmbeddingProvider`]).
+//!    [`OllamaProvider`] implements both [`LlmProvider`] and [`EmbeddingProvider`].
 
+pub mod embedding;
 pub mod linearize;
 pub mod llm;
 pub mod pipeline;
 pub mod subgraph;
 pub mod token;
 
+pub use embedding::{EmbeddingProvider, MockEmbedder};
 pub use linearize::{TextFormat, linearize_subgraph};
 pub use llm::{
     AnthropicProvider, LlmConfig, LlmProvider, MockProvider, OllamaProvider, OpenAiProvider,
