@@ -118,6 +118,18 @@ impl StorageEngine for InMemoryStorage {
             .map(|s| s.iter().copied().collect())
             .unwrap_or_default())
     }
+
+    fn find_edges_by_type(
+        &self,
+        edge_type: &str,
+    ) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
+        let edges = self.edges.read();
+        Ok(edges
+            .values()
+            .filter(|e| e.edge_type == edge_type)
+            .map(|e| (e.id, e.source, e.target))
+            .collect())
+    }
 }
 
 #[cfg(test)]

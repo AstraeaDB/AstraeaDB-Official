@@ -165,6 +165,10 @@ pub enum Request {
     /// Delete every node carrying the given label (and all its edges).
     /// Returns `{"deleted": N}`. astraeadb-issues.md #4.
     DeleteByLabel { label: String },
+    /// Find all edges whose edge_type matches the given string.
+    /// Returns `{"edges": [{"edge_id": N, "source": N, "target": N}, ...]}`.
+    /// astraeadb-issues.md #3.
+    FindEdgeByType { edge_type: String },
     /// Run PageRank algorithm.
     RunPageRank {
         #[serde(default)]

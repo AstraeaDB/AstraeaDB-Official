@@ -588,6 +588,24 @@ impl StorageEngine for DiskStorageEngine {
     fn find_nodes_by_label(&self, label: &str) -> Result<Vec<NodeId>> {
         Ok(self.label_index.read().get(label))
     }
+
+    fn find_edges_by_type(
+        &self,
+        edge_type: &str,
+    ) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
+        // Collect all edge IDs first so we release the index lock before
+        // calling get_edge (which acquires the buffer-pool lock).
+        let edge_ids: Vec<EdgeId> = self.edge_index.read().keys().copied().collect();
+        let mut result = Vec::new();
+        for eid in edge_ids {
+            if let Some(edge) = self.get_edge(eid)? {
+                if edge.edge_type == edge_type {
+                    result.push((edge.id, edge.source, edge.target));
+                }
+            }
+        }
+        Ok(result)
+    }
 }
 
 impl TransactionalEngine for DiskStorageEngine {

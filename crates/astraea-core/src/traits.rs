@@ -37,6 +37,15 @@ pub trait StorageEngine: Send + Sync {
     fn find_nodes_by_label(&self, _label: &str) -> Result<Vec<NodeId>> {
         Ok(Vec::new())
     }
+
+    /// Find all edges whose `edge_type` matches the given string.
+    ///
+    /// Returns a list of `(EdgeId, source NodeId, target NodeId)` triples.
+    /// The default implementation returns an empty vector. Storage engines
+    /// that maintain an edge index should override this.
+    fn find_edges_by_type(&self, _edge_type: &str) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
+        Ok(Vec::new())
+    }
 }
 
 /// Extension trait for transactional storage operations.
@@ -159,6 +168,15 @@ pub trait GraphOps: Send + Sync {
 
     /// Find all nodes matching a label.
     fn find_by_label(&self, label: &str) -> Result<Vec<NodeId>>;
+
+    /// Find all edges whose `edge_type` matches the given string.
+    ///
+    /// Returns `(EdgeId, source NodeId, target NodeId)` triples.
+    /// The default implementation returns an empty vector.
+    /// astraeadb-issues.md #3.
+    fn find_edges_by_type(&self, _edge_type: &str) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
+        Ok(Vec::new())
+    }
 
     /// Hybrid search combining graph proximity and vector similarity.
     ///

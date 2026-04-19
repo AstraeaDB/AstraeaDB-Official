@@ -548,6 +548,27 @@ impl RequestHandler {
                 }
             }
 
+            // astraeadb-issues.md #3. Find all edges whose edge_type matches
+            // the given string.
+            Request::FindEdgeByType { edge_type } => {
+                match self.graph.find_edges_by_type(&edge_type) {
+                    Ok(triples) => {
+                        let edges: Vec<serde_json::Value> = triples
+                            .into_iter()
+                            .map(|(eid, src, tgt)| {
+                                serde_json::json!({
+                                    "edge_id": eid.0,
+                                    "source": src.0,
+                                    "target": tgt.0,
+                                })
+                            })
+                            .collect();
+                        Response::ok(serde_json::json!({ "edges": edges }))
+                    }
+                    Err(e) => Response::error(e.to_string()),
+                }
+            }
+
             Request::RunPageRank {
                 nodes,
                 damping,
@@ -1357,6 +1378,111 @@ mod tests {
                 assert_eq!(data.get("deleted").unwrap().as_u64().unwrap(), 0);
             }
             Response::Error { message } => panic!("unexpected error: {message}"),
+        }
+    }
+
+    #[test]
+    fn test_find_edges_by_type() {
+        // astraeadb-issues.md #3.
+        let (handler, _vi) = handler_with_vector_index(2);
+
+        // Create two nodes to wire edges between.
+        let mut node_ids = Vec::new();
+        for _ in 0..2 {
+            match handler.handle(Request::CreateNode {
+                labels: vec![],
+                properties: serde_json::json!({}),
+                embedding: None,
+            }) {
+                Response::Ok { data } => {
+                    node_ids.push(data.get("node_id").unwrap().as_u64().unwrap());
+                }
+                Response::Error { message } => panic!("create node failed: {message}"),
+            }
+        }
+        let (src, tgt) = (node_ids[0], node_ids[1]);
+
+        // Create 3 edges of type T1 and 2 of type T2.
+        let mut t1_ids: Vec<u64> = Vec::new();
+        for _ in 0..3 {
+            match handler.handle(Request::CreateEdge {
+                source: src,
+                target: tgt,
+                edge_type: "T1".into(),
+                properties: serde_json::json!({}),
+                weight: 1.0,
+                valid_from: None,
+                valid_to: None,
+            }) {
+                Response::Ok { data } => {
+                    t1_ids.push(data.get("edge_id").unwrap().as_u64().unwrap());
+                }
+                Response::Error { message } => panic!("create edge T1 failed: {message}"),
+            }
+        }
+        for _ in 0..2 {
+            match handler.handle(Request::CreateEdge {
+                source: src,
+                target: tgt,
+                edge_type: "T2".into(),
+                properties: serde_json::json!({}),
+                weight: 1.0,
+                valid_from: None,
+                valid_to: None,
+            }) {
+                Response::Ok { .. } => {}
+                Response::Error { message } => panic!("create edge T2 failed: {message}"),
+            }
+        }
+
+        // Happy path: FindEdgeByType("T1") must return exactly the 3 T1 edges
+        // with correct source/target fields.
+        let resp = handler.handle(Request::FindEdgeByType {
+            edge_type: "T1".into(),
+        });
+        match resp {
+            Response::Ok { data } => {
+                let edges = data.get("edges").unwrap().as_array().unwrap();
+                assert_eq!(edges.len(), 3, "expected 3 T1 edges, got {}", edges.len());
+                // All returned edges must have the correct source/target.
+                for e in edges {
+                    assert_eq!(
+                        e.get("source").unwrap().as_u64().unwrap(),
+                        src,
+                        "wrong source"
+                    );
+                    assert_eq!(
+                        e.get("target").unwrap().as_u64().unwrap(),
+                        tgt,
+                        "wrong target"
+                    );
+                }
+                // The edge_ids returned must be exactly the three we created.
+                let mut returned_ids: Vec<u64> = edges
+                    .iter()
+                    .map(|e| e.get("edge_id").unwrap().as_u64().unwrap())
+                    .collect();
+                returned_ids.sort_unstable();
+                let mut expected = t1_ids.clone();
+                expected.sort_unstable();
+                assert_eq!(returned_ids, expected, "T1 edge_ids mismatch");
+            }
+            Response::Error { message } => panic!("FindEdgeByType T1 failed: {message}"),
+        }
+
+        // Empty result: a nonexistent type returns an empty list, not an error.
+        match handler.handle(Request::FindEdgeByType {
+            edge_type: "nonexistent".into(),
+        }) {
+            Response::Ok { data } => {
+                let edges = data.get("edges").unwrap().as_array().unwrap();
+                assert!(
+                    edges.is_empty(),
+                    "expected empty list for unknown type, got {:?}",
+                    edges
+                );
+            }
+            Response::Error { message } => panic!("FindEdgeByType nonexistent returned error: {message}"),
         }
     }
 }

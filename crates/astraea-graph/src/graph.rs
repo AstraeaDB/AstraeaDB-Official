@@ -313,6 +313,10 @@ impl GraphOps for Graph {
         self.storage.find_nodes_by_label(label)
     }
 
+    fn find_edges_by_type(&self, edge_type: &str) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
+        self.storage.find_edges_by_type(edge_type)
+    }
+
     fn neighbors_at(
         &self,
         node_id: NodeId,
