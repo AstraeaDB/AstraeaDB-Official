@@ -662,9 +662,8 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_edge() {
-        let stmt = parse_stmt(
-            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.age > 30 RETURN b.name",
-        );
+        let stmt =
+            parse_stmt("MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.age > 30 RETURN b.name");
 
         let Statement::Match(q) = stmt else {
             panic!("expected Match");
@@ -705,9 +704,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_properties() {
-        let stmt = parse_stmt(
-            r#"MATCH (a:Person {name: "Alice", active: true}) RETURN a"#,
-        );
+        let stmt = parse_stmt(r#"MATCH (a:Person {name: "Alice", active: true}) RETURN a"#);
 
         let Statement::Match(q) = stmt else {
             panic!("expected Match");
@@ -724,9 +721,8 @@ mod tests {
 
     #[test]
     fn test_parse_match_order_limit_skip() {
-        let stmt = parse_stmt(
-            "MATCH (a:Person) RETURN a.name ORDER BY a.name DESC SKIP 5 LIMIT 10",
-        );
+        let stmt =
+            parse_stmt("MATCH (a:Person) RETURN a.name ORDER BY a.name DESC SKIP 5 LIMIT 10");
 
         let Statement::Match(q) = stmt else {
             panic!("expected Match");
@@ -790,9 +786,8 @@ mod tests {
 
     #[test]
     fn test_parse_create_with_edge() {
-        let stmt = parse_stmt(
-            r#"CREATE (a:Person {name: "Alice"})-[:KNOWS]->(b:Person {name: "Bob"})"#,
-        );
+        let stmt =
+            parse_stmt(r#"CREATE (a:Person {name: "Alice"})-[:KNOWS]->(b:Person {name: "Bob"})"#);
 
         let Statement::Create(c) = stmt else {
             panic!("expected Create");
@@ -819,9 +814,7 @@ mod tests {
 
     #[test]
     fn test_parse_boolean_logic() {
-        let stmt = parse_stmt(
-            "MATCH (a) WHERE a.x = 1 AND a.y = 2 OR a.z = 3 RETURN a",
-        );
+        let stmt = parse_stmt("MATCH (a) WHERE a.x = 1 AND a.y = 2 OR a.z = 3 RETURN a");
 
         let Statement::Match(q) = stmt else {
             panic!("expected Match");

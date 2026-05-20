@@ -119,10 +119,7 @@ impl StorageEngine for InMemoryStorage {
             .unwrap_or_default())
     }
 
-    fn find_edges_by_type(
-        &self,
-        edge_type: &str,
-    ) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
+    fn find_edges_by_type(&self, edge_type: &str) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
         let edges = self.edges.read();
         Ok(edges
             .values()
@@ -209,10 +206,7 @@ mod tests {
             1
         );
         assert_eq!(
-            store
-                .get_edges(NodeId(10), Direction::Both)
-                .unwrap()
-                .len(),
+            store.get_edges(NodeId(10), Direction::Both).unwrap().len(),
             1
         );
     }

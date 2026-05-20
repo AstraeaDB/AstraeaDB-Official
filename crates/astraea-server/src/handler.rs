@@ -17,7 +17,11 @@ pub struct RequestHandler {
 impl RequestHandler {
     pub fn new(graph: Arc<dyn GraphOps>, vector_index: Option<Arc<dyn VectorIndex>>) -> Self {
         let executor = Executor::new(Arc::clone(&graph));
-        Self { graph, executor, vector_index }
+        Self {
+            graph,
+            executor,
+            vector_index,
+        }
     }
 
     /// Process a single request and return a response.
@@ -136,29 +140,23 @@ impl RequestHandler {
                 }
             }
 
-            Request::Bfs { start, max_depth } => {
-                match self.graph.bfs(NodeId(start), max_depth) {
-                    Ok(nodes) => {
-                        let items: Vec<serde_json::Value> = nodes
-                            .into_iter()
-                            .map(|(nid, depth)| {
-                                serde_json::json!({"node_id": nid.0, "depth": depth})
-                            })
-                            .collect();
-                        Response::ok(serde_json::json!({"nodes": items}))
-                    }
-                    Err(e) => Response::error(e.to_string()),
+            Request::Bfs { start, max_depth } => match self.graph.bfs(NodeId(start), max_depth) {
+                Ok(nodes) => {
+                    let items: Vec<serde_json::Value> = nodes
+                        .into_iter()
+                        .map(|(nid, depth)| serde_json::json!({"node_id": nid.0, "depth": depth}))
+                        .collect();
+                    Response::ok(serde_json::json!({"nodes": items}))
                 }
-            }
+                Err(e) => Response::error(e.to_string()),
+            },
 
             Request::ShortestPath { from, to, weighted } => {
                 if weighted {
-                    match self
-                        .graph
-                        .shortest_path_weighted(NodeId(from), NodeId(to))
-                    {
+                    match self.graph.shortest_path_weighted(NodeId(from), NodeId(to)) {
                         Ok(Some((path, cost))) => {
-                            let node_ids: Vec<u64> = path.nodes().into_iter().map(|n| n.0).collect();
+                            let node_ids: Vec<u64> =
+                                path.nodes().into_iter().map(|n| n.0).collect();
                             Response::ok(
                                 serde_json::json!({"path": node_ids, "cost": cost, "length": path.len()}),
                             )
@@ -169,7 +167,8 @@ impl RequestHandler {
                 } else {
                     match self.graph.shortest_path(NodeId(from), NodeId(to)) {
                         Ok(Some(path)) => {
-                            let node_ids: Vec<u64> = path.nodes().into_iter().map(|n| n.0).collect();
+                            let node_ids: Vec<u64> =
+                                path.nodes().into_iter().map(|n| n.0).collect();
                             Response::ok(
                                 serde_json::json!({"path": node_ids, "length": path.len()}),
                             )
@@ -215,10 +214,7 @@ impl RequestHandler {
                     "both" => Direction::Both,
                     _ => Direction::Outgoing,
                 };
-                match self
-                    .graph
-                    .semantic_neighbors(NodeId(id), &concept, dir, k)
-                {
+                match self.graph.semantic_neighbors(NodeId(id), &concept, dir, k) {
                     Ok(results) => {
                         let items: Vec<serde_json::Value> = results
                             .into_iter()
@@ -236,23 +232,16 @@ impl RequestHandler {
                 start,
                 concept,
                 max_hops,
-            } => {
-                match self
-                    .graph
-                    .semantic_walk(NodeId(start), &concept, max_hops)
-                {
-                    Ok(path) => {
-                        let items: Vec<serde_json::Value> = path
-                            .into_iter()
-                            .map(|(nid, dist)| {
-                                serde_json::json!({"node_id": nid.0, "distance": dist})
-                            })
-                            .collect();
-                        Response::ok(serde_json::json!({"path": items}))
-                    }
-                    Err(e) => Response::error(e.to_string()),
+            } => match self.graph.semantic_walk(NodeId(start), &concept, max_hops) {
+                Ok(path) => {
+                    let items: Vec<serde_json::Value> = path
+                        .into_iter()
+                        .map(|(nid, dist)| serde_json::json!({"node_id": nid.0, "distance": dist}))
+                        .collect();
+                    Response::ok(serde_json::json!({"path": items}))
                 }
-            }
+                Err(e) => Response::error(e.to_string()),
+            },
 
             Request::VectorSearch { query, k } => {
                 match &self.vector_index {
@@ -313,12 +302,7 @@ impl RequestHandler {
                 format,
             } => {
                 let text_format = parse_text_format(&format);
-                match astraea_rag::extract_subgraph(
-                    &*self.graph,
-                    NodeId(center),
-                    hops,
-                    max_nodes,
-                ) {
+                match astraea_rag::extract_subgraph(&*self.graph, NodeId(center), hops, max_nodes) {
                     Ok(subgraph) => {
                         let text = astraea_rag::linearize_subgraph(&subgraph, text_format);
                         let tokens = astraea_rag::estimate_tokens(&text);
@@ -355,19 +339,16 @@ impl RequestHandler {
                         None => {
                             return Response::error(
                                 "vector index not configured and no anchor provided",
-                            )
+                            );
                         }
                     }
                 } else {
-                    return Response::error(
-                        "either anchor or question_embedding must be provided",
-                    );
+                    return Response::error("either anchor or question_embedding must be provided");
                 };
 
                 match astraea_rag::extract_subgraph(&*self.graph, center, hops, max_nodes) {
                     Ok(subgraph) => {
-                        let context =
-                            astraea_rag::linearize_subgraph(&subgraph, text_format);
+                        let context = astraea_rag::linearize_subgraph(&subgraph, text_format);
                         let tokens = astraea_rag::estimate_tokens(&context);
                         Response::ok(serde_json::json!({
                             "anchor_node_id": center.0,
@@ -420,7 +401,9 @@ impl RequestHandler {
                                 })
                                 .collect()
                         };
-                        Response::ok(serde_json::json!({"neighbors": items, "timestamp": timestamp}))
+                        Response::ok(
+                            serde_json::json!({"neighbors": items, "timestamp": timestamp}),
+                        )
                     }
                     Err(e) => Response::error(e.to_string()),
                 }
@@ -434,9 +417,7 @@ impl RequestHandler {
                 Ok(nodes) => {
                     let items: Vec<serde_json::Value> = nodes
                         .into_iter()
-                        .map(|(nid, depth)| {
-                            serde_json::json!({"node_id": nid.0, "depth": depth})
-                        })
+                        .map(|(nid, depth)| serde_json::json!({"node_id": nid.0, "depth": depth}))
                         .collect();
                     Response::ok(serde_json::json!({"nodes": items, "timestamp": timestamp}))
                 }
@@ -488,15 +469,13 @@ impl RequestHandler {
                 }
             }
 
-            Request::Dfs { start, max_depth } => {
-                match self.graph.dfs(NodeId(start), max_depth) {
-                    Ok(nodes) => {
-                        let ids: Vec<u64> = nodes.into_iter().map(|n| n.0).collect();
-                        Response::ok(serde_json::json!({"nodes": ids}))
-                    }
-                    Err(e) => Response::error(e.to_string()),
+            Request::Dfs { start, max_depth } => match self.graph.dfs(NodeId(start), max_depth) {
+                Ok(nodes) => {
+                    let ids: Vec<u64> = nodes.into_iter().map(|n| n.0).collect();
+                    Response::ok(serde_json::json!({"nodes": ids}))
                 }
-            }
+                Err(e) => Response::error(e.to_string()),
+            },
 
             Request::DfsAt {
                 start,
@@ -513,40 +492,36 @@ impl RequestHandler {
                 }
             }
 
-            Request::FindByLabel { label } => {
-                match self.graph.find_by_label(&label) {
-                    Ok(ids) => {
-                        let node_ids: Vec<u64> = ids.into_iter().map(|n| n.0).collect();
-                        Response::ok(serde_json::json!({"node_ids": node_ids}))
-                    }
-                    Err(e) => Response::error(e.to_string()),
+            Request::FindByLabel { label } => match self.graph.find_by_label(&label) {
+                Ok(ids) => {
+                    let node_ids: Vec<u64> = ids.into_iter().map(|n| n.0).collect();
+                    Response::ok(serde_json::json!({"node_ids": node_ids}))
                 }
-            }
+                Err(e) => Response::error(e.to_string()),
+            },
 
             // astraeadb-issues.md #4. Bulk-delete every node with the
             // given label (and its edges). Previously clients had to
             // FindByLabel -> per-node DeleteNode, which round-tripped
             // once per match.
-            Request::DeleteByLabel { label } => {
-                match self.graph.find_by_label(&label) {
-                    Ok(ids) => {
-                        let total = ids.len();
-                        let mut deleted = 0u64;
-                        for id in ids {
-                            match self.graph.delete_node(id) {
-                                Ok(()) => deleted += 1,
-                                Err(e) => {
-                                    return Response::error(format!(
-                                        "DeleteByLabel '{label}': deleted {deleted}/{total} before error at {id}: {e}"
-                                    ));
-                                }
+            Request::DeleteByLabel { label } => match self.graph.find_by_label(&label) {
+                Ok(ids) => {
+                    let total = ids.len();
+                    let mut deleted = 0u64;
+                    for id in ids {
+                        match self.graph.delete_node(id) {
+                            Ok(()) => deleted += 1,
+                            Err(e) => {
+                                return Response::error(format!(
+                                    "DeleteByLabel '{label}': deleted {deleted}/{total} before error at {id}: {e}"
+                                ));
                             }
                         }
-                        Response::ok(serde_json::json!({ "deleted": deleted }))
                     }
-                    Err(e) => Response::error(e.to_string()),
+                    Response::ok(serde_json::json!({ "deleted": deleted }))
                 }
-            }
+                Err(e) => Response::error(e.to_string()),
+            },
 
             // astraeadb-issues.md #3. Find all edges whose edge_type matches
             // the given string.
@@ -588,8 +563,10 @@ impl RequestHandler {
 
                 match astraea_algorithms::pagerank::pagerank(&*self.graph, &node_ids, &config) {
                     Ok(scores) => {
-                        let map: HashMap<String, f64> =
-                            scores.into_iter().map(|(k, v)| (k.0.to_string(), v)).collect();
+                        let map: HashMap<String, f64> = scores
+                            .into_iter()
+                            .map(|(k, v)| (k.0.to_string(), v))
+                            .collect();
                         Response::ok(serde_json::json!({"scores": map}))
                     }
                     Err(e) => Response::error(e.to_string()),
@@ -604,8 +581,10 @@ impl RequestHandler {
 
                 match astraea_algorithms::community::louvain(&*self.graph, &node_ids) {
                     Ok(communities) => {
-                        let map: HashMap<String, usize> =
-                            communities.into_iter().map(|(k, v)| (k.0.to_string(), v)).collect();
+                        let map: HashMap<String, usize> = communities
+                            .into_iter()
+                            .map(|(k, v)| (k.0.to_string(), v))
+                            .collect();
                         let num_communities = map.values().collect::<HashSet<_>>().len();
                         Response::ok(serde_json::json!({
                             "communities": map,
@@ -661,8 +640,10 @@ impl RequestHandler {
                     dir,
                 ) {
                     Ok(scores) => {
-                        let map: HashMap<String, f64> =
-                            scores.into_iter().map(|(k, v)| (k.0.to_string(), v)).collect();
+                        let map: HashMap<String, f64> = scores
+                            .into_iter()
+                            .map(|(k, v)| (k.0.to_string(), v))
+                            .collect();
                         Response::ok(serde_json::json!({"scores": map}))
                     }
                     Err(e) => Response::error(e.to_string()),
@@ -680,8 +661,10 @@ impl RequestHandler {
                     &node_ids,
                 ) {
                     Ok(scores) => {
-                        let map: HashMap<String, f64> =
-                            scores.into_iter().map(|(k, v)| (k.0.to_string(), v)).collect();
+                        let map: HashMap<String, f64> = scores
+                            .into_iter()
+                            .map(|(k, v)| (k.0.to_string(), v))
+                            .collect();
                         Response::ok(serde_json::json!({"scores": map}))
                     }
                     Err(e) => Response::error(e.to_string()),
@@ -881,8 +864,8 @@ fn dfs_at_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_vector::HnswVectorIndex;
 
     /// Helper: create a handler with a vector index.
@@ -1099,7 +1082,12 @@ mod tests {
                 assert_eq!(path[0].get("node_id").unwrap().as_u64().unwrap(), 1);
                 // Last node should be node 3 (closest to concept [0,0,1]).
                 assert_eq!(
-                    path.last().unwrap().get("node_id").unwrap().as_u64().unwrap(),
+                    path.last()
+                        .unwrap()
+                        .get("node_id")
+                        .unwrap()
+                        .as_u64()
+                        .unwrap(),
                     3
                 );
                 assert!(path.last().unwrap().get("distance").is_some());
@@ -1171,11 +1159,23 @@ mod tests {
 
         match resp {
             Response::Ok { data } => {
-                assert!(data.get("text").unwrap().as_str().unwrap().contains("Alice"));
+                assert!(
+                    data.get("text")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .contains("Alice")
+                );
                 let nodes_count = data.get("nodes_count").unwrap().as_u64().unwrap();
-                assert!(nodes_count >= 2, "expected at least 2 nodes, got {nodes_count}");
+                assert!(
+                    nodes_count >= 2,
+                    "expected at least 2 nodes, got {nodes_count}"
+                );
                 let edges_count = data.get("edges_count").unwrap().as_u64().unwrap();
-                assert!(edges_count >= 1, "expected at least 1 edge, got {edges_count}");
+                assert!(
+                    edges_count >= 1,
+                    "expected at least 1 edge, got {edges_count}"
+                );
                 assert!(data.get("estimated_tokens").unwrap().as_u64().unwrap() > 0);
             }
             Response::Error { message } => panic!("expected Ok, got Error: {message}"),
@@ -1253,7 +1253,10 @@ mod tests {
 
         match resp {
             Response::Error { message } => {
-                assert_eq!(message, "either anchor or question_embedding must be provided");
+                assert_eq!(
+                    message,
+                    "either anchor or question_embedding must be provided"
+                );
             }
             Response::Ok { .. } => panic!("expected Error, got Ok"),
         }
@@ -1283,7 +1286,10 @@ mod tests {
             Response::Ok { data } => {
                 let results = data.get("results").unwrap().as_array().unwrap();
                 assert_eq!(results.len(), 1);
-                assert_eq!(results[0].get("node_id").unwrap().as_u64().unwrap(), node_id);
+                assert_eq!(
+                    results[0].get("node_id").unwrap().as_u64().unwrap(),
+                    node_id
+                );
             }
             Response::Error { message } => panic!("search failed before delete: {}", message),
         }
@@ -1482,7 +1488,9 @@ mod tests {
                     edges
                 );
             }
-            Response::Error { message } => panic!("FindEdgeByType nonexistent returned error: {message}"),
+            Response::Error { message } => {
+                panic!("FindEdgeByType nonexistent returned error: {message}")
+            }
         }
     }
 }

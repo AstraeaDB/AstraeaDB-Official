@@ -88,15 +88,15 @@ mod tests {
         assert_eq!(result.len(), 2, "one vector per input text");
         assert_eq!(result[0].len(), 4, "vector length equals dim");
         assert_eq!(result[1].len(), 4);
-        assert!(
-            result[0].iter().all(|&v| v == 0.0),
-            "zero fill expected"
-        );
+        assert!(result[0].iter().all(|&v| v == 0.0), "zero fill expected");
     }
 
     #[test]
     fn test_mock_embedder_dim() {
-        let embedder = MockEmbedder { dim: 768, fill: 1.0 };
+        let embedder = MockEmbedder {
+            dim: 768,
+            fill: 1.0,
+        };
         assert_eq!(embedder.embedding_dim(), 768);
 
         let result = embedder.embed(&["test"]).unwrap();

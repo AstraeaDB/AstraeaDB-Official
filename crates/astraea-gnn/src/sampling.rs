@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use astraea_core::error::Result;
 use astraea_core::traits::GraphOps;
 use astraea_core::types::{Direction, EdgeId, NodeId};
-use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::seq::SliceRandom;
 
 use crate::sparse::CSRAdjacency;
 
@@ -149,8 +149,8 @@ pub fn sample_subgraph(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     fn make_star_graph() -> (Graph, NodeId, Vec<NodeId>) {
         let graph = Graph::new(Box::new(InMemoryStorage::new()));
@@ -188,14 +188,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         // Sample with fanout [3]: should get center + at most 3 neighbors.
-        let subgraph = sample_subgraph(
-            &graph,
-            &[center],
-            &[3],
-            &HashMap::new(),
-            &mut rng,
-        )
-        .unwrap();
+        let subgraph = sample_subgraph(&graph, &[center], &[3], &HashMap::new(), &mut rng).unwrap();
 
         // Target is the center node.
         assert_eq!(subgraph.target_indices, vec![0]);
@@ -205,7 +198,10 @@ mod tests {
             "expected <= 4 nodes, got {}",
             subgraph.node_ids.len()
         );
-        assert!(subgraph.node_ids.len() >= 2, "should have at least center + 1 neighbor");
+        assert!(
+            subgraph.node_ids.len() >= 2,
+            "should have at least center + 1 neighbor"
+        );
     }
 
     #[test]
@@ -214,14 +210,8 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         // Fanout larger than actual degree: should get all neighbors.
-        let subgraph = sample_subgraph(
-            &graph,
-            &[center],
-            &[100],
-            &HashMap::new(),
-            &mut rng,
-        )
-        .unwrap();
+        let subgraph =
+            sample_subgraph(&graph, &[center], &[100], &HashMap::new(), &mut rng).unwrap();
 
         // Center has 10 neighbors, so we should get all 11 nodes.
         assert_eq!(subgraph.node_ids.len(), 11);
@@ -232,14 +222,7 @@ mod tests {
         let (graph, center, _leaves) = make_star_graph();
         let mut rng = rand::thread_rng();
 
-        let subgraph = sample_subgraph(
-            &graph,
-            &[center],
-            &[5],
-            &HashMap::new(),
-            &mut rng,
-        )
-        .unwrap();
+        let subgraph = sample_subgraph(&graph, &[center], &[5], &HashMap::new(), &mut rng).unwrap();
 
         // CSR should be valid.
         let csr = &subgraph.adjacency;

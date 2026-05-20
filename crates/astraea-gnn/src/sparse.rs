@@ -4,9 +4,9 @@ use astraea_core::error::Result;
 use astraea_core::traits::GraphOps;
 use astraea_core::types::{Direction, EdgeId, NodeId};
 
+use crate::message_passing::Activation;
 use crate::model::GNNLayer;
 use crate::tensor::{Matrix, Tensor};
-use crate::message_passing::Activation;
 
 /// Contiguous row-major feature matrix for cache-friendly GNN computation.
 ///
@@ -232,9 +232,21 @@ pub fn message_passing_spmm(
             r[k] = match layer.activation {
                 Activation::ReLU => z.max(0.0),
                 Activation::Sigmoid => 1.0 / (1.0 + (-z).exp()),
-                Activation::LeakyReLU => if z > 0.0 { z } else { 0.01 * z },
+                Activation::LeakyReLU => {
+                    if z > 0.0 {
+                        z
+                    } else {
+                        0.01 * z
+                    }
+                }
                 Activation::Tanh => z.tanh(),
-                Activation::ELU => if z > 0.0 { z } else { 1.0 * (z.exp() - 1.0) },
+                Activation::ELU => {
+                    if z > 0.0 {
+                        z
+                    } else {
+                        1.0 * (z.exp() - 1.0)
+                    }
+                }
                 Activation::None => z,
             };
         }
@@ -248,8 +260,8 @@ mod tests {
     use super::*;
     use crate::message_passing::{Aggregation, MessagePassingConfig};
     use crate::model::{self, GNNModel};
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     fn make_linear_graph() -> (Graph, [NodeId; 3]) {
         let graph = Graph::new(Box::new(InMemoryStorage::new()));

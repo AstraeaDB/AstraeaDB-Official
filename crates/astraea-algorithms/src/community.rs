@@ -26,21 +26,15 @@ use astraea_core::types::*;
 ///
 /// # Returns
 /// A map from `NodeId` to its community identifier (`usize`).
-pub fn louvain(
-    graph: &dyn GraphOps,
-    nodes: &[NodeId],
-) -> Result<HashMap<NodeId, usize>> {
+pub fn louvain(graph: &dyn GraphOps, nodes: &[NodeId]) -> Result<HashMap<NodeId, usize>> {
     let n = nodes.len();
     if n == 0 {
         return Ok(HashMap::new());
     }
 
     // Build node -> index mapping for fast lookups.
-    let node_to_idx: HashMap<NodeId, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &nid)| (nid, i))
-        .collect();
+    let node_to_idx: HashMap<NodeId, usize> =
+        nodes.iter().enumerate().map(|(i, &nid)| (nid, i)).collect();
 
     // --- Pre-compute adjacency information ---
     // For each node, store the list of (neighbor_index, edge_weight).
@@ -65,11 +59,7 @@ pub fn louvain(
 
     if total_weight == 0.0 {
         // No edges: every node is its own community.
-        return Ok(nodes
-            .iter()
-            .enumerate()
-            .map(|(i, &nid)| (nid, i))
-            .collect());
+        return Ok(nodes.iter().enumerate().map(|(i, &nid)| (nid, i)).collect());
     }
 
     let m2 = 2.0 * total_weight; // 2m, used repeatedly

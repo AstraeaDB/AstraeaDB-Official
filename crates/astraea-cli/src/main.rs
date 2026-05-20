@@ -486,8 +486,8 @@ async fn run_export(
 // ---------------------------------------------------------------------------
 
 fn run_shell_blocking(address: String) {
-    use rustyline::error::ReadlineError;
     use rustyline::DefaultEditor;
+    use rustyline::error::ReadlineError;
 
     let mut rl = match DefaultEditor::new() {
         Ok(editor) => editor,
@@ -513,10 +513,7 @@ fn run_shell_blocking(address: String) {
         .build()
         .expect("Failed to build tokio runtime for shell");
 
-    match rt.block_on(send_request(
-        &address,
-        &serde_json::json!({"type": "Ping"}),
-    )) {
+    match rt.block_on(send_request(&address, &serde_json::json!({"type": "Ping"}))) {
         Ok(resp) => {
             let version = resp
                 .get("data")
@@ -873,9 +870,10 @@ async fn main() {
             println!("Buffer pool size: {} pages", cfg.storage.buffer_pool_size);
 
             // Create vector index (128-dim cosine by default).
-            let vector_index = std::sync::Arc::new(
-                astraea_vector::HnswVectorIndex::new(128, astraea_core::types::DistanceMetric::Cosine),
-            );
+            let vector_index = std::sync::Arc::new(astraea_vector::HnswVectorIndex::new(
+                128,
+                astraea_core::types::DistanceMetric::Cosine,
+            ));
 
             // Open the disk storage engine at the configured data dir. This
             // replays the WAL to rebuild in-memory indexes and returns the
@@ -896,9 +894,8 @@ async fn main() {
                 max_node_id + 1,
                 max_edge_id + 1,
             );
-            graph_inner.set_vector_index(
-                std::sync::Arc::clone(&vector_index) as std::sync::Arc<dyn astraea_core::traits::VectorIndex>,
-            );
+            graph_inner.set_vector_index(std::sync::Arc::clone(&vector_index)
+                as std::sync::Arc<dyn astraea_core::traits::VectorIndex>);
             let graph: std::sync::Arc<dyn astraea_core::traits::GraphOps> =
                 std::sync::Arc::new(graph_inner);
 
@@ -907,12 +904,14 @@ async fn main() {
             // Arc internally), so we construct a separate one for TCP. The
             // gRPC server takes Arc<RequestHandler> directly.
             let vi: Option<std::sync::Arc<dyn astraea_core::traits::VectorIndex>> =
-                Some(std::sync::Arc::clone(&vector_index) as std::sync::Arc<dyn astraea_core::traits::VectorIndex>);
+                Some(std::sync::Arc::clone(&vector_index)
+                    as std::sync::Arc<dyn astraea_core::traits::VectorIndex>);
             let tcp_handler =
                 astraea_server::RequestHandler::new(std::sync::Arc::clone(&graph), vi.clone());
-            let grpc_handler = std::sync::Arc::new(
-                astraea_server::RequestHandler::new(std::sync::Arc::clone(&graph), vi),
-            );
+            let grpc_handler = std::sync::Arc::new(astraea_server::RequestHandler::new(
+                std::sync::Arc::clone(&graph),
+                vi,
+            ));
 
             let server_config = astraea_server::ServerConfig {
                 bind_address: cfg.server.bind_address.clone(),
@@ -920,9 +919,8 @@ async fn main() {
                 connection: astraea_server::ConnectionConfig::default(),
                 tls: None, // TLS can be configured via TlsConfig if needed
             };
-            let tcp_server =
-                astraea_server::AstraeaServer::new(server_config, tcp_handler)
-                    .expect("Failed to create server");
+            let tcp_server = astraea_server::AstraeaServer::new(server_config, tcp_handler)
+                .expect("Failed to create server");
 
             let grpc_bind = cfg.server.bind_address.clone();
 

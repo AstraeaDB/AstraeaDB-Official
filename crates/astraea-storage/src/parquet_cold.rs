@@ -11,14 +11,14 @@
 //! This separation allows for efficient reads when only nodes or edges are needed.
 
 use crate::cold_storage::{ColdEdge, ColdNode, ColdPartition, ColdStorage};
-use astraea_core::error::{AstraeaError, Result};
 use arrow::array::{
     Array, ArrayRef, Float32Builder, Float64Array, Int64Array, ListBuilder, RecordBatch,
-    StringBuilder, StringArray, UInt64Array,
+    StringArray, StringBuilder, UInt64Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use astraea_core::error::{AstraeaError, Result};
 use parquet::arrow::ArrowWriter;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -107,10 +107,7 @@ impl ParquetColdStorage {
         let labels_array = Arc::new(labels_builder.finish()) as ArrayRef;
 
         // Build properties array (JSON string)
-        let properties: Vec<String> = nodes
-            .iter()
-            .map(|n| n.properties.to_string())
-            .collect();
+        let properties: Vec<String> = nodes.iter().map(|n| n.properties.to_string()).collect();
         let properties_array = Arc::new(StringArray::from(properties)) as ArrayRef;
 
         // Build embedding array (List<Float32>, nullable)
@@ -130,8 +127,11 @@ impl ParquetColdStorage {
         }
         let embedding_array = Arc::new(embedding_builder.finish()) as ArrayRef;
 
-        RecordBatch::try_new(schema, vec![id_array, labels_array, properties_array, embedding_array])
-            .map_err(|e| AstraeaError::Serialization(e.to_string()))
+        RecordBatch::try_new(
+            schema,
+            vec![id_array, labels_array, properties_array, embedding_array],
+        )
+        .map_err(|e| AstraeaError::Serialization(e.to_string()))
     }
 
     /// Convert a slice of `ColdEdge` to an Arrow `RecordBatch`.
@@ -199,7 +199,9 @@ impl ParquetColdStorage {
             .column(2)
             .as_any()
             .downcast_ref::<StringArray>()
-            .ok_or_else(|| AstraeaError::Deserialization("Invalid properties column".to_string()))?;
+            .ok_or_else(|| {
+                AstraeaError::Deserialization("Invalid properties column".to_string())
+            })?;
 
         let embedding_array = batch
             .column(3)
@@ -238,7 +240,11 @@ impl ParquetColdStorage {
                     .ok_or_else(|| {
                         AstraeaError::Deserialization("Invalid embedding inner array".to_string())
                     })?;
-                Some((0..emb_f32_array.len()).map(|j| emb_f32_array.value(j)).collect())
+                Some(
+                    (0..emb_f32_array.len())
+                        .map(|j| emb_f32_array.value(j))
+                        .collect(),
+                )
             };
 
             nodes.push(ColdNode {
@@ -285,7 +291,9 @@ impl ParquetColdStorage {
             .column(4)
             .as_any()
             .downcast_ref::<StringArray>()
-            .ok_or_else(|| AstraeaError::Deserialization("Invalid properties column".to_string()))?;
+            .ok_or_else(|| {
+                AstraeaError::Deserialization("Invalid properties column".to_string())
+            })?;
 
         let weight_array = batch
             .column(5)
@@ -297,7 +305,9 @@ impl ParquetColdStorage {
             .column(6)
             .as_any()
             .downcast_ref::<Int64Array>()
-            .ok_or_else(|| AstraeaError::Deserialization("Invalid valid_from column".to_string()))?;
+            .ok_or_else(|| {
+                AstraeaError::Deserialization("Invalid valid_from column".to_string())
+            })?;
 
         let valid_to_array = batch
             .column(7)
@@ -641,7 +651,11 @@ mod tests {
 
         let partition = ColdPartition {
             partition_key: "integrity".to_string(),
-            nodes: vec![ColdNode::from(&n1), ColdNode::from(&n2), ColdNode::from(&n3)],
+            nodes: vec![
+                ColdNode::from(&n1),
+                ColdNode::from(&n2),
+                ColdNode::from(&n3),
+            ],
             edges: Vec::new(),
         };
 
@@ -662,7 +676,10 @@ mod tests {
         // Node 3: complex properties
         assert_eq!(read_back.nodes[2].id, 3);
         assert_eq!(read_back.nodes[2].labels, vec!["A", "B", "C"]);
-        assert_eq!(read_back.nodes[2].embedding, Some(vec![1.0, 2.0, 3.0, 4.0, 5.0]));
+        assert_eq!(
+            read_back.nodes[2].embedding,
+            Some(vec![1.0, 2.0, 3.0, 4.0, 5.0])
+        );
         assert_eq!(
             read_back.nodes[2].properties,
             serde_json::json!({

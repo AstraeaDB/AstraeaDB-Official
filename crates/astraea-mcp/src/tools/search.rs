@@ -1,10 +1,10 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use astraea_server::protocol::Request;
 
+use super::{CallToolResult, ToolDefinition};
 use crate::client::ProxyClient;
 use crate::errors::McpError;
-use super::{CallToolResult, ToolDefinition};
 
 /// Return MCP tool definitions for search operations.
 pub fn definitions() -> Vec<ToolDefinition> {
@@ -31,7 +31,8 @@ pub fn definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "hybrid_search".to_string(),
-            description: "Combine graph proximity and vector similarity to find relevant nodes.".to_string(),
+            description: "Combine graph proximity and vector similarity to find relevant nodes."
+                .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -81,10 +82,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
 }
 
 /// Search for nodes by vector similarity.
-pub async fn vector_search(
-    client: &ProxyClient,
-    args: Value,
-) -> Result<CallToolResult, McpError> {
+pub async fn vector_search(client: &ProxyClient, args: Value) -> Result<CallToolResult, McpError> {
     let query: Vec<f32> = args
         .get("query")
         .and_then(|v| v.as_array())
@@ -110,16 +108,10 @@ pub async fn vector_search(
 }
 
 /// Combine graph proximity and vector similarity to find relevant nodes.
-pub async fn hybrid_search(
-    client: &ProxyClient,
-    args: Value,
-) -> Result<CallToolResult, McpError> {
-    let anchor = args
-        .get("anchor")
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| {
-            McpError::InvalidParams("missing required field: anchor (integer)".into())
-        })?;
+pub async fn hybrid_search(client: &ProxyClient, args: Value) -> Result<CallToolResult, McpError> {
+    let anchor = args.get("anchor").and_then(|v| v.as_u64()).ok_or_else(|| {
+        McpError::InvalidParams("missing required field: anchor (integer)".into())
+    })?;
 
     let query: Vec<f32> = args
         .get("query")
@@ -164,16 +156,11 @@ pub async fn hybrid_search(
 }
 
 /// Find all nodes with a given label.
-pub async fn find_by_label(
-    client: &ProxyClient,
-    args: Value,
-) -> Result<CallToolResult, McpError> {
+pub async fn find_by_label(client: &ProxyClient, args: Value) -> Result<CallToolResult, McpError> {
     let label = args
         .get("label")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            McpError::InvalidParams("missing required field: label (string)".into())
-        })?
+        .ok_or_else(|| McpError::InvalidParams("missing required field: label (string)".into()))?
         .to_string();
 
     let request = Request::FindByLabel { label };

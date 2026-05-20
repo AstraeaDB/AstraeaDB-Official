@@ -36,11 +36,7 @@ fn softmax(logits: &[f32]) -> Vec<f32> {
 /// Compute the derivative of an activation function given the pre-activation values.
 ///
 /// Returns element-wise: d_activation/d_pre_act * upstream_grad.
-fn activation_backward(
-    upstream: &Tensor,
-    pre_act: &Tensor,
-    activation: Activation,
-) -> Tensor {
+fn activation_backward(upstream: &Tensor, pre_act: &Tensor, activation: Activation) -> Tensor {
     match activation {
         Activation::ReLU => {
             let data: Vec<f32> = upstream
@@ -266,7 +262,8 @@ pub fn backward(
             // Neighbor-transform gradient.
             let neighbors = graph.neighbors(node_id, Direction::Both)?;
             // Count only neighbors that have features (matching forward pass behavior).
-            let msg_count = neighbors.iter()
+            let msg_count = neighbors
+                .iter()
                 .filter(|(_, nid)| layer_input.contains_key(nid))
                 .count();
             for (edge_id, neighbor_id) in &neighbors {
@@ -288,7 +285,8 @@ pub fn backward(
 
                     // d_edge_weight[e] += d_pre_act^T * (W_neigh * h_j)
                     let transformed = layer.w_neigh.matvec(h_j);
-                    let mean_scale = if mp_config.aggregation == Aggregation::Mean && msg_count > 1 {
+                    let mean_scale = if mp_config.aggregation == Aggregation::Mean && msg_count > 1
+                    {
                         1.0 / msg_count as f32
                     } else {
                         1.0
@@ -324,8 +322,8 @@ mod tests {
     use super::*;
     use crate::message_passing::MessagePassingConfig;
     use crate::model::{self, GNNModel};
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     fn make_test_graph() -> (Graph, NodeId, NodeId, NodeId, NodeId) {
         let graph = Graph::new(Box::new(InMemoryStorage::new()));
@@ -358,13 +356,37 @@ mod tests {
             )
             .unwrap();
         graph
-            .create_edge(a, b, "SIMILAR".into(), serde_json::json!({}), 2.0, None, None)
+            .create_edge(
+                a,
+                b,
+                "SIMILAR".into(),
+                serde_json::json!({}),
+                2.0,
+                None,
+                None,
+            )
             .unwrap();
         graph
-            .create_edge(c, d, "SIMILAR".into(), serde_json::json!({}), 2.0, None, None)
+            .create_edge(
+                c,
+                d,
+                "SIMILAR".into(),
+                serde_json::json!({}),
+                2.0,
+                None,
+                None,
+            )
             .unwrap();
         graph
-            .create_edge(b, c, "BRIDGE".into(), serde_json::json!({}), 0.1, None, None)
+            .create_edge(
+                b,
+                c,
+                "BRIDGE".into(),
+                serde_json::json!({}),
+                0.1,
+                None,
+                None,
+            )
             .unwrap();
         (graph, a, b, c, d)
     }
@@ -437,7 +459,11 @@ mod tests {
         let gnn_model = {
             let w_out_data: Vec<f32> = vec![0.1, -0.2, 0.3, -0.1, 0.2, -0.3];
             let head = ClassificationHead {
-                w_out: Matrix { data: w_out_data, rows: 2, cols: 3 },
+                w_out: Matrix {
+                    data: w_out_data,
+                    rows: 2,
+                    cols: 3,
+                },
                 b_out: Tensor::new(vec![0.05, -0.05], false),
             };
             GNNModel {
@@ -488,32 +514,37 @@ mod tests {
         // Helper: centered finite difference (f(x+eps) - f(x-eps)) / (2*eps).
         // Use a relatively large epsilon because f32 precision limits accuracy.
         let epsilon = 5e-3;
-        let num_grad = |mut model_plus: GNNModel, mut model_minus: GNNModel, idx: usize, param: &str| -> f32 {
-            match param {
-                "w_out" => {
-                    model_plus.head.w_out.data[idx] += epsilon;
-                    model_minus.head.w_out.data[idx] -= epsilon;
+        let num_grad =
+            |mut model_plus: GNNModel, mut model_minus: GNNModel, idx: usize, param: &str| -> f32 {
+                match param {
+                    "w_out" => {
+                        model_plus.head.w_out.data[idx] += epsilon;
+                        model_minus.head.w_out.data[idx] -= epsilon;
+                    }
+                    "b_out" => {
+                        model_plus.head.b_out.data[idx] += epsilon;
+                        model_minus.head.b_out.data[idx] -= epsilon;
+                    }
+                    "w_self" => {
+                        model_plus.layers[0].w_self.data[idx] += epsilon;
+                        model_minus.layers[0].w_self.data[idx] -= epsilon;
+                    }
+                    "w_neigh" => {
+                        model_plus.layers[0].w_neigh.data[idx] += epsilon;
+                        model_minus.layers[0].w_neigh.data[idx] -= epsilon;
+                    }
+                    _ => panic!("unknown param"),
                 }
-                "b_out" => {
-                    model_plus.head.b_out.data[idx] += epsilon;
-                    model_minus.head.b_out.data[idx] -= epsilon;
-                }
-                "w_self" => {
-                    model_plus.layers[0].w_self.data[idx] += epsilon;
-                    model_minus.layers[0].w_self.data[idx] -= epsilon;
-                }
-                "w_neigh" => {
-                    model_plus.layers[0].w_neigh.data[idx] += epsilon;
-                    model_minus.layers[0].w_neigh.data[idx] -= epsilon;
-                }
-                _ => panic!("unknown param"),
-            }
-            let (logits_plus, _) = model::forward(&model_plus, &graph, &features, &edge_weights, &mp_config).unwrap();
-            let (logits_minus, _) = model::forward(&model_minus, &graph, &features, &edge_weights, &mp_config).unwrap();
-            let loss_plus = model::compute_loss_from_logits(&logits_plus, &labels, 2);
-            let loss_minus = model::compute_loss_from_logits(&logits_minus, &labels, 2);
-            (loss_plus - loss_minus) / (2.0 * epsilon)
-        };
+                let (logits_plus, _) =
+                    model::forward(&model_plus, &graph, &features, &edge_weights, &mp_config)
+                        .unwrap();
+                let (logits_minus, _) =
+                    model::forward(&model_minus, &graph, &features, &edge_weights, &mp_config)
+                        .unwrap();
+                let loss_plus = model::compute_loss_from_logits(&logits_plus, &labels, 2);
+                let loss_minus = model::compute_loss_from_logits(&logits_minus, &labels, 2);
+                (loss_plus - loss_minus) / (2.0 * epsilon)
+            };
 
         let check = |name: &str, idx: usize, analytical: f32, numerical: f32| {
             let abs_diff = (numerical - analytical).abs();
@@ -522,7 +553,11 @@ mod tests {
             assert!(
                 rel_diff < 0.05 || abs_diff < 1e-5,
                 "{}[{}]: analytical={:.6}, numerical={:.6}, rel_diff={:.6}",
-                name, idx, analytical, numerical, rel_diff
+                name,
+                idx,
+                analytical,
+                numerical,
+                rel_diff
             );
         };
 
@@ -556,18 +591,34 @@ mod tests {
         // Test gradient correctness for a 1-layer model with Activation::None.
         let (graph, a, b, c, d) = make_test_graph();
 
-        use crate::model::{GNNLayer, ClassificationHead};
+        use crate::model::{ClassificationHead, GNNLayer};
         use crate::tensor::Matrix;
 
         let gnn_model = {
             let layer = GNNLayer {
-                w_neigh: Matrix { data: vec![0.1, -0.05, 0.02, -0.1, 0.08, -0.03, 0.05, -0.02, 0.07, -0.1, 0.04, 0.06], rows: 4, cols: 3 },
-                w_self: Matrix { data: vec![-0.08, 0.1, 0.03, 0.06, -0.04, 0.09, -0.07, 0.05, -0.02, 0.1, -0.06, 0.01], rows: 4, cols: 3 },
+                w_neigh: Matrix {
+                    data: vec![
+                        0.1, -0.05, 0.02, -0.1, 0.08, -0.03, 0.05, -0.02, 0.07, -0.1, 0.04, 0.06,
+                    ],
+                    rows: 4,
+                    cols: 3,
+                },
+                w_self: Matrix {
+                    data: vec![
+                        -0.08, 0.1, 0.03, 0.06, -0.04, 0.09, -0.07, 0.05, -0.02, 0.1, -0.06, 0.01,
+                    ],
+                    rows: 4,
+                    cols: 3,
+                },
                 bias: Tensor::new(vec![0.01, -0.01, 0.02, -0.02], false),
                 activation: Activation::None,
             };
             let head = ClassificationHead {
-                w_out: Matrix { data: vec![0.1, -0.2, 0.15, -0.05, -0.1, 0.2, -0.15, 0.05], rows: 2, cols: 4 },
+                w_out: Matrix {
+                    data: vec![0.1, -0.2, 0.15, -0.05, -0.1, 0.2, -0.15, 0.05],
+                    rows: 2,
+                    cols: 4,
+                },
                 b_out: Tensor::new(vec![0.02, -0.02], false),
             };
             GNNModel {
@@ -602,8 +653,15 @@ mod tests {
         let (_, cache) =
             model::forward(&gnn_model, &graph, &features, &edge_weights, &mp_config).unwrap();
         let grads = backward(
-            &gnn_model, &cache, &labels, 2, &graph, &edge_weights, &mp_config,
-        ).unwrap();
+            &gnn_model,
+            &cache,
+            &labels,
+            2,
+            &graph,
+            &edge_weights,
+            &mp_config,
+        )
+        .unwrap();
 
         // Use a relatively large epsilon because f32 precision limits
         // the accuracy of finite differences for small gradients.
@@ -612,15 +670,32 @@ mod tests {
         // Centered finite difference helper.
         let num_grad = |mut mp: GNNModel, mut mm: GNNModel, idx: usize, param: &str| -> f32 {
             match param {
-                "w_out" => { mp.head.w_out.data[idx] += epsilon; mm.head.w_out.data[idx] -= epsilon; }
-                "b_out" => { mp.head.b_out.data[idx] += epsilon; mm.head.b_out.data[idx] -= epsilon; }
-                "w_self" => { mp.layers[0].w_self.data[idx] += epsilon; mm.layers[0].w_self.data[idx] -= epsilon; }
-                "w_neigh" => { mp.layers[0].w_neigh.data[idx] += epsilon; mm.layers[0].w_neigh.data[idx] -= epsilon; }
-                "bias" => { mp.layers[0].bias.data[idx] += epsilon; mm.layers[0].bias.data[idx] -= epsilon; }
+                "w_out" => {
+                    mp.head.w_out.data[idx] += epsilon;
+                    mm.head.w_out.data[idx] -= epsilon;
+                }
+                "b_out" => {
+                    mp.head.b_out.data[idx] += epsilon;
+                    mm.head.b_out.data[idx] -= epsilon;
+                }
+                "w_self" => {
+                    mp.layers[0].w_self.data[idx] += epsilon;
+                    mm.layers[0].w_self.data[idx] -= epsilon;
+                }
+                "w_neigh" => {
+                    mp.layers[0].w_neigh.data[idx] += epsilon;
+                    mm.layers[0].w_neigh.data[idx] -= epsilon;
+                }
+                "bias" => {
+                    mp.layers[0].bias.data[idx] += epsilon;
+                    mm.layers[0].bias.data[idx] -= epsilon;
+                }
                 _ => panic!(),
             }
-            let (lp, _) = model::forward(&mp, &graph, &features, &edge_weights, &mp_config).unwrap();
-            let (lm, _) = model::forward(&mm, &graph, &features, &edge_weights, &mp_config).unwrap();
+            let (lp, _) =
+                model::forward(&mp, &graph, &features, &edge_weights, &mp_config).unwrap();
+            let (lm, _) =
+                model::forward(&mm, &graph, &features, &edge_weights, &mp_config).unwrap();
             let loss_p = model::compute_loss_from_logits(&lp, &labels, 2);
             let loss_m = model::compute_loss_from_logits(&lm, &labels, 2);
             (loss_p - loss_m) / (2.0 * epsilon)
@@ -633,24 +708,53 @@ mod tests {
             assert!(
                 rel_diff < 0.05 || abs_diff < 1e-5,
                 "{}[{}]: analytical={:.8}, numerical={:.8}, rel_diff={:.6}",
-                name, idx, analytical, numerical, rel_diff
+                name,
+                idx,
+                analytical,
+                numerical,
+                rel_diff
             );
         };
 
         for idx in 0..gnn_model.head.w_out.data.len() {
-            check("W_out", idx, grads.d_w_out.data[idx], num_grad(gnn_model.clone(), gnn_model.clone(), idx, "w_out"));
+            check(
+                "W_out",
+                idx,
+                grads.d_w_out.data[idx],
+                num_grad(gnn_model.clone(), gnn_model.clone(), idx, "w_out"),
+            );
         }
         for idx in 0..gnn_model.head.b_out.len() {
-            check("b_out", idx, grads.d_b_out.data[idx], num_grad(gnn_model.clone(), gnn_model.clone(), idx, "b_out"));
+            check(
+                "b_out",
+                idx,
+                grads.d_b_out.data[idx],
+                num_grad(gnn_model.clone(), gnn_model.clone(), idx, "b_out"),
+            );
         }
         for idx in 0..gnn_model.layers[0].bias.len() {
-            check("bias", idx, grads.d_bias[0].data[idx], num_grad(gnn_model.clone(), gnn_model.clone(), idx, "bias"));
+            check(
+                "bias",
+                idx,
+                grads.d_bias[0].data[idx],
+                num_grad(gnn_model.clone(), gnn_model.clone(), idx, "bias"),
+            );
         }
         for idx in 0..gnn_model.layers[0].w_self.data.len() {
-            check("W_self", idx, grads.d_w_self[0].data[idx], num_grad(gnn_model.clone(), gnn_model.clone(), idx, "w_self"));
+            check(
+                "W_self",
+                idx,
+                grads.d_w_self[0].data[idx],
+                num_grad(gnn_model.clone(), gnn_model.clone(), idx, "w_self"),
+            );
         }
         for idx in 0..gnn_model.layers[0].w_neigh.data.len() {
-            check("W_neigh", idx, grads.d_w_neigh[0].data[idx], num_grad(gnn_model.clone(), gnn_model.clone(), idx, "w_neigh"));
+            check(
+                "W_neigh",
+                idx,
+                grads.d_w_neigh[0].data[idx],
+                num_grad(gnn_model.clone(), gnn_model.clone(), idx, "w_neigh"),
+            );
         }
     }
 }

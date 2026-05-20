@@ -89,9 +89,7 @@ impl Executor {
 
         // Step 2: Apply WHERE clause filter.
         if let Some(ref where_expr) = query.where_clause {
-            bindings.retain(|row| {
-                matches!(eval_expr(where_expr, row), Ok(Value::Bool(true)))
-            });
+            bindings.retain(|row| matches!(eval_expr(where_expr, row), Ok(Value::Bool(true))));
         }
 
         // Step 3: Apply ORDER BY (before projection, so we have full bindings).
@@ -162,9 +160,9 @@ impl Executor {
         let mut iter = pattern.iter();
 
         // First element must be a node.
-        let first = iter.next().ok_or_else(|| {
-            AstraeaError::QueryExecution("empty pattern".into())
-        })?;
+        let first = iter
+            .next()
+            .ok_or_else(|| AstraeaError::QueryExecution("empty pattern".into()))?;
 
         match first {
             PatternElement::Node(node_pat) => {
@@ -227,11 +225,9 @@ impl Executor {
                 } else {
                     let mut all = Vec::new();
                     for et in &edge_pat.edge_types {
-                        let mut n = self.graph.neighbors_filtered(
-                            prev_node_id,
-                            storage_direction,
-                            et,
-                        )?;
+                        let mut n =
+                            self.graph
+                                .neighbors_filtered(prev_node_id, storage_direction, et)?;
                         all.append(&mut n);
                     }
                     all
@@ -313,10 +309,7 @@ impl Executor {
     /// Resolve candidate nodes for a node pattern (the initial or standalone node).
     ///
     /// Returns a list of `(NodeId, json-representation)` tuples.
-    fn resolve_node_candidates(
-        &self,
-        node_pat: &NodePattern,
-    ) -> Result<Vec<(NodeId, Value)>> {
+    fn resolve_node_candidates(&self, node_pat: &NodePattern) -> Result<Vec<(NodeId, Value)>> {
         let node_ids = if !node_pat.labels.is_empty() {
             // Use find_by_label for the first label, then filter by remaining labels.
             let primary_label = &node_pat.labels[0];
@@ -387,9 +380,7 @@ impl Executor {
             .map(|(_, nid)| nid);
 
         last_node_id.ok_or_else(|| {
-            AstraeaError::QueryExecution(
-                "no source node found for edge expansion".into(),
-            )
+            AstraeaError::QueryExecution("no source node found for edge expansion".into())
         })
     }
 
@@ -402,7 +393,10 @@ impl Executor {
         bindings: &[BindingRow],
     ) -> Result<(Vec<String>, Vec<Vec<Value>>)> {
         // Check for aggregate functions (like count).
-        let has_aggregate = return_clause.items.iter().any(|item| is_aggregate(&item.expr));
+        let has_aggregate = return_clause
+            .items
+            .iter()
+            .any(|item| is_aggregate(&item.expr));
 
         if has_aggregate && bindings.is_empty() {
             // Aggregates on empty input still produce a row (e.g., count(*) = 0).
@@ -512,9 +506,7 @@ impl Executor {
                 PatternElement::Edge(edge_pat) => {
                     // The source is the previously created/referenced node.
                     let source = last_node_id.ok_or_else(|| {
-                        AstraeaError::QueryExecution(
-                            "edge in CREATE has no source node".into(),
-                        )
+                        AstraeaError::QueryExecution("edge in CREATE has no source node".into())
                     })?;
 
                     // The target will be the next node in the pattern.
@@ -542,14 +534,8 @@ impl Executor {
         while i < stmt.pattern.len() {
             if let PatternElement::Edge(ref edge_pat) = stmt.pattern[i] {
                 // Source is pattern[i-1], target is pattern[i+1].
-                let source_id = self.get_node_id_from_pattern(
-                    &stmt.pattern[i - 1],
-                    &entity_map,
-                )?;
-                let target_id = self.get_node_id_from_pattern(
-                    &stmt.pattern[i + 1],
-                    &entity_map,
-                )?;
+                let source_id = self.get_node_id_from_pattern(&stmt.pattern[i - 1], &entity_map)?;
+                let target_id = self.get_node_id_from_pattern(&stmt.pattern[i + 1], &entity_map)?;
 
                 let edge_type = edge_pat
                     .edge_types
@@ -564,15 +550,9 @@ impl Executor {
                     _ => (source_id, target_id),
                 };
 
-                let edge_id = self.graph.create_edge(
-                    src,
-                    tgt,
-                    edge_type,
-                    properties,
-                    1.0,
-                    None,
-                    None,
-                )?;
+                let edge_id = self
+                    .graph
+                    .create_edge(src, tgt, edge_type, properties, 1.0, None, None)?;
                 stats.edges_created += 1;
 
                 if let Some(ref var) = edge_pat.variable {
@@ -658,9 +638,7 @@ impl Executor {
 /// Evaluate an expression against a binding row.
 pub fn eval_expr(expr: &Expr, bindings: &BindingRow) -> Result<Value> {
     match expr {
-        Expr::Variable(name) => {
-            Ok(bindings.get(name).cloned().unwrap_or(Value::Null))
-        }
+        Expr::Variable(name) => Ok(bindings.get(name).cloned().unwrap_or(Value::Null)),
 
         Expr::Property(base_expr, field) => {
             let base = eval_expr(base_expr, bindings)?;
@@ -695,9 +673,7 @@ pub fn eval_expr(expr: &Expr, bindings: &BindingRow) -> Result<Value> {
             eval_unary_op(*op, &val)
         }
 
-        Expr::FunctionCall(name, args) => {
-            eval_function(name, args, bindings)
-        }
+        Expr::FunctionCall(name, args) => eval_function(name, args, bindings),
 
         Expr::IsNull(inner) => {
             let val = eval_expr(inner, bindings)?;
@@ -728,10 +704,18 @@ fn eval_binary_op(left: &Value, op: BinOp, right: &Value) -> Result<Value> {
         // Comparison operators
         BinOp::Eq => Ok(Value::Bool(values_equal(left, right))),
         BinOp::Neq => Ok(Value::Bool(!values_equal(left, right))),
-        BinOp::Lt => Ok(Value::Bool(compare_values(left, right) == std::cmp::Ordering::Less)),
-        BinOp::Lte => Ok(Value::Bool(compare_values(left, right) != std::cmp::Ordering::Greater)),
-        BinOp::Gt => Ok(Value::Bool(compare_values(left, right) == std::cmp::Ordering::Greater)),
-        BinOp::Gte => Ok(Value::Bool(compare_values(left, right) != std::cmp::Ordering::Less)),
+        BinOp::Lt => Ok(Value::Bool(
+            compare_values(left, right) == std::cmp::Ordering::Less,
+        )),
+        BinOp::Lte => Ok(Value::Bool(
+            compare_values(left, right) != std::cmp::Ordering::Greater,
+        )),
+        BinOp::Gt => Ok(Value::Bool(
+            compare_values(left, right) == std::cmp::Ordering::Greater,
+        )),
+        BinOp::Gte => Ok(Value::Bool(
+            compare_values(left, right) != std::cmp::Ordering::Less,
+        )),
 
         // Boolean operators
         BinOp::And => {
@@ -769,20 +753,18 @@ fn eval_binary_op(left: &Value, op: BinOp, right: &Value) -> Result<Value> {
 fn eval_unary_op(op: UnOp, val: &Value) -> Result<Value> {
     match op {
         UnOp::Not => Ok(Value::Bool(!as_bool(val))),
-        UnOp::Neg => {
-            match val {
-                Value::Number(n) => {
-                    if let Some(i) = n.as_i64() {
-                        Ok(serde_json::json!(-i))
-                    } else if let Some(f) = n.as_f64() {
-                        Ok(serde_json::json!(-f))
-                    } else {
-                        Ok(Value::Null)
-                    }
+        UnOp::Neg => match val {
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Ok(serde_json::json!(-i))
+                } else if let Some(f) = n.as_f64() {
+                    Ok(serde_json::json!(-f))
+                } else {
+                    Ok(Value::Null)
                 }
-                _ => Ok(Value::Null),
             }
-        }
+            _ => Ok(Value::Null),
+        },
     }
 }
 
@@ -823,9 +805,7 @@ fn eval_function(name: &str, args: &[Expr], bindings: &BindingRow) -> Result<Val
             }
             let val = eval_expr(&args[0], bindings)?;
             match val {
-                Value::Object(ref map) => {
-                    Ok(map.get("edge_type").cloned().unwrap_or(Value::Null))
-                }
+                Value::Object(ref map) => Ok(map.get("edge_type").cloned().unwrap_or(Value::Null)),
                 _ => Ok(Value::Null),
             }
         }
@@ -979,9 +959,7 @@ fn eval_arithmetic(
             }
         }
         // String concatenation for Add.
-        (Value::String(a), Value::String(b)) => {
-            Ok(Value::String(format!("{}{}", a, b)))
-        }
+        (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
         _ => Ok(Value::Null),
     }
 }
@@ -991,7 +969,9 @@ fn properties_match(actual: &Value, required: &Value) -> bool {
     match (actual, required) {
         (Value::Object(actual_map), Value::Object(req_map)) => {
             req_map.iter().all(|(key, req_val)| {
-                actual_map.get(key).is_some_and(|actual_val| actual_val == req_val)
+                actual_map
+                    .get(key)
+                    .is_some_and(|actual_val| actual_val == req_val)
             })
         }
         _ => false,
@@ -1035,7 +1015,10 @@ fn expr_to_string(expr: &Expr) -> String {
 fn is_aggregate(expr: &Expr) -> bool {
     match expr {
         Expr::FunctionCall(name, _) => {
-            matches!(name.to_lowercase().as_str(), "count" | "sum" | "avg" | "min" | "max")
+            matches!(
+                name.to_lowercase().as_str(),
+                "count" | "sum" | "avg" | "min" | "max"
+            )
         }
         _ => false,
     }
@@ -1057,9 +1040,7 @@ fn eval_aggregate(expr: &Expr, bindings: &[BindingRow]) -> Value {
                         let count = bindings
                             .iter()
                             .filter(|row| {
-                                eval_expr(&args[0], row)
-                                    .ok()
-                                    .is_some_and(|v| !v.is_null())
+                                eval_expr(&args[0], row).ok().is_some_and(|v| !v.is_null())
                             })
                             .count();
                         serde_json::json!(count as i64)
@@ -1072,15 +1053,14 @@ fn eval_aggregate(expr: &Expr, bindings: &[BindingRow]) -> Value {
     }
 }
 
-
 // ─────────────────────────────── Tests ──────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::RwLock;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use parking_lot::RwLock;
 
     // ── In-memory GraphOps for testing ──────────────────────────────────
     //
@@ -1114,7 +1094,12 @@ mod tests {
             embedding: Option<Vec<f32>>,
         ) -> Result<NodeId> {
             let id = NodeId(self.next_node_id.fetch_add(1, Ordering::Relaxed));
-            let node = Node { id, labels, properties, embedding };
+            let node = Node {
+                id,
+                labels,
+                properties,
+                embedding,
+            };
             self.nodes.write().insert(id, node);
             Ok(id)
         }
@@ -1137,8 +1122,16 @@ mod tests {
             }
             let id = EdgeId(self.next_edge_id.fetch_add(1, Ordering::Relaxed));
             let edge = Edge {
-                id, source, target, edge_type, properties, weight,
-                validity: ValidityInterval { valid_from, valid_to },
+                id,
+                source,
+                target,
+                edge_type,
+                properties,
+                weight,
+                validity: ValidityInterval {
+                    valid_from,
+                    valid_to,
+                },
             };
             self.edges.write().insert(id, edge);
             Ok(id)
@@ -1180,7 +1173,9 @@ mod tests {
 
         fn delete_node(&self, id: NodeId) -> Result<()> {
             // Delete connected edges first.
-            let edge_ids: Vec<EdgeId> = self.edges.read()
+            let edge_ids: Vec<EdgeId> = self
+                .edges
+                .read()
                 .values()
                 .filter(|e| e.source == id || e.target == id)
                 .map(|e| e.id)
@@ -1197,16 +1192,25 @@ mod tests {
             Ok(())
         }
 
-        fn neighbors(&self, node_id: NodeId, direction: Direction) -> Result<Vec<(EdgeId, NodeId)>> {
+        fn neighbors(
+            &self,
+            node_id: NodeId,
+            direction: Direction,
+        ) -> Result<Vec<(EdgeId, NodeId)>> {
             let edges = self.edges.read();
-            Ok(edges.values()
+            Ok(edges
+                .values()
                 .filter(|e| match direction {
                     Direction::Outgoing => e.source == node_id,
                     Direction::Incoming => e.target == node_id,
                     Direction::Both => e.source == node_id || e.target == node_id,
                 })
                 .map(|e| {
-                    let neighbor = if e.source == node_id { e.target } else { e.source };
+                    let neighbor = if e.source == node_id {
+                        e.target
+                    } else {
+                        e.source
+                    };
                     (e.id, neighbor)
                 })
                 .collect())
@@ -1219,16 +1223,22 @@ mod tests {
             edge_type: &str,
         ) -> Result<Vec<(EdgeId, NodeId)>> {
             let edges = self.edges.read();
-            Ok(edges.values()
+            Ok(edges
+                .values()
                 .filter(|e| {
-                    e.edge_type == edge_type && match direction {
-                        Direction::Outgoing => e.source == node_id,
-                        Direction::Incoming => e.target == node_id,
-                        Direction::Both => e.source == node_id || e.target == node_id,
-                    }
+                    e.edge_type == edge_type
+                        && match direction {
+                            Direction::Outgoing => e.source == node_id,
+                            Direction::Incoming => e.target == node_id,
+                            Direction::Both => e.source == node_id || e.target == node_id,
+                        }
                 })
                 .map(|e| {
-                    let neighbor = if e.source == node_id { e.target } else { e.source };
+                    let neighbor = if e.source == node_id {
+                        e.target
+                    } else {
+                        e.source
+                    };
                     (e.id, neighbor)
                 })
                 .collect())
@@ -1260,7 +1270,8 @@ mod tests {
                 // Convention: empty label returns all node IDs.
                 Ok(nodes.keys().copied().collect())
             } else {
-                Ok(nodes.values()
+                Ok(nodes
+                    .values()
                     .filter(|n| n.labels.contains(&label.to_string()))
                     .map(|n| n.id)
                     .collect())
@@ -1278,49 +1289,78 @@ mod tests {
         // Carol: Person, age 28
         // Acme:  Company
 
-        graph.create_node(
-            vec!["Person".into()],
-            serde_json::json!({"name": "Alice", "age": 25}),
-            None,
-        ).unwrap();
+        graph
+            .create_node(
+                vec!["Person".into()],
+                serde_json::json!({"name": "Alice", "age": 25}),
+                None,
+            )
+            .unwrap();
 
-        graph.create_node(
-            vec!["Person".into()],
-            serde_json::json!({"name": "Bob", "age": 35}),
-            None,
-        ).unwrap();
+        graph
+            .create_node(
+                vec!["Person".into()],
+                serde_json::json!({"name": "Bob", "age": 35}),
+                None,
+            )
+            .unwrap();
 
-        graph.create_node(
-            vec!["Person".into()],
-            serde_json::json!({"name": "Carol", "age": 28}),
-            None,
-        ).unwrap();
+        graph
+            .create_node(
+                vec!["Person".into()],
+                serde_json::json!({"name": "Carol", "age": 28}),
+                None,
+            )
+            .unwrap();
 
-        graph.create_node(
-            vec!["Company".into()],
-            serde_json::json!({"name": "Acme", "founded": 1990}),
-            None,
-        ).unwrap();
+        graph
+            .create_node(
+                vec!["Company".into()],
+                serde_json::json!({"name": "Acme", "founded": 1990}),
+                None,
+            )
+            .unwrap();
 
         // Create edges:
         // Alice -[KNOWS]-> Bob
         // Bob -[KNOWS]-> Carol
         // Alice -[WORKS_AT]-> Acme
 
-        graph.create_edge(
-            NodeId(1), NodeId(2), "KNOWS".into(),
-            serde_json::json!({"since": 2020}), 1.0, None, None,
-        ).unwrap();
+        graph
+            .create_edge(
+                NodeId(1),
+                NodeId(2),
+                "KNOWS".into(),
+                serde_json::json!({"since": 2020}),
+                1.0,
+                None,
+                None,
+            )
+            .unwrap();
 
-        graph.create_edge(
-            NodeId(2), NodeId(3), "KNOWS".into(),
-            serde_json::json!({"since": 2021}), 1.0, None, None,
-        ).unwrap();
+        graph
+            .create_edge(
+                NodeId(2),
+                NodeId(3),
+                "KNOWS".into(),
+                serde_json::json!({"since": 2021}),
+                1.0,
+                None,
+                None,
+            )
+            .unwrap();
 
-        graph.create_edge(
-            NodeId(1), NodeId(4), "WORKS_AT".into(),
-            serde_json::json!({}), 1.0, None, None,
-        ).unwrap();
+        graph
+            .create_edge(
+                NodeId(1),
+                NodeId(4),
+                "WORKS_AT".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
+            .unwrap();
 
         let executor = Executor::new(graph.clone() as Arc<dyn GraphOps>);
         (graph, executor)
@@ -1351,7 +1391,9 @@ mod tests {
         assert_eq!(result.columns, vec!["n.name"]);
         assert_eq!(result.rows.len(), 3); // Alice, Bob, Carol
 
-        let names: Vec<&str> = result.rows.iter()
+        let names: Vec<&str> = result
+            .rows
+            .iter()
             .filter_map(|row| row[0].as_str())
             .collect();
         assert!(names.contains(&"Alice"));
@@ -1385,7 +1427,9 @@ mod tests {
         assert_eq!(result.columns, vec!["a.name", "b.name"]);
         assert_eq!(result.rows.len(), 2); // Alice->Bob, Bob->Carol
 
-        let pairs: Vec<(String, String)> = result.rows.iter()
+        let pairs: Vec<(String, String)> = result
+            .rows
+            .iter()
             .map(|row| {
                 (
                     row[0].as_str().unwrap().to_string(),
@@ -1400,10 +1444,7 @@ mod tests {
     #[test]
     fn test_match_where_filter() {
         let (_graph, executor) = setup_test_graph();
-        let result = run_query(
-            &executor,
-            "MATCH (n:Person) WHERE n.age > 30 RETURN n.name",
-        );
+        let result = run_query(&executor, "MATCH (n:Person) WHERE n.age > 30 RETURN n.name");
 
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0][0], "Bob");
@@ -1418,7 +1459,9 @@ mod tests {
         );
 
         assert_eq!(result.rows.len(), 2); // Alice (25), Carol (28)
-        let names: Vec<&str> = result.rows.iter()
+        let names: Vec<&str> = result
+            .rows
+            .iter()
             .filter_map(|row| row[0].as_str())
             .collect();
         assert!(names.contains(&"Alice"));
@@ -1430,10 +1473,7 @@ mod tests {
         let (_graph, executor) = setup_test_graph();
         // All persons have the same label "Person", so DISTINCT on labels
         // should yield one row.
-        let result = run_query(
-            &executor,
-            "MATCH (n:Person) RETURN DISTINCT labels(n)",
-        );
+        let result = run_query(&executor, "MATCH (n:Person) RETURN DISTINCT labels(n)");
 
         assert_eq!(result.rows.len(), 1);
     }
@@ -1441,10 +1481,7 @@ mod tests {
     #[test]
     fn test_match_order_by_asc() {
         let (_graph, executor) = setup_test_graph();
-        let result = run_query(
-            &executor,
-            "MATCH (n:Person) RETURN n.name ORDER BY n.name",
-        );
+        let result = run_query(&executor, "MATCH (n:Person) RETURN n.name ORDER BY n.name");
 
         assert_eq!(result.rows.len(), 3);
         assert_eq!(result.rows[0][0], "Alice");
@@ -1507,10 +1544,7 @@ mod tests {
     #[test]
     fn test_match_count_aggregate() {
         let (_graph, executor) = setup_test_graph();
-        let result = run_query(
-            &executor,
-            "MATCH (n:Person) RETURN count(n)",
-        );
+        let result = run_query(&executor, "MATCH (n:Person) RETURN count(n)");
 
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0][0], 3);
@@ -1519,10 +1553,7 @@ mod tests {
     #[test]
     fn test_match_with_alias() {
         let (_graph, executor) = setup_test_graph();
-        let result = run_query(
-            &executor,
-            "MATCH (n:Person) RETURN n.name AS person_name",
-        );
+        let result = run_query(&executor, "MATCH (n:Person) RETURN n.name AS person_name");
 
         assert_eq!(result.columns, vec!["person_name"]);
         assert_eq!(result.rows.len(), 3);
@@ -1546,10 +1577,7 @@ mod tests {
     #[test]
     fn test_match_labels_function() {
         let (_graph, executor) = setup_test_graph();
-        let result = run_query(
-            &executor,
-            "MATCH (n:Company) RETURN labels(n)",
-        );
+        let result = run_query(&executor, "MATCH (n:Company) RETURN labels(n)");
 
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0][0], serde_json::json!(["Company"]));
@@ -1577,7 +1605,8 @@ mod tests {
         let (graph, executor) = setup_test_graph();
         let stmt = crate::parse(
             r#"CREATE (a:Person {name: "Dave"})-[:FRIENDS_WITH]->(b:Person {name: "Eve"})"#,
-        ).unwrap();
+        )
+        .unwrap();
         let result = executor.execute(stmt).unwrap();
 
         assert_eq!(result.stats.nodes_created, 2);
@@ -1735,7 +1764,10 @@ mod tests {
         assert_eq!(eval_expr(&expr_y, &bindings).unwrap(), Value::Bool(false));
 
         let expr_y_not_null = Expr::IsNotNull(Box::new(Expr::Variable("y".into())));
-        assert_eq!(eval_expr(&expr_y_not_null, &bindings).unwrap(), Value::Bool(true));
+        assert_eq!(
+            eval_expr(&expr_y_not_null, &bindings).unwrap(),
+            Value::Bool(true)
+        );
     }
 
     #[test]
@@ -1765,7 +1797,10 @@ mod tests {
         assert_eq!(eval_expr(&expr, &bindings).unwrap(), serde_json::json!(-5));
 
         let expr = Expr::UnaryOp(UnOp::Neg, Box::new(Expr::Literal(Literal::Float(3.14))));
-        assert_eq!(eval_expr(&expr, &bindings).unwrap(), serde_json::json!(-3.14));
+        assert_eq!(
+            eval_expr(&expr, &bindings).unwrap(),
+            serde_json::json!(-3.14)
+        );
     }
 
     #[test]
@@ -1791,7 +1826,9 @@ mod tests {
         // Alice->Bob, Bob->Carol => Bob has incoming from Alice, Carol has incoming from Bob
         assert_eq!(result.rows.len(), 2);
 
-        let pairs: Vec<(String, String)> = result.rows.iter()
+        let pairs: Vec<(String, String)> = result
+            .rows
+            .iter()
             .map(|row| {
                 (
                     row[0].as_str().unwrap().to_string(),

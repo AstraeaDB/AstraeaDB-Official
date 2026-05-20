@@ -1,10 +1,10 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rand::Rng;
 
 use astraea_core::traits::{GraphOps, StorageEngine};
 use astraea_core::types::*;
-use astraea_graph::test_utils::InMemoryStorage;
 use astraea_graph::Graph;
+use astraea_graph::test_utils::InMemoryStorage;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -56,11 +56,7 @@ fn build_random_graph(node_count: u64, avg_degree: u64) -> (Graph, Vec<NodeId>) 
     }
 
     // Build the Graph with starting IDs beyond what we used.
-    let graph = Graph::with_start_ids(
-        Box::new(storage),
-        node_count + 1,
-        edge_count + 1,
-    );
+    let graph = Graph::with_start_ids(Box::new(storage), node_count + 1, edge_count + 1);
     (graph, node_ids)
 }
 
@@ -99,11 +95,7 @@ fn build_graph_with_hub(hub_degree: u64) -> (Graph, NodeId) {
         storage.put_edge(&edge).unwrap();
     }
 
-    let graph = Graph::with_start_ids(
-        Box::new(storage),
-        hub_degree + 2,
-        hub_degree + 1,
-    );
+    let graph = Graph::with_start_ids(Box::new(storage), hub_degree + 2, hub_degree + 1);
     (graph, NodeId(1))
 }
 

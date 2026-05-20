@@ -129,11 +129,8 @@ impl NodeRecordHeader {
 
     /// Read a record header from the buffer at the given offset.
     pub fn read_from(buf: &[u8; PAGE_SIZE], offset: usize) -> Self {
-        let node_id = u64::from_le_bytes(
-            buf[offset..offset + 8]
-                .try_into()
-                .expect("slice len == 8"),
-        );
+        let node_id =
+            u64::from_le_bytes(buf[offset..offset + 8].try_into().expect("slice len == 8"));
         let data_len = u32::from_le_bytes(
             buf[offset + 8..offset + 12]
                 .try_into()

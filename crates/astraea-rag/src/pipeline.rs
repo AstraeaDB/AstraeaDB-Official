@@ -82,9 +82,7 @@ pub fn graph_rag_query(
     let search_results = vector_index.search(question_embedding, 1)?;
     let anchor = search_results
         .first()
-        .ok_or_else(|| {
-            AstraeaError::QueryExecution("vector search returned no results".into())
-        })?
+        .ok_or_else(|| AstraeaError::QueryExecution("vector search returned no results".into()))?
         .node_id;
 
     // Delegate to the anchored version.
@@ -190,8 +188,8 @@ mod tests {
     use crate::llm::MockProvider;
     use astraea_core::traits::GraphOps;
     use astraea_core::types::DistanceMetric;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_vector::HnswVectorIndex;
     use std::sync::Arc;
 
@@ -301,14 +299,9 @@ mod tests {
 
         let config = GraphRagConfig::default();
 
-        let result = graph_rag_query_anchored(
-            &graph,
-            &mock,
-            "Tell me about Bob",
-            NodeId(2),
-            &config,
-        )
-        .unwrap();
+        let result =
+            graph_rag_query_anchored(&graph, &mock, "Tell me about Bob", NodeId(2), &config)
+                .unwrap();
 
         assert_eq!(result.anchor_node_id, NodeId(2));
         assert!(result.answer.starts_with("Anchored:"));
@@ -344,14 +337,7 @@ mod tests {
             system_prompt: None,
         };
 
-        let result = graph_rag_query_anchored(
-            &graph,
-            &mock,
-            "Q",
-            NodeId(1),
-            &config,
-        )
-        .unwrap();
+        let result = graph_rag_query_anchored(&graph, &mock, "Q", NodeId(1), &config).unwrap();
 
         // With a tight budget, should have fewer nodes than the full graph.
         // The exact count depends on linearization, but it should be capped.

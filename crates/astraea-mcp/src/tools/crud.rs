@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use astraea_server::protocol::Request;
 
@@ -177,10 +177,7 @@ pub async fn create_node(client: &ProxyClient, args: Value) -> Result<CallToolRe
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .ok_or_else(|| McpError::InvalidParams("missing required field: labels".into()))?;
 
-    let properties = args
-        .get("properties")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let properties = args.get("properties").cloned().unwrap_or_else(|| json!({}));
 
     let embedding: Option<Vec<f32>> = args
         .get("embedding")
@@ -215,15 +212,9 @@ pub async fn create_edge(client: &ProxyClient, args: Value) -> Result<CallToolRe
         .ok_or_else(|| McpError::InvalidParams("missing required field: edge_type".into()))?
         .to_string();
 
-    let properties = args
-        .get("properties")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let properties = args.get("properties").cloned().unwrap_or_else(|| json!({}));
 
-    let weight = args
-        .get("weight")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(1.0);
+    let weight = args.get("weight").and_then(|v| v.as_f64()).unwrap_or(1.0);
 
     let valid_from: Option<i64> = args.get("valid_from").and_then(|v| v.as_i64());
 

@@ -473,7 +473,11 @@ impl HnswIndex {
             });
         }
 
-        while let Some(Candidate { distance: c_dist, node_id: c_id }) = candidates.pop() {
+        while let Some(Candidate {
+            distance: c_dist,
+            node_id: c_id,
+        }) = candidates.pop()
+        {
             // If the closest candidate is farther than the farthest result, stop.
             let farthest = results
                 .peek()
@@ -562,7 +566,10 @@ impl HnswIndex {
 
     /// Compute distance between a query vector and a stored node's vector.
     fn distance(&self, query: &[f32], node_id: NodeId) -> Result<f32> {
-        let v = self.vectors.get(&node_id).ok_or(AstraeaError::NoEmbedding(node_id))?;
+        let v = self
+            .vectors
+            .get(&node_id)
+            .ok_or(AstraeaError::NoEmbedding(node_id))?;
         compute_distance(self.metric, query, v)
     }
 
@@ -613,7 +620,10 @@ mod tests {
         let results = idx.search(&[1.0, 2.0, 3.0], 5, 50).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, NodeId(1));
-        assert!(results[0].1 < 1e-6, "distance to identical vector should be ~0");
+        assert!(
+            results[0].1 < 1e-6,
+            "distance to identical vector should be ~0"
+        );
     }
 
     #[test]
@@ -712,10 +722,7 @@ mod tests {
 
         // Check recall: at least 4 of 5 should match.
         let recall: usize = hnsw_top_k.iter().filter(|id| bf_top_k.contains(id)).count();
-        assert!(
-            recall >= 4,
-            "recall should be at least 4/5, got {recall}/5"
-        );
+        assert!(recall >= 4, "recall should be at least 4/5, got {recall}/5");
     }
 
     #[test]
@@ -725,8 +732,7 @@ mod tests {
         let build = || {
             let mut idx = HnswIndex::with_seed(4, DistanceMetric::Euclidean, 16, 200, 42);
             for i in 1..=25u64 {
-                let v: Vec<f32> =
-                    vec![(i as f32).sin(), (i as f32).cos(), i as f32 * 0.1, 0.5];
+                let v: Vec<f32> = vec![(i as f32).sin(), (i as f32).cos(), i as f32 * 0.1, 0.5];
                 idx.insert(NodeId(i), &v).unwrap();
             }
             idx

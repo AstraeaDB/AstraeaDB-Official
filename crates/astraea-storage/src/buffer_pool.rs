@@ -152,10 +152,7 @@ impl BufferPool {
             hot_pages: RwLock::new(HashSet::new()),
         });
 
-        Self {
-            inner,
-            page_io,
-        }
+        Self { inner, page_io }
     }
 
     /// Pin a page, loading it from disk if not already cached.
@@ -549,7 +546,7 @@ impl BufferPool {
 mod tests {
     use super::*;
     use crate::file_manager::FileManager;
-    use crate::page::{init_page, PageType};
+    use crate::page::{PageType, init_page};
     use tempfile::NamedTempFile;
 
     fn make_pool(capacity: usize) -> (BufferPool, Arc<FileManager>) {
@@ -637,10 +634,7 @@ mod tests {
     // ---- Pointer Swizzling Tests ----
 
     /// Helper: create a pool with a custom swizzle threshold.
-    fn make_pool_with_threshold(
-        capacity: usize,
-        threshold: u64,
-    ) -> (BufferPool, Arc<FileManager>) {
+    fn make_pool_with_threshold(capacity: usize, threshold: u64) -> (BufferPool, Arc<FileManager>) {
         let tmp = NamedTempFile::new().unwrap();
         let fm = Arc::new(FileManager::new(tmp.path()).unwrap());
         let mut pool = BufferPool::new(Arc::clone(&fm) as Arc<dyn PageIO>, capacity);
@@ -774,7 +768,11 @@ mod tests {
 
         // p0 should STILL be in the pool with its original data.
         let g0_final = pool.pin_page(p0).unwrap();
-        assert_eq!(g0_final.data()[0], 0xAA, "swizzled page p0 must not be evicted");
+        assert_eq!(
+            g0_final.data()[0],
+            0xAA,
+            "swizzled page p0 must not be evicted"
+        );
         pool.unpin_page(p0, false).unwrap();
     }
 
@@ -828,7 +826,8 @@ mod tests {
         // it from disk.
         let g0_again = pool.pin_page(p0).unwrap();
         assert_eq!(
-            g0_again.data()[0], 0xAA,
+            g0_again.data()[0],
+            0xAA,
             "p0 should be reloaded from disk after eviction"
         );
         pool.unpin_page(p0, false).unwrap();

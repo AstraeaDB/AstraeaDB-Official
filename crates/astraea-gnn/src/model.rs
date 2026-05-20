@@ -69,7 +69,14 @@ impl GNNModel {
         activation: Activation,
     ) -> Self {
         let mut rng = rand::thread_rng();
-        Self::new_with_rng(input_dim, hidden_dim, num_classes, num_layers, activation, &mut rng)
+        Self::new_with_rng(
+            input_dim,
+            hidden_dim,
+            num_classes,
+            num_layers,
+            activation,
+            &mut rng,
+        )
     }
 
     /// Create a new model with Xavier-initialized weights using a provided RNG.
@@ -94,7 +101,11 @@ impl GNNModel {
             });
         }
 
-        let head_input = if num_layers == 0 { input_dim } else { hidden_dim };
+        let head_input = if num_layers == 0 {
+            input_dim
+        } else {
+            hidden_dim
+        };
         let head = ClassificationHead {
             w_out: Matrix::random_xavier(num_classes, head_input, rng),
             b_out: Tensor::zeros(num_classes, false),
@@ -279,7 +290,10 @@ pub fn compute_loss_from_logits(
             let logit_len = logit.data.len().min(num_classes);
             let logits_slice = &logit.data[..logit_len];
 
-            let max_logit = logits_slice.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let max_logit = logits_slice
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
             let exp_logits: Vec<f32> = logits_slice.iter().map(|x| (x - max_logit).exp()).collect();
             let sum_exp: f32 = exp_logits.iter().sum();
 
@@ -301,8 +315,8 @@ pub fn compute_loss_from_logits(
 mod tests {
     use super::*;
     use crate::message_passing::MessagePassingConfig;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     fn make_test_graph() -> (Graph, NodeId, NodeId, NodeId, NodeId) {
         let graph = Graph::new(Box::new(InMemoryStorage::new()));
@@ -335,13 +349,37 @@ mod tests {
             )
             .unwrap();
         graph
-            .create_edge(a, b, "SIMILAR".into(), serde_json::json!({}), 2.0, None, None)
+            .create_edge(
+                a,
+                b,
+                "SIMILAR".into(),
+                serde_json::json!({}),
+                2.0,
+                None,
+                None,
+            )
             .unwrap();
         graph
-            .create_edge(c, d, "SIMILAR".into(), serde_json::json!({}), 2.0, None, None)
+            .create_edge(
+                c,
+                d,
+                "SIMILAR".into(),
+                serde_json::json!({}),
+                2.0,
+                None,
+                None,
+            )
             .unwrap();
         graph
-            .create_edge(b, c, "BRIDGE".into(), serde_json::json!({}), 0.1, None, None)
+            .create_edge(
+                b,
+                c,
+                "BRIDGE".into(),
+                serde_json::json!({}),
+                0.1,
+                None,
+                None,
+            )
             .unwrap();
         (graph, a, b, c, d)
     }
@@ -378,7 +416,8 @@ mod tests {
         let mp_config = MessagePassingConfig::default();
         let edge_weights = HashMap::new(); // will use default 1.0
 
-        let (logits, cache) = forward(&model, &graph, &features, &edge_weights, &mp_config).unwrap();
+        let (logits, cache) =
+            forward(&model, &graph, &features, &edge_weights, &mp_config).unwrap();
 
         // Each node should have 2 logits (num_classes = 2).
         for &node in &[a, b, c, d] {

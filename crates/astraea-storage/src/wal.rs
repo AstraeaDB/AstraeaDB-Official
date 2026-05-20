@@ -85,8 +85,8 @@ impl WalWriter {
     ///
     /// Format: [length: u32][record_type: u8][payload bytes][crc32: u32]
     pub fn append(&self, record: &WalRecord) -> Result<Lsn> {
-        let payload = serde_json::to_vec(record)
-            .map_err(|e| AstraeaError::Serialization(e.to_string()))?;
+        let payload =
+            serde_json::to_vec(record).map_err(|e| AstraeaError::Serialization(e.to_string()))?;
 
         let record_type = record.record_type_byte();
         // Total length = 1 (type) + payload
@@ -281,7 +281,7 @@ fn sibling_tmp(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use astraea_core::types::{ValidityInterval};
+    use astraea_core::types::ValidityInterval;
     use tempfile::NamedTempFile;
 
     fn make_test_node(id: u64) -> Node {
@@ -311,8 +311,12 @@ mod tests {
         let path = tmp.path().to_path_buf();
 
         let writer = WalWriter::new(&path).unwrap();
-        let lsn0 = writer.append(&WalRecord::InsertNode(make_test_node(1))).unwrap();
-        let lsn1 = writer.append(&WalRecord::InsertEdge(make_test_edge(10))).unwrap();
+        let lsn0 = writer
+            .append(&WalRecord::InsertNode(make_test_node(1)))
+            .unwrap();
+        let lsn1 = writer
+            .append(&WalRecord::InsertEdge(make_test_edge(10)))
+            .unwrap();
         let _lsn2 = writer.append(&WalRecord::DeleteNode(NodeId(1))).unwrap();
 
         assert_eq!(lsn0, Lsn(0));
@@ -335,9 +339,15 @@ mod tests {
         let path = tmp.path().to_path_buf();
 
         let writer = WalWriter::new(&path).unwrap();
-        let _lsn0 = writer.append(&WalRecord::InsertNode(make_test_node(1))).unwrap();
-        let lsn1 = writer.append(&WalRecord::InsertNode(make_test_node(2))).unwrap();
-        let _lsn2 = writer.append(&WalRecord::InsertNode(make_test_node(3))).unwrap();
+        let _lsn0 = writer
+            .append(&WalRecord::InsertNode(make_test_node(1)))
+            .unwrap();
+        let lsn1 = writer
+            .append(&WalRecord::InsertNode(make_test_node(2)))
+            .unwrap();
+        let _lsn2 = writer
+            .append(&WalRecord::InsertNode(make_test_node(3)))
+            .unwrap();
 
         // Read from lsn1 onward — should get 2 records.
         let reader = WalReader::new(&path);
@@ -351,9 +361,15 @@ mod tests {
         let path = tmp.path().to_path_buf();
 
         let writer = WalWriter::new(&path).unwrap();
-        let _lsn0 = writer.append(&WalRecord::InsertNode(make_test_node(1))).unwrap();
-        let lsn1 = writer.append(&WalRecord::InsertNode(make_test_node(2))).unwrap();
-        let _lsn2 = writer.append(&WalRecord::InsertNode(make_test_node(3))).unwrap();
+        let _lsn0 = writer
+            .append(&WalRecord::InsertNode(make_test_node(1)))
+            .unwrap();
+        let lsn1 = writer
+            .append(&WalRecord::InsertNode(make_test_node(2)))
+            .unwrap();
+        let _lsn2 = writer
+            .append(&WalRecord::InsertNode(make_test_node(3)))
+            .unwrap();
         drop(writer);
 
         // Truncate everything before lsn1.
@@ -366,7 +382,10 @@ mod tests {
 
         // No stale sibling file left behind.
         let tmp_path = sibling_tmp(&path);
-        assert!(!tmp_path.exists(), "sibling tmp should be gone after truncate");
+        assert!(
+            !tmp_path.exists(),
+            "sibling tmp should be gone after truncate"
+        );
     }
 
     #[test]
@@ -378,8 +397,12 @@ mod tests {
         let tmp_path = sibling_tmp(&path);
 
         let writer = WalWriter::new(&path).unwrap();
-        let lsn0 = writer.append(&WalRecord::InsertNode(make_test_node(1))).unwrap();
-        writer.append(&WalRecord::InsertNode(make_test_node(2))).unwrap();
+        let lsn0 = writer
+            .append(&WalRecord::InsertNode(make_test_node(1)))
+            .unwrap();
+        writer
+            .append(&WalRecord::InsertNode(make_test_node(2)))
+            .unwrap();
         drop(writer);
 
         // Create a stale sibling file that would break create_new without cleanup.
@@ -391,7 +414,11 @@ mod tests {
 
         let reader = WalReader::new(&path);
         let records = reader.read_from(Lsn(0)).unwrap();
-        assert_eq!(records.len(), 2, "both records still present after truncate at lsn0");
+        assert_eq!(
+            records.len(),
+            2,
+            "both records still present after truncate at lsn0"
+        );
     }
 
     #[test]
@@ -404,7 +431,9 @@ mod tests {
         let path = tmp.path().to_path_buf();
         let writer = WalWriter::new(&path).unwrap();
         for i in 0..5 {
-            writer.append(&WalRecord::InsertNode(make_test_node(i))).unwrap();
+            writer
+                .append(&WalRecord::InsertNode(make_test_node(i)))
+                .unwrap();
             // Open a fresh reader without dropping the writer — this proves
             // every record is already on disk, not just in the writer's buffer.
             let reader = WalReader::new(&path);

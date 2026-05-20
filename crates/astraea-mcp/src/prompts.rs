@@ -39,7 +39,9 @@ pub fn definitions() -> Vec<PromptDefinition> {
     vec![
         PromptDefinition {
             name: "analyze-node".to_string(),
-            description: "Analyze a node: describe its properties, connections, and role in the graph.".to_string(),
+            description:
+                "Analyze a node: describe its properties, connections, and role in the graph."
+                    .to_string(),
             arguments: vec![PromptArgument {
                 name: "node_id".to_string(),
                 description: "The ID of the node to analyze.".to_string(),
@@ -64,7 +66,8 @@ pub fn definitions() -> Vec<PromptDefinition> {
         },
         PromptDefinition {
             name: "explore-community".to_string(),
-            description: "Run community detection and describe the community containing a node.".to_string(),
+            description: "Run community detection and describe the community containing a node."
+                .to_string(),
             arguments: vec![PromptArgument {
                 name: "node_id".to_string(),
                 description: "The ID of a node whose community to explore.".to_string(),
@@ -73,12 +76,15 @@ pub fn definitions() -> Vec<PromptDefinition> {
         },
         PromptDefinition {
             name: "summarize-graph".to_string(),
-            description: "Provide a high-level summary of the graph: size, key labels, and structure.".to_string(),
+            description:
+                "Provide a high-level summary of the graph: size, key labels, and structure."
+                    .to_string(),
             arguments: vec![],
         },
         PromptDefinition {
             name: "temporal-diff".to_string(),
-            description: "Compare the neighborhood of a node at two different points in time.".to_string(),
+            description: "Compare the neighborhood of a node at two different points in time."
+                .to_string(),
             arguments: vec![
                 PromptArgument {
                     name: "node_id".to_string(),
@@ -99,7 +105,8 @@ pub fn definitions() -> Vec<PromptDefinition> {
         },
         PromptDefinition {
             name: "rag-query".to_string(),
-            description: "Answer a question using graph-augmented retrieval (GraphRAG).".to_string(),
+            description: "Answer a question using graph-augmented retrieval (GraphRAG)."
+                .to_string(),
             arguments: vec![PromptArgument {
                 name: "question".to_string(),
                 description: "The natural language question to answer.".to_string(),

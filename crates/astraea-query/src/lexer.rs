@@ -187,8 +187,8 @@ impl Lexer {
         }
 
         // check for fractional part
-        let is_float = self.peek() == Some('.')
-            && self.peek_next().is_some_and(|c| c.is_ascii_digit());
+        let is_float =
+            self.peek() == Some('.') && self.peek_next().is_some_and(|c| c.is_ascii_digit());
 
         if is_float {
             self.advance(); // consume '.'
@@ -289,7 +289,10 @@ mod tests {
     #[test]
     fn test_keywords_case_insensitive() {
         let toks = tokens("MATCH match Match");
-        assert_eq!(toks, vec![Token::Match, Token::Match, Token::Match, Token::Eof]);
+        assert_eq!(
+            toks,
+            vec![Token::Match, Token::Match, Token::Match, Token::Eof]
+        );
     }
 
     #[test]
@@ -328,7 +331,7 @@ mod tests {
             vec![
                 Token::LeftParen,
                 Token::RightParen,
-                Token::Arrow,        // ->
+                Token::Arrow, // ->
                 Token::LeftBracket,
                 Token::RightBracket,
                 Token::LeftBrace,

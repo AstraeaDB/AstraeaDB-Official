@@ -10,8 +10,8 @@
 //! See also [`crate::embedding`] for the [`EmbeddingProvider`](crate::embedding::EmbeddingProvider)
 //! trait and the [`OllamaProvider`] embedding implementation.
 
-use astraea_core::error::{AstraeaError, Result};
 use crate::embedding::EmbeddingProvider;
+use astraea_core::error::{AstraeaError, Result};
 
 /// Configuration for an LLM provider.
 #[derive(Debug, Clone)]
@@ -196,7 +196,10 @@ impl LlmProvider for OpenAiProvider {
             )
         })?;
 
-        let url = format!("{}/chat/completions", self.config.endpoint.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            self.config.endpoint.trim_end_matches('/')
+        );
         let body = self.build_request(prompt, context);
         let response_body = http_fn(&url, &body)?;
         Self::parse_response(&response_body)
@@ -278,9 +281,7 @@ impl AnthropicProvider {
             .as_str()
             .map(|s| s.to_string())
             .ok_or_else(|| {
-                AstraeaError::QueryExecution(
-                    "Anthropic response missing content[0].text".into(),
-                )
+                AstraeaError::QueryExecution("Anthropic response missing content[0].text".into())
             })
     }
 }
@@ -476,7 +477,10 @@ impl LlmProvider for OllamaProvider {
             )
         })?;
 
-        let url = format!("{}/api/generate", self.config.endpoint.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/generate",
+            self.config.endpoint.trim_end_matches('/')
+        );
         let body = self.build_request(prompt, context);
         let response_body = http_fn(&url, &body)?;
         Self::parse_response(&response_body)
@@ -530,9 +534,7 @@ impl EmbeddingProvider for OllamaProvider {
         })?;
 
         let embeddings = parsed["embeddings"].as_array().ok_or_else(|| {
-            AstraeaError::QueryExecution(
-                "Ollama embed response missing 'embeddings' field".into(),
-            )
+            AstraeaError::QueryExecution("Ollama embed response missing 'embeddings' field".into())
         })?;
 
         embeddings
@@ -547,13 +549,11 @@ impl EmbeddingProvider for OllamaProvider {
                 arr.iter()
                     .enumerate()
                     .map(|(j, v)| {
-                        v.as_f64()
-                            .map(|f| f as f32)
-                            .ok_or_else(|| {
-                                AstraeaError::QueryExecution(format!(
-                                    "Ollama embed response: embeddings[{i}][{j}] is not a number"
-                                ))
-                            })
+                        v.as_f64().map(|f| f as f32).ok_or_else(|| {
+                            AstraeaError::QueryExecution(format!(
+                                "Ollama embed response: embeddings[{i}][{j}] is not a number"
+                            ))
+                        })
                     })
                     .collect::<Result<Vec<f32>>>()
             })
@@ -586,7 +586,9 @@ mod tests {
             context_window: 8000,
         };
 
-        let result = provider.complete("What is Rust?", "Rust is a language").unwrap();
+        let result = provider
+            .complete("What is Rust?", "Rust is a language")
+            .unwrap();
         assert_eq!(result, "Answer: [What is Rust?] Context had 18 chars.");
     }
 
@@ -840,8 +842,7 @@ mod tests {
             max_tokens: 100,
         };
 
-        let provider = OllamaProvider::new(config)
-            .with_embedding_dim(128);
+        let provider = OllamaProvider::new(config).with_embedding_dim(128);
         assert_eq!(provider.embedding_dim(), 128);
     }
 
@@ -856,11 +857,10 @@ mod tests {
             max_tokens: 100,
         };
 
-        let provider = OllamaProvider::new(config)
-            .with_embed_http_fn(|url, _body| {
-                assert_eq!(url, "http://my-ollama-host:8080/api/embed");
-                Ok(serde_json::json!({"embeddings": [[1.0, 2.0]]}).to_string())
-            });
+        let provider = OllamaProvider::new(config).with_embed_http_fn(|url, _body| {
+            assert_eq!(url, "http://my-ollama-host:8080/api/embed");
+            Ok(serde_json::json!({"embeddings": [[1.0, 2.0]]}).to_string())
+        });
 
         let result = provider.embed(&["test"]).unwrap();
         assert_eq!(result.len(), 1);
@@ -877,8 +877,8 @@ mod tests {
     #[test]
     #[ignore]
     fn test_ollama_embed_roundtrip() {
-        let base_url = std::env::var("OLLAMA_URL")
-            .unwrap_or_else(|_| "http://localhost:11434".to_string());
+        let base_url =
+            std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
 
         let config = LlmConfig {
             provider: ProviderType::Ollama,
@@ -905,21 +905,26 @@ mod tests {
                 let body_str = serde_json::to_string(body).unwrap();
                 let output = std::process::Command::new("curl")
                     .args([
-                        "-s", "-X", "POST", url,
-                        "-H", "Content-Type: application/json",
-                        "-d", &body_str,
+                        "-s",
+                        "-X",
+                        "POST",
+                        url,
+                        "-H",
+                        "Content-Type: application/json",
+                        "-d",
+                        &body_str,
                     ])
                     .output()
-                    .map_err(|e| {
-                        AstraeaError::QueryExecution(format!("curl failed: {e}"))
-                    })?;
+                    .map_err(|e| AstraeaError::QueryExecution(format!("curl failed: {e}")))?;
                 String::from_utf8(output.stdout).map_err(|e| {
                     AstraeaError::QueryExecution(format!("curl output not utf-8: {e}"))
                 })
             });
 
         let texts = &["The quick brown fox jumps over the lazy dog."];
-        let result = provider.embed(texts).expect("embed should succeed with live Ollama");
+        let result = provider
+            .embed(texts)
+            .expect("embed should succeed with live Ollama");
 
         assert_eq!(result.len(), 1, "one vector per input");
         assert_eq!(

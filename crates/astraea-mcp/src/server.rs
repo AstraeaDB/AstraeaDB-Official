@@ -79,10 +79,8 @@ impl McpServer {
         let client = ProxyClient::new(config.address, config.auth_token);
         // The ToolRegistry needs its own client. Since ProxyClient is cheap
         // (just holds address + token), we create a second one.
-        let tools_client = ProxyClient::new(
-            client.address().to_string(),
-            client.auth_token().cloned(),
-        );
+        let tools_client =
+            ProxyClient::new(client.address().to_string(), client.auth_token().cloned());
         let tools = ToolRegistry::new(tools_client);
 
         Self {
@@ -153,7 +151,10 @@ impl McpServer {
     }
 
     async fn dispatch(&mut self, req: &JsonRpcRequest) -> Result<Value, McpError> {
-        let params = req.params.clone().unwrap_or(Value::Object(Default::default()));
+        let params = req
+            .params
+            .clone()
+            .unwrap_or(Value::Object(Default::default()));
 
         match req.method.as_str() {
             // ----- Lifecycle -----
@@ -287,10 +288,8 @@ mod tests {
 
     #[test]
     fn json_rpc_response_success_serializes() {
-        let resp = JsonRpcResponse::success(
-            Value::Number(1.into()),
-            serde_json::json!({"status": "ok"}),
-        );
+        let resp =
+            JsonRpcResponse::success(Value::Number(1.into()), serde_json::json!({"status": "ok"}));
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"jsonrpc\":\"2.0\""));
         assert!(json.contains("\"result\""));
@@ -341,11 +340,19 @@ mod tests {
 
         // We expect at least 28 tools (8 CRUD + 4 traversal + 3 search +
         // 5 algorithm + 4 temporal + 2 RAG + 3 admin)
-        assert!(tools.len() >= 28, "expected >= 28 tools, got {}", tools.len());
+        assert!(
+            tools.len() >= 28,
+            "expected >= 28 tools, got {}",
+            tools.len()
+        );
 
         for tool in &tools {
             assert!(!tool.name.is_empty(), "tool name must not be empty");
-            assert!(!tool.description.is_empty(), "tool '{}' has empty description", tool.name);
+            assert!(
+                !tool.description.is_empty(),
+                "tool '{}' has empty description",
+                tool.name
+            );
 
             // inputSchema must be an object with "type": "object"
             let schema = &tool.input_schema;
@@ -489,7 +496,12 @@ mod tests {
         let responses = transport.responses();
 
         // Should have 6 responses (notification has no response).
-        assert_eq!(responses.len(), 6, "expected 6 responses, got {}", responses.len());
+        assert_eq!(
+            responses.len(),
+            6,
+            "expected 6 responses, got {}",
+            responses.len()
+        );
 
         // 1. Initialize response
         let init: Value = serde_json::from_str(&responses[0]).unwrap();
@@ -536,9 +548,7 @@ mod tests {
         };
         let mut server = McpServer::new(config);
 
-        let mut transport = MockTransport::new(vec![
-            "this is not json",
-        ]);
+        let mut transport = MockTransport::new(vec!["this is not json"]);
 
         server.run(&mut transport).await.unwrap();
 

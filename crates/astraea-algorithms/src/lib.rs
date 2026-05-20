@@ -12,10 +12,10 @@
 //! is single-level (flat) — not the multi-level variant. No algorithm
 //! here parallelizes across source nodes.
 
-pub mod pagerank;
-pub mod components;
 pub mod centrality;
 pub mod community;
+pub mod components;
+pub mod pagerank;
 
 #[cfg(test)]
 pub(crate) mod test_support;

@@ -4,8 +4,8 @@
 //! in a format compatible with Prometheus scraping.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 /// Collected metrics for the AstraeaDB server.

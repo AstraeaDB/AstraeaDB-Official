@@ -41,11 +41,7 @@ pub fn bfs(
 
 /// Depth-first search from `start` up to `max_depth`.
 /// Returns all discovered nodes in DFS order.
-pub fn dfs(
-    storage: &dyn StorageEngine,
-    start: NodeId,
-    max_depth: usize,
-) -> Result<Vec<NodeId>> {
+pub fn dfs(storage: &dyn StorageEngine, start: NodeId, max_depth: usize) -> Result<Vec<NodeId>> {
     let mut visited: HashSet<NodeId> = HashSet::new();
     let mut result: Vec<NodeId> = Vec::new();
     let mut stack: Vec<(NodeId, usize)> = vec![(start, 0)];
@@ -460,8 +456,7 @@ mod tests {
     fn shortest_path_unweighted_no_path() {
         let storage = build_test_graph();
         // Node 4 has no outgoing edges, so no path from 4 to 1
-        let result =
-            shortest_path_unweighted(storage.as_ref(), NodeId(4), NodeId(1)).unwrap();
+        let result = shortest_path_unweighted(storage.as_ref(), NodeId(4), NodeId(1)).unwrap();
         assert!(result.is_none());
     }
 
@@ -492,8 +487,7 @@ mod tests {
     #[test]
     fn dijkstra_no_path() {
         let storage = build_test_graph();
-        let result =
-            shortest_path_dijkstra(storage.as_ref(), NodeId(4), NodeId(1)).unwrap();
+        let result = shortest_path_dijkstra(storage.as_ref(), NodeId(4), NodeId(1)).unwrap();
         assert!(result.is_none());
     }
 
@@ -622,8 +616,8 @@ mod tests {
     fn shortest_path_at_no_path() {
         let storage = build_temporal_graph();
         // At t=250: no valid outgoing edges from node 1
-        let result = shortest_path_unweighted_at(storage.as_ref(), NodeId(1), NodeId(3), 250)
-            .unwrap();
+        let result =
+            shortest_path_unweighted_at(storage.as_ref(), NodeId(1), NodeId(3), 250).unwrap();
         assert!(result.is_none());
     }
 
@@ -632,19 +626,17 @@ mod tests {
         let storage = build_temporal_graph();
         // At t=160: edges 1->2 (w=1) and 2->3 (w=2) are valid. Edge 1->3 (w=5) is expired.
         // Only path: 1->2->3 with cost 3.0
-        let (path, cost) =
-            shortest_path_dijkstra_at(storage.as_ref(), NodeId(1), NodeId(3), 160)
-                .unwrap()
-                .unwrap();
+        let (path, cost) = shortest_path_dijkstra_at(storage.as_ref(), NodeId(1), NodeId(3), 160)
+            .unwrap()
+            .unwrap();
         assert_eq!(cost, 3.0);
         assert_eq!(path.len(), 2);
 
         // At t=100: both 1->2->3 (cost 3.0) and 1->3 (cost 5.0) available
         // But 2->3 requires t>=150, so at t=100 only 1->3 (direct) is valid for reaching 3
-        let (_, cost) =
-            shortest_path_dijkstra_at(storage.as_ref(), NodeId(1), NodeId(3), 100)
-                .unwrap()
-                .unwrap();
+        let (_, cost) = shortest_path_dijkstra_at(storage.as_ref(), NodeId(1), NodeId(3), 100)
+            .unwrap()
+            .unwrap();
         assert_eq!(cost, 5.0); // only the direct expensive edge is fully valid
     }
 }

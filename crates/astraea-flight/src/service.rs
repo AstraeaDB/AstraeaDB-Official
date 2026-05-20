@@ -12,12 +12,12 @@ use arrow::array::{
     Array, ArrayRef, Float64Array, Int64Array, RecordBatch, StringArray, UInt64Array,
 };
 use arrow_flight::{
+    Action, ActionType, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo,
+    HandshakeRequest, HandshakeResponse, PollInfo, PutResult, SchemaResult, Ticket,
     decode::FlightRecordBatchStream,
     encode::FlightDataEncoderBuilder,
     error::FlightError,
     flight_service_server::{FlightService, FlightServiceServer},
-    Action, ActionType, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo,
-    HandshakeRequest, HandshakeResponse, PollInfo, PutResult, SchemaResult, Ticket,
 };
 use futures::stream::{self, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
@@ -107,11 +107,13 @@ impl FlightService for AstraeaFlightService {
                         .rows
                         .iter()
                         .map(|row| {
-                            row.get(col_idx).map(|v| match v {
-                                serde_json::Value::Null => None,
-                                serde_json::Value::String(s) => Some(s.clone()),
-                                other => Some(other.to_string()),
-                            }).unwrap_or(None)
+                            row.get(col_idx)
+                                .map(|v| match v {
+                                    serde_json::Value::Null => None,
+                                    serde_json::Value::String(s) => Some(s.clone()),
+                                    other => Some(other.to_string()),
+                                })
+                                .unwrap_or(None)
                         })
                         .collect();
                     Arc::new(StringArray::from(values)) as ArrayRef
@@ -149,8 +151,7 @@ impl FlightService for AstraeaFlightService {
         tokio::pin!(flight_stream);
 
         while let Some(batch_result) = flight_stream.next().await {
-            let batch = batch_result
-                .map_err(|e| Status::internal(format!("decode error: {e}")))?;
+            let batch = batch_result.map_err(|e| Status::internal(format!("decode error: {e}")))?;
             let schema = batch.schema();
 
             // Detect data type by looking at schema field names.
@@ -169,11 +170,7 @@ impl FlightService for AstraeaFlightService {
             }
         }
 
-        tracing::info!(
-            nodes_created,
-            edges_created,
-            "do_put: bulk import complete"
-        );
+        tracing::info!(nodes_created, edges_created, "do_put: bulk import complete");
 
         let result = serde_json::json!({
             "nodes_created": nodes_created,
@@ -184,9 +181,9 @@ impl FlightService for AstraeaFlightService {
             app_metadata: result.to_string().into_bytes().into(),
         };
 
-        Ok(Response::new(Box::pin(stream::once(
-            async move { Ok(put_result) },
-        ))))
+        Ok(Response::new(Box::pin(stream::once(async move {
+            Ok(put_result)
+        }))))
     }
 
     // -- Unimplemented methods --------------------------------------------
@@ -332,9 +329,7 @@ impl AstraeaFlightService {
                     self.graph
                         .create_node_with_id(id, labels, properties, None)
                         .map_err(|e| {
-                            Status::internal(format!(
-                                "failed to create node at id {id}: {e}"
-                            ))
+                            Status::internal(format!("failed to create node at id {id}: {e}"))
                         })?;
                 }
                 None => {
@@ -396,12 +391,12 @@ impl AstraeaFlightService {
             .ok_or_else(|| Status::invalid_argument("'weight' column must be Float64"))?;
 
         // Optional temporal columns.
-        let valid_from_arr = batch.column_by_name("valid_from").and_then(|c| {
-            c.as_any().downcast_ref::<Int64Array>()
-        });
-        let valid_to_arr = batch.column_by_name("valid_to").and_then(|c| {
-            c.as_any().downcast_ref::<Int64Array>()
-        });
+        let valid_from_arr = batch
+            .column_by_name("valid_from")
+            .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+        let valid_to_arr = batch
+            .column_by_name("valid_to")
+            .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
 
         let mut count = 0u64;
         for row_idx in 0..batch.num_rows() {
@@ -440,7 +435,9 @@ impl AstraeaFlightService {
             });
 
             self.graph
-                .create_edge(source, target, edge_type, properties, weight, valid_from, valid_to)
+                .create_edge(
+                    source, target, edge_type, properties, weight, valid_from, valid_to,
+                )
                 .map_err(|e| Status::internal(format!("failed to create edge: {e}")))?;
             count += 1;
         }
@@ -511,7 +508,12 @@ mod tests {
             embedding: Option<Vec<f32>>,
         ) -> AstraeaResult<NodeId> {
             let id = NodeId(self.next_node_id.fetch_add(1, Ordering::Relaxed));
-            let node = Node { id, labels, properties, embedding };
+            let node = Node {
+                id,
+                labels,
+                properties,
+                embedding,
+            };
             self.nodes.write().insert(id, node);
             Ok(id)
         }
@@ -534,8 +536,16 @@ mod tests {
             }
             let id = EdgeId(self.next_edge_id.fetch_add(1, Ordering::Relaxed));
             let edge = Edge {
-                id, source, target, edge_type, properties, weight,
-                validity: ValidityInterval { valid_from, valid_to },
+                id,
+                source,
+                target,
+                edge_type,
+                properties,
+                weight,
+                validity: ValidityInterval {
+                    valid_from,
+                    valid_to,
+                },
             };
             self.edges.write().insert(id, edge);
             Ok(id)
@@ -580,7 +590,9 @@ mod tests {
         }
 
         fn delete_node(&self, id: NodeId) -> AstraeaResult<()> {
-            let edge_ids: Vec<EdgeId> = self.edges.read()
+            let edge_ids: Vec<EdgeId> = self
+                .edges
+                .read()
                 .values()
                 .filter(|e| e.source == id || e.target == id)
                 .map(|e| e.id)
@@ -597,16 +609,25 @@ mod tests {
             Ok(())
         }
 
-        fn neighbors(&self, node_id: NodeId, direction: Direction) -> AstraeaResult<Vec<(EdgeId, NodeId)>> {
+        fn neighbors(
+            &self,
+            node_id: NodeId,
+            direction: Direction,
+        ) -> AstraeaResult<Vec<(EdgeId, NodeId)>> {
             let edges = self.edges.read();
-            Ok(edges.values()
+            Ok(edges
+                .values()
                 .filter(|e| match direction {
                     Direction::Outgoing => e.source == node_id,
                     Direction::Incoming => e.target == node_id,
                     Direction::Both => e.source == node_id || e.target == node_id,
                 })
                 .map(|e| {
-                    let neighbor = if e.source == node_id { e.target } else { e.source };
+                    let neighbor = if e.source == node_id {
+                        e.target
+                    } else {
+                        e.source
+                    };
                     (e.id, neighbor)
                 })
                 .collect())
@@ -619,16 +640,22 @@ mod tests {
             edge_type: &str,
         ) -> AstraeaResult<Vec<(EdgeId, NodeId)>> {
             let edges = self.edges.read();
-            Ok(edges.values()
+            Ok(edges
+                .values()
                 .filter(|e| {
-                    e.edge_type == edge_type && match direction {
-                        Direction::Outgoing => e.source == node_id,
-                        Direction::Incoming => e.target == node_id,
-                        Direction::Both => e.source == node_id || e.target == node_id,
-                    }
+                    e.edge_type == edge_type
+                        && match direction {
+                            Direction::Outgoing => e.source == node_id,
+                            Direction::Incoming => e.target == node_id,
+                            Direction::Both => e.source == node_id || e.target == node_id,
+                        }
                 })
                 .map(|e| {
-                    let neighbor = if e.source == node_id { e.target } else { e.source };
+                    let neighbor = if e.source == node_id {
+                        e.target
+                    } else {
+                        e.source
+                    };
                     (e.id, neighbor)
                 })
                 .collect())
@@ -659,7 +686,8 @@ mod tests {
             if label.is_empty() {
                 Ok(nodes.keys().copied().collect())
             } else {
-                Ok(nodes.values()
+                Ok(nodes
+                    .values()
                     .filter(|n| n.labels.contains(&label.to_string()))
                     .map(|n| n.id)
                     .collect())
@@ -800,10 +828,7 @@ mod tests {
             schema,
             vec![
                 Arc::new(UInt64Array::from(vec![0, 0])) as ArrayRef,
-                Arc::new(StringArray::from(vec![
-                    r#"["Person"]"#,
-                    r#"["Company"]"#,
-                ])) as ArrayRef,
+                Arc::new(StringArray::from(vec![r#"["Person"]"#, r#"["Company"]"#])) as ArrayRef,
                 Arc::new(StringArray::from(vec![
                     r#"{"name":"Charlie"}"#,
                     r#"{"name":"Acme"}"#,
