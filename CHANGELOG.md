@@ -28,6 +28,18 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.7] - 2026-05-20
+
+### Changed
+- **astraea-rag:** introduce `type HttpFn = Box<dyn Fn(&str,
+  &serde_json::Value) -> Result<String> + Send + Sync>` in
+  `src/llm.rs` and apply it at four field declarations
+  (`OpenAiProvider::http_fn`, `AnthropicProvider::http_fn`,
+  `OllamaProvider::http_fn`, `OllamaProvider::embed_http_fn`).
+  Silences four `clippy::type_complexity` errors and makes the
+  field signatures readable. No public API change — the underlying
+  type is unchanged, just named.
+
 ## [0.1.6] - 2026-05-20
 
 ### Changed
