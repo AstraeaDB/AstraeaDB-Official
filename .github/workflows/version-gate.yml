@@ -136,6 +136,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install protoc
+        # astraea-server's build.rs invokes prost-build, which requires protoc.
+        # ubuntu-latest does not ship protoc. Any crate that transitively
+        # depends on astraea-server (cli, mcp, server itself) fails to compile
+        # without this step.
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --release -p ${{ matrix.crate }}
 
@@ -153,6 +161,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy -p ${{ matrix.crate }} --all-targets -- -D warnings
 
