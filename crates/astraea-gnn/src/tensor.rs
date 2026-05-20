@@ -252,13 +252,13 @@ impl Matrix {
             v.data.len()
         );
         let mut result = vec![0.0; self.rows];
-        for i in 0..self.rows {
+        for (i, result_elem) in result.iter_mut().enumerate() {
             let row_start = i * self.cols;
             let mut sum = 0.0;
             for j in 0..self.cols {
                 sum += self.data[row_start + j] * v.data[j];
             }
-            result[i] = sum;
+            *result_elem = sum;
         }
         Tensor::new(result, false)
     }
@@ -281,6 +281,12 @@ impl Matrix {
         for i in 0..self.rows {
             let row_start = i * self.cols;
             let vi = v.data[i];
+            // clippy::needless_range_loop suggests iterating `result.iter_mut()`
+            // and using `.enumerate()` for `j`, but the body also accesses
+            // `self.data[row_start + j]` — parallel-array access. An iterator
+            // on result still leaves self.data indexed by `j`, so the rewrite
+            // is strictly noisier.
+            #[allow(clippy::needless_range_loop)]
             for j in 0..self.cols {
                 result[j] += self.data[row_start + j] * vi;
             }
@@ -459,9 +465,11 @@ mod tests {
 
     #[test]
     fn test_tensor_from_scalar() {
-        let t = Tensor::from_scalar(3.14);
+        // Arbitrary test value; deliberately not 3.14 to avoid the
+        // clippy::approx_constant false positive (3.14 ≈ PI).
+        let t = Tensor::from_scalar(2.5);
         assert_eq!(t.len(), 1);
-        assert!((t.data[0] - 3.14).abs() < 1e-6);
+        assert!((t.data[0] - 2.5).abs() < 1e-6);
     }
 
     #[test]

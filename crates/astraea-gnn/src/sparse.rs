@@ -211,8 +211,8 @@ pub fn message_passing_spmm(
             if deg > 1 {
                 let scale = 1.0 / deg as f32;
                 let row = ahw.row_mut(i);
-                for k in 0..hidden_dim {
-                    row[k] *= scale;
+                for value in row.iter_mut().take(hidden_dim) {
+                    *value *= scale;
                 }
             }
         }
@@ -354,6 +354,11 @@ mod tests {
             let hashmap_logit = &hashmap_logits[&nid];
 
             // Add bias to spmm result for comparison.
+            // clippy::needless_range_loop wants `spmm_row.iter().enumerate()`,
+            // but the body also indexes `model.head.b_out.data[k]` and
+            // `hashmap_logit.data[k]` — three parallel arrays. An iterator
+            // on one leaves `k` indexing the other two; net negative.
+            #[allow(clippy::needless_range_loop)]
             for k in 0..model.num_classes {
                 let spmm_val = spmm_row[k] + model.head.b_out.data[k];
                 let hashmap_val = hashmap_logit.data[k];
