@@ -33,6 +33,12 @@ pub struct LocalCoordinator {
     shard_id: ShardId,
 }
 
+impl Default for LocalCoordinator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LocalCoordinator {
     pub fn new() -> Self {
         use crate::partition::HashPartitioner;

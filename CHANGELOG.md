@@ -28,6 +28,36 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.3] - 2026-05-20
+
+### Changed
+- **workspace:** auto-fixable clippy sweep via
+  `cargo clippy --fix --workspace --all-targets`. 27 files
+  touched across cli, cluster, gnn, gpu, graph, mcp, query, rag,
+  server, storage, vector. Lints cleared (where present per crate):
+  `clippy::collapsible_if`, `clippy::unwrap_or_default`,
+  `clippy::unnecessary_sort_by`, plus opportunistic mechanical
+  rewrites picked up by `--fix` for `clippy::redundant_closure`,
+  `clippy::needless_range_loop` (partial), and others. All rewrites
+  are behavior-preserving by clippy's machine-applicable
+  classification; `cargo test --workspace` passes locally.
+- **astraea-graph:** replace the empty `criterion_main!()`
+  invocation in `benches/traversal_bench.rs` with a no-op `main` so
+  the bench target compiles under `cargo clippy --all-targets`.
+  The bench is wired into `Cargo.toml` but had no defined groups;
+  this preserves the no-op intent while unblocking the
+  `Clippy astraea-graph` job in the version-gate.
+
+### Notes
+- Per-crate clippy debt remains in astraea-gnn, astraea-gpu,
+  astraea-query, astraea-rag, and astraea-storage. These are
+  manual-fix lints (`approx_constant`, `type_complexity`,
+  `needless_range_loop` residuals, `while_let_loop`,
+  `redundant_locals`, `doc_overindented_list_items`) and will land
+  as Wave 2 follow-up PRs per `docs/clippy-cleanup-plan.md`
+  (local-only, not committed). The `lint-matrix` jobs for those
+  crates will still be red after this PR.
+
 ## [0.1.2] - 2026-05-20
 
 ### Changed

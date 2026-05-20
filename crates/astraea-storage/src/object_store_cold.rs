@@ -51,13 +51,13 @@ use futures::StreamExt;
 use object_store::ObjectStore;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
-use std::io::{Error as IoError, ErrorKind};
+use std::io::Error as IoError;
 use std::path::Path;
 use std::sync::Arc;
 
 /// Convert an object_store error to an std::io::Error.
 fn object_store_err_to_io(err: object_store::Error) -> IoError {
-    IoError::new(ErrorKind::Other, err.to_string())
+    IoError::other(err.to_string())
 }
 
 /// Object Store-based cold storage backend.
@@ -314,10 +314,10 @@ impl ColdStorage for ObjectStoreColdStorage {
                 match result {
                     Ok(meta) => {
                         // Only include .json files.
-                        if meta.location.as_ref().ends_with(".json") {
-                            if let Some(key) = self.key_from_path(&meta.location) {
-                                keys.push(key);
-                            }
+                        if meta.location.as_ref().ends_with(".json")
+                            && let Some(key) = self.key_from_path(&meta.location)
+                        {
+                            keys.push(key);
                         }
                     }
                     Err(e) => {

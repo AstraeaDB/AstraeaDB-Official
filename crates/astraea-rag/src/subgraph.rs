@@ -72,10 +72,11 @@ pub fn extract_subgraph(
     for &nid in &node_ids {
         let neighbors = graph.neighbors(nid, Direction::Outgoing)?;
         for (edge_id, neighbor_id) in neighbors {
-            if node_set.contains(&neighbor_id) && seen_edges.insert(edge_id) {
-                if let Some(edge) = graph.get_edge(edge_id)? {
-                    edges.push(edge);
-                }
+            if node_set.contains(&neighbor_id)
+                && seen_edges.insert(edge_id)
+                && let Some(edge) = graph.get_edge(edge_id)?
+            {
+                edges.push(edge);
             }
         }
     }

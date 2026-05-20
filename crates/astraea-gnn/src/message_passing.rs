@@ -336,7 +336,7 @@ mod tests {
         let result = message_passing(&graph, &features, &weights, &config).unwrap();
 
         // All output vectors should have L2 norm close to 1.0.
-        for (_, feat) in &result {
+        for feat in result.values() {
             let n = feat.norm();
             assert!((n - 1.0).abs() < 1e-5, "expected norm ~1.0, got {}", n);
         }

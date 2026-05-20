@@ -102,18 +102,18 @@ impl GraphOps for Graph {
         // leaving the vector index silently out of sync with the graph.
         // We now roll back the node insert so storage and vector stay
         // consistent, and propagate the error to the caller.
-        if let (Some(vi), Some(emb)) = (&self.vector_index, &node.embedding) {
-            if let Err(e) = vi.insert(node.id, emb) {
-                tracing::error!(
-                    "vector index insert failed for node {}: {}; rolling back storage put",
-                    node.id,
-                    e
-                );
-                // Best-effort rollback; if this fails we have bigger problems
-                // and the original vector error is the more informative one.
-                let _ = self.storage.delete_node(node.id);
-                return Err(e);
-            }
+        if let (Some(vi), Some(emb)) = (&self.vector_index, &node.embedding)
+            && let Err(e) = vi.insert(node.id, emb)
+        {
+            tracing::error!(
+                "vector index insert failed for node {}: {}; rolling back storage put",
+                node.id,
+                e
+            );
+            // Best-effort rollback; if this fails we have bigger problems
+            // and the original vector error is the more informative one.
+            let _ = self.storage.delete_node(node.id);
+            return Err(e);
         }
 
         Ok(id)
@@ -141,16 +141,16 @@ impl GraphOps for Graph {
         self.storage.put_node(&node)?;
 
         // Auto-index embedding (same rollback discipline as `create_node`).
-        if let (Some(vi), Some(emb)) = (&self.vector_index, &node.embedding) {
-            if let Err(e) = vi.insert(node.id, emb) {
-                tracing::error!(
-                    "vector index insert failed for node {}: {}; rolling back storage put",
-                    node.id,
-                    e
-                );
-                let _ = self.storage.delete_node(node.id);
-                return Err(e);
-            }
+        if let (Some(vi), Some(emb)) = (&self.vector_index, &node.embedding)
+            && let Err(e) = vi.insert(node.id, emb)
+        {
+            tracing::error!(
+                "vector index insert failed for node {}: {}; rolling back storage put",
+                node.id,
+                e
+            );
+            let _ = self.storage.delete_node(node.id);
+            return Err(e);
         }
 
         // Bump the auto-allocator past this id so subsequent
@@ -230,10 +230,10 @@ impl GraphOps for Graph {
         // expected (node may have had no embedding), so we log at error
         // level and continue. astraeadb-issues.md #20: the previous
         // `let _ = ...` hid real index-corruption errors entirely.
-        if let Some(ref vi) = self.vector_index {
-            if let Err(e) = vi.remove(id) {
-                tracing::error!("vector index remove failed for node {}: {}", id, e);
-            }
+        if let Some(ref vi) = self.vector_index
+            && let Err(e) = vi.remove(id)
+        {
+            tracing::error!("vector index remove failed for node {}: {}", id, e);
         }
 
         // Delete all connected edges first (both directions).
@@ -482,12 +482,11 @@ impl GraphOps for Graph {
         visited.insert(current);
 
         // Score the starting node.
-        if let Some(node) = self.get_node(current)? {
-            if let Some(ref emb) = node.embedding {
-                if let Ok(d) = compute_distance(metric, concept_embedding, emb) {
-                    path.push((current, d));
-                }
-            }
+        if let Some(node) = self.get_node(current)?
+            && let Some(ref emb) = node.embedding
+            && let Ok(d) = compute_distance(metric, concept_embedding, emb)
+        {
+            path.push((current, d));
         }
 
         for _ in 0..max_hops {
@@ -505,12 +504,11 @@ impl GraphOps for Graph {
                     None => continue,
                 };
 
-                if let Some(ref emb) = node.embedding {
-                    if let Ok(d) = compute_distance(metric, concept_embedding, emb) {
-                        if best.is_none() || d < best.unwrap().1 {
-                            best = Some((neighbor_id, d));
-                        }
-                    }
+                if let Some(ref emb) = node.embedding
+                    && let Ok(d) = compute_distance(metric, concept_embedding, emb)
+                    && (best.is_none() || d < best.unwrap().1)
+                {
+                    best = Some((neighbor_id, d));
                 }
             }
 

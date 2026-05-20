@@ -91,10 +91,10 @@ impl TransactionManager {
     pub fn buffer_write(&self, txn_id: TransactionId, entity_id: u64, op: WriteOp) -> Result<()> {
         // Check for write-write conflicts (first-writer-wins).
         let mut locks = self.write_locks.write();
-        if let Some(&owner) = locks.get(&entity_id) {
-            if owner != txn_id {
-                return Err(AstraeaError::WriteConflict(entity_id));
-            }
+        if let Some(&owner) = locks.get(&entity_id)
+            && owner != txn_id
+        {
+            return Err(AstraeaError::WriteConflict(entity_id));
         }
         locks.insert(entity_id, txn_id);
         drop(locks);

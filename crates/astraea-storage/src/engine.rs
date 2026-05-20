@@ -572,10 +572,10 @@ impl StorageEngine for DiskStorageEngine {
         let edge_ids: Vec<EdgeId> = self.edge_index.read().keys().copied().collect();
         let mut result = Vec::new();
         for eid in edge_ids {
-            if let Some(edge) = self.get_edge(eid)? {
-                if edge.edge_type == edge_type {
-                    result.push((edge.id, edge.source, edge.target));
-                }
+            if let Some(edge) = self.get_edge(eid)?
+                && edge.edge_type == edge_type
+            {
+                result.push((edge.id, edge.source, edge.target));
             }
         }
         Ok(result)

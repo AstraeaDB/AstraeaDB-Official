@@ -38,13 +38,13 @@ impl ProxyClient {
         let mut json_value = serde_json::to_value(request)
             .map_err(|e| McpError::Internal(format!("failed to serialize request: {e}")))?;
 
-        if let Some(ref token) = self.auth_token {
-            if let Some(obj) = json_value.as_object_mut() {
-                obj.insert(
-                    "auth_token".to_string(),
-                    serde_json::Value::String(token.clone()),
-                );
-            }
+        if let Some(ref token) = self.auth_token
+            && let Some(obj) = json_value.as_object_mut()
+        {
+            obj.insert(
+                "auth_token".to_string(),
+                serde_json::Value::String(token.clone()),
+            );
         }
 
         let mut msg = serde_json::to_string(&json_value)

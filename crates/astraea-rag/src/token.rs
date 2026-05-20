@@ -20,7 +20,7 @@ use crate::subgraph::Subgraph;
 /// reasonable average for English text with typical LLM tokenizers.
 pub fn estimate_tokens(text: &str) -> usize {
     // Ceiling division to avoid underestimating by 1 for short strings.
-    (text.len() + 3) / 4
+    text.len().div_ceil(4)
 }
 
 /// Extract a subgraph with a token budget constraint.
@@ -112,10 +112,11 @@ fn collect_edges_for_nodes(
     for &nid in node_ids {
         let neighbors = graph.neighbors(nid, Direction::Outgoing)?;
         for (edge_id, neighbor_id) in neighbors {
-            if node_ids.contains(&neighbor_id) && seen_edges.insert(edge_id) {
-                if let Some(edge) = graph.get_edge(edge_id)? {
-                    edges.push(edge);
-                }
+            if node_ids.contains(&neighbor_id)
+                && seen_edges.insert(edge_id)
+                && let Some(edge) = graph.get_edge(edge_id)?
+            {
+                edges.push(edge);
             }
         }
     }
@@ -191,7 +192,7 @@ mod tests {
             extract_with_budget(&graph, NodeId(1), 10, 1, TextFormat::Structured).unwrap();
         assert!(subgraph_small.nodes.len() < 5);
         // Must include at least the center node
-        assert!(subgraph_small.nodes.len() >= 1);
+        assert!(!subgraph_small.nodes.is_empty());
         assert_eq!(subgraph_small.center, NodeId(1));
 
         // With a moderate budget, should get more nodes than tiny but fewer than max

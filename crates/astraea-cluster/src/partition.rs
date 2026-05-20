@@ -38,7 +38,7 @@ fn fnv1a_u64(mut input: u64) -> u64 {
     const FNV_PRIME: u64 = 0x100000001b3;
     let mut hash: u64 = FNV_OFFSET;
     for _ in 0..8 {
-        let byte = (input & 0xff) as u64;
+        let byte = input & 0xff;
         hash ^= byte;
         hash = hash.wrapping_mul(FNV_PRIME);
         input >>= 8;

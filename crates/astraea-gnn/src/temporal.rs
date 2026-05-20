@@ -258,23 +258,21 @@ fn collect_temporal_features(
     let mut visited = std::collections::HashSet::new();
 
     for &node_id in labels.keys() {
-        if visited.insert(node_id) {
-            if let Ok(Some(node)) = graph.get_node(node_id) {
-                if let Some(emb) = &node.embedding {
-                    features.insert(node_id, Tensor::new(emb.clone(), false));
-                }
-            }
+        if visited.insert(node_id)
+            && let Ok(Some(node)) = graph.get_node(node_id)
+            && let Some(emb) = &node.embedding
+        {
+            features.insert(node_id, Tensor::new(emb.clone(), false));
         }
 
         // Get temporal neighbors.
         if let Ok(neighbors) = graph.neighbors_at(node_id, Direction::Both, timestamp) {
             for (edge_id, neighbor_id) in neighbors {
-                if visited.insert(neighbor_id) {
-                    if let Ok(Some(neighbor_node)) = graph.get_node(neighbor_id) {
-                        if let Some(emb) = &neighbor_node.embedding {
-                            features.insert(neighbor_id, Tensor::new(emb.clone(), false));
-                        }
-                    }
+                if visited.insert(neighbor_id)
+                    && let Ok(Some(neighbor_node)) = graph.get_node(neighbor_id)
+                    && let Some(emb) = &neighbor_node.embedding
+                {
+                    features.insert(neighbor_id, Tensor::new(emb.clone(), false));
                 }
                 if let Ok(Some(edge)) = graph.get_edge(edge_id) {
                     edge_weights.insert(edge_id, edge.weight as f32);
@@ -426,12 +424,11 @@ pub fn train_temporal(
 /// Detect input feature dimension from graph node embeddings.
 fn detect_temporal_input_dim(graph: &dyn GraphOps, data: &TrainingData) -> Result<usize> {
     for &node_id in data.labels.keys() {
-        if let Ok(Some(node)) = graph.get_node(node_id) {
-            if let Some(emb) = &node.embedding {
-                if !emb.is_empty() {
-                    return Ok(emb.len());
-                }
-            }
+        if let Ok(Some(node)) = graph.get_node(node_id)
+            && let Some(emb) = &node.embedding
+            && !emb.is_empty()
+        {
+            return Ok(emb.len());
         }
     }
     Err(AstraeaError::QueryExecution(

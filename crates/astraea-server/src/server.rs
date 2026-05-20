@@ -199,7 +199,7 @@ impl AstraeaServer {
                         }
                         Err(e) => {
                             error!("TLS handshake error from {}: {}", peer_addr, e);
-                            Err(std::io::Error::new(std::io::ErrorKind::Other, e))
+                            Err(std::io::Error::other(e))
                         }
                     }
                 } else {
