@@ -117,6 +117,11 @@ impl CsrMatrix {
         );
 
         let mut y = vec![0.0; self.num_nodes];
+        // clippy::needless_range_loop suggests iterating `y.iter_mut()` and
+        // enumerating, but the inner loop indexes `self.row_ptr[i]` and
+        // `self.row_ptr[i+1]` (parallel arrays). An iterator on y still
+        // requires `i` for row_ptr, so the rewrite trades one index for two.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..self.num_nodes {
             let start = self.row_ptr[i];
             let end = self.row_ptr[i + 1];

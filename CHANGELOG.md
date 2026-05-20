@@ -28,6 +28,19 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.5] - 2026-05-20
+
+### Changed
+- **astraea-gpu:** add `#[allow(clippy::needless_range_loop)]` to
+  two parallel-array indexing sites in `src/cpu.rs:50` (PageRank
+  inner loop) and `src/csr.rs:120` (sparse matrix-vector product).
+  Clippy's suggested `.iter_mut().enumerate()` rewrite would make
+  the code worse because each loop body indexes a second array
+  (`transposed.row_ptr[i]`, `self.row_ptr[i+1]`) that has no
+  iterator on the iterating side — `i` is unavoidable. Each allow
+  carries a one-paragraph comment explaining the parallel-array
+  reasoning so future readers don't try to "fix" it.
+
 ## [0.1.4] - 2026-05-20
 
 ### Changed
