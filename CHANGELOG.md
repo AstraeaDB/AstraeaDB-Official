@@ -28,6 +28,17 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.4] - 2026-05-20
+
+### Changed
+- **astraea-storage:** fix `clippy::doc_overindented_list_items`
+  warning in `object_store_cold.rs:85` — the second line of a
+  bulleted list item was indented 13 spaces past the bullet
+  (rustfmt-acceptable but flagged by clippy 1.95). Reduced to the
+  conventional 2-space continuation. Doc-only change, no behavior
+  impact, but `crates/astraea-storage/src/` is source-bearing so
+  the version-gate requires a bump.
+
 ## [0.1.3] - 2026-05-20
 
 ### Changed

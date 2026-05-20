@@ -82,7 +82,7 @@ impl ObjectStoreColdStorage {
     ///
     /// * `store` - An `Arc`-wrapped object store implementation.
     /// * `prefix` - Path prefix for partition files (e.g., "cold-storage/").
-    ///              If empty, files are stored at the root.
+    ///   If empty, files are stored at the root.
     ///
     /// # Example
     ///
