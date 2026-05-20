@@ -47,6 +47,12 @@ impl GpuBackend for CpuBackend {
             // For each node i, sum contributions from its incoming neighbors.
             // In the transposed matrix, row i lists all nodes j that have an
             // edge TO i in the original graph.
+            // clippy::needless_range_loop suggests `.iter_mut().enumerate()` on
+            // new_rank, but the body also indexes `transposed.row_ptr[i]` and
+            // `transposed.row_ptr[i+1]` — parallel-array access. An iterator on
+            // one side leaves the other side still indexed by `i`, so the
+            // rewrite is strictly noisier.
+            #[allow(clippy::needless_range_loop)]
             for i in 0..n {
                 let start = transposed.row_ptr[i];
                 let end = transposed.row_ptr[i + 1];
