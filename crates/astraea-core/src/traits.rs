@@ -112,6 +112,7 @@ pub trait GraphOps: Send + Sync {
     /// Create a new edge between two nodes.
     /// Returns the assigned EdgeId.
     /// `valid_from` and `valid_to` are optional epoch-millisecond bounds for temporal validity.
+    #[allow(clippy::too_many_arguments)]
     fn create_edge(
         &self,
         source: NodeId,
