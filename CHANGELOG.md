@@ -28,6 +28,22 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.6] - 2026-05-20
+
+### Changed
+- **astraea-gnn:** clear clippy debt — refactor two
+  `needless_range_loop` sites to iterators
+  (`crates/astraea-gnn/src/sparse.rs:213` row-scaling, and
+  `src/tensor.rs:255` `matvec` outer loop), add
+  `#[allow(clippy::needless_range_loop)]` with parallel-array
+  rationale to two sites where iterator rewrites would only push
+  the index burden onto a sibling array
+  (`src/tensor.rs:284` `transpose_matvec` inner loop and
+  `src/sparse.rs:362` test comparison loop), and replace the
+  `3.14` test data in `test_tensor_from_scalar` with `2.5` to
+  avoid `clippy::approx_constant` (clippy reads `3.14` as an
+  approximation of PI; the test only needs an arbitrary scalar).
+
 ## [0.1.5] - 2026-05-20
 
 ### Changed
