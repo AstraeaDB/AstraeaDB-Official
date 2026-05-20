@@ -228,13 +228,9 @@ impl Parser {
         elements.push(PatternElement::Node(self.parse_node_pattern()?));
 
         // Then alternating edges and nodes
-        loop {
-            if let Some(edge) = self.try_parse_edge()? {
-                elements.push(PatternElement::Edge(edge));
-                elements.push(PatternElement::Node(self.parse_node_pattern()?));
-            } else {
-                break;
-            }
+        while let Some(edge) = self.try_parse_edge()? {
+            elements.push(PatternElement::Edge(edge));
+            elements.push(PatternElement::Node(self.parse_node_pattern()?));
         }
 
         Ok(elements)
@@ -408,12 +404,10 @@ impl Parser {
                 Ok(serde_json::Value::String(s))
             }
             Token::Integer(n) => {
-                let n = n;
                 self.advance()?;
                 Ok(serde_json::json!(n))
             }
             Token::Float(f) => {
-                let f = f;
                 self.advance()?;
                 Ok(serde_json::json!(f))
             }

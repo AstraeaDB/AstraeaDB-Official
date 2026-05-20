@@ -1784,10 +1784,12 @@ mod tests {
         let expr = Expr::UnaryOp(UnOp::Neg, Box::new(Expr::Literal(Literal::Integer(5))));
         assert_eq!(eval_expr(&expr, &bindings).unwrap(), serde_json::json!(-5));
 
-        let expr = Expr::UnaryOp(UnOp::Neg, Box::new(Expr::Literal(Literal::Float(3.14))));
+        // Use 2.5 rather than 3.14 to avoid clippy::approx_constant
+        // (3.14 ≈ PI); the negation test doesn't care which float.
+        let expr = Expr::UnaryOp(UnOp::Neg, Box::new(Expr::Literal(Literal::Float(2.5))));
         assert_eq!(
             eval_expr(&expr, &bindings).unwrap(),
-            serde_json::json!(-3.14)
+            serde_json::json!(-2.5)
         );
     }
 

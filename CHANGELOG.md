@@ -28,6 +28,24 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.8] - 2026-05-20
+
+### Changed
+- **astraea-query:** clear five clippy errors —
+  `clippy::while_let_loop` in `src/parser.rs:231` (collapse
+  `loop { if let Some(edge) = ... { ... } else { break; } }` to
+  `while let Some(edge) = ... { ... }`); two
+  `clippy::redundant_locals` in `src/parser.rs:411,416` (delete
+  the no-op `let n = n;` / `let f = f;` shadowings introduced by
+  earlier refactors); and three `clippy::approx_constant` false
+  positives in test data — `src/lexer.rs:313`,
+  `src/executor.rs:1787/1790` used `3.14` as arbitrary float
+  literals which clippy reads as approximations of
+  `std::f32::consts::PI`. Replaced with `2.5` (with a one-line
+  comment at each site explaining the avoidance); the lexer
+  parsing test and the negation evaluator test are equally
+  served by `2.5`.
+
 ## [0.1.7] - 2026-05-20
 
 ### Changed
