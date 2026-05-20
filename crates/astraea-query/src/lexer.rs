@@ -310,12 +310,14 @@ mod tests {
 
     #[test]
     fn test_numbers() {
-        let toks = tokens("42 3.14 0 100");
+        // Use 2.5 rather than 3.14 to avoid clippy::approx_constant
+        // (3.14 ≈ PI); the lexer doesn't care which float we feed it.
+        let toks = tokens("42 2.5 0 100");
         assert_eq!(
             toks,
             vec![
                 Token::Integer(42),
-                Token::Float(3.14),
+                Token::Float(2.5),
                 Token::Integer(0),
                 Token::Integer(100),
                 Token::Eof,
