@@ -54,7 +54,7 @@ use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use io_uring_crate::{opcode, types, IoUring};
+use io_uring_crate::{IoUring, opcode, types};
 use parking_lot::Mutex;
 
 use astraea_core::error::{AstraeaError, Result};
@@ -193,14 +193,12 @@ impl UringPageIO {
         // Submit the operation.
         // SAFETY: We're submitting a valid read operation.
         unsafe {
-            ring.submission()
-                .push(&read_op)
-                .map_err(|_| {
-                    AstraeaError::StorageIo(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "io_uring submission queue full",
-                    ))
-                })?;
+            ring.submission().push(&read_op).map_err(|_| {
+                AstraeaError::StorageIo(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "io_uring submission queue full",
+                ))
+            })?;
         }
 
         ring.submit_and_wait(1).map_err(|e| {
@@ -228,10 +226,7 @@ impl UringPageIO {
         if (result as usize) != PAGE_SIZE {
             return Err(AstraeaError::StorageIo(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
-                format!(
-                    "short read: expected {} bytes, got {}",
-                    PAGE_SIZE, result
-                ),
+                format!("short read: expected {} bytes, got {}", PAGE_SIZE, result),
             )));
         }
 
@@ -262,14 +257,12 @@ impl UringPageIO {
         // Submit the write.
         // SAFETY: We're submitting a valid write operation.
         unsafe {
-            ring.submission()
-                .push(&write_op)
-                .map_err(|_| {
-                    AstraeaError::StorageIo(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "io_uring submission queue full",
-                    ))
-                })?;
+            ring.submission().push(&write_op).map_err(|_| {
+                AstraeaError::StorageIo(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "io_uring submission queue full",
+                ))
+            })?;
         }
 
         ring.submit_and_wait(1).map_err(|e| {
@@ -309,14 +302,12 @@ impl UringPageIO {
 
         // SAFETY: Valid fsync operation.
         unsafe {
-            ring.submission()
-                .push(&fsync_op)
-                .map_err(|_| {
-                    AstraeaError::StorageIo(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "io_uring submission queue full",
-                    ))
-                })?;
+            ring.submission().push(&fsync_op).map_err(|_| {
+                AstraeaError::StorageIo(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "io_uring submission queue full",
+                ))
+            })?;
         }
 
         ring.submit_and_wait(1).map_err(|e| {

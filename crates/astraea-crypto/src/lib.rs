@@ -23,10 +23,10 @@
 //!
 //! astraeadb-issues.md #13.
 
-pub mod keys;
 pub mod encrypted;
 pub mod engine;
+pub mod keys;
 
-pub use keys::{KeyPair, PublicKey, SecretKey};
-pub use encrypted::{EncryptedValue, EncryptedLabel, EncryptedNode};
+pub use encrypted::{EncryptedLabel, EncryptedNode, EncryptedValue};
 pub use engine::EncryptedQueryEngine;
+pub use keys::{KeyPair, PublicKey, SecretKey};

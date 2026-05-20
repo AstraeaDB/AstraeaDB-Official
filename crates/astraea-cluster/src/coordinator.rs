@@ -1,6 +1,6 @@
-use astraea_core::types::{NodeId, EdgeId, Node, Edge};
-use astraea_core::error::Result;
 use crate::shard::{ShardId, ShardInfo, ShardMap};
+use astraea_core::error::Result;
+use astraea_core::types::{Edge, EdgeId, Node, NodeId};
 
 /// Operations that must be coordinated across the cluster.
 pub trait ClusterCoordinator: Send + Sync {
@@ -39,7 +39,10 @@ impl LocalCoordinator {
         let mut shard_map = ShardMap::new(Box::new(HashPartitioner::new(1)));
         let shard_id = ShardId(0);
         shard_map.register_shard(ShardInfo::new(shard_id, "localhost:7687".into()));
-        Self { shard_map, shard_id }
+        Self {
+            shard_map,
+            shard_id,
+        }
     }
 
     pub fn shard_map(&self) -> &ShardMap {
@@ -67,7 +70,10 @@ mod tests {
         assert_eq!(coord.shard_map().shard_for_node(NodeId(0)), ShardId(0));
         assert_eq!(coord.shard_map().shard_for_node(NodeId(1)), ShardId(0));
         assert_eq!(coord.shard_map().shard_for_node(NodeId(999)), ShardId(0));
-        assert_eq!(coord.shard_map().shard_for_node(NodeId(u64::MAX)), ShardId(0));
+        assert_eq!(
+            coord.shard_map().shard_for_node(NodeId(u64::MAX)),
+            ShardId(0)
+        );
     }
 
     #[test]

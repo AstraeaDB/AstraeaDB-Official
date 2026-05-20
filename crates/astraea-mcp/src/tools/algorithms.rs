@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use astraea_server::protocol::Request;
 
@@ -116,10 +116,7 @@ pub async fn run_pagerank(client: &ProxyClient, args: Value) -> Result<CallToolR
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect());
 
-    let damping = args
-        .get("damping")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.85);
+    let damping = args.get("damping").and_then(|v| v.as_f64()).unwrap_or(0.85);
 
     let max_iterations = args
         .get("max_iterations")

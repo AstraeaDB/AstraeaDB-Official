@@ -1,9 +1,9 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use astraea_server::protocol::Request;
+use super::{CallToolResult, ToolDefinition};
 use crate::client::ProxyClient;
 use crate::errors::McpError;
-use super::{CallToolResult, ToolDefinition};
+use astraea_server::protocol::Request;
 
 /// Return tool definitions for RAG operations.
 pub fn definitions() -> Vec<ToolDefinition> {
@@ -90,9 +90,7 @@ pub async fn graph_rag(client: &ProxyClient, args: Value) -> Result<CallToolResu
         .get("question_embedding")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    let anchor: Option<u64> = args
-        .get("anchor")
-        .and_then(|v| v.as_u64());
+    let anchor: Option<u64> = args.get("anchor").and_then(|v| v.as_u64());
 
     let hops = args
         .get("hops")
@@ -128,7 +126,10 @@ pub async fn graph_rag(client: &ProxyClient, args: Value) -> Result<CallToolResu
 }
 
 /// Extract a subgraph around a center node and linearize it as text.
-pub async fn extract_subgraph(client: &ProxyClient, args: Value) -> Result<CallToolResult, McpError> {
+pub async fn extract_subgraph(
+    client: &ProxyClient,
+    args: Value,
+) -> Result<CallToolResult, McpError> {
     let center = args
         .get("center")
         .and_then(|v| v.as_u64())

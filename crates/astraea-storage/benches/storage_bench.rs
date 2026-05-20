@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use rand::Rng;
 use tempfile::TempDir;
 
@@ -40,7 +40,8 @@ fn make_edge(id: u64, src: u64, tgt: u64) -> Edge {
 /// Create a fresh engine backed by a temp directory.
 fn fresh_engine() -> (DiskStorageEngine, TempDir) {
     let tmp = TempDir::new().expect("failed to create temp dir");
-    let engine = DiskStorageEngine::with_pool_size(tmp.path(), 256).expect("failed to create engine");
+    let engine =
+        DiskStorageEngine::with_pool_size(tmp.path(), 256).expect("failed to create engine");
     (engine, tmp)
 }
 

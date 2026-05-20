@@ -104,7 +104,10 @@ mod tests {
     fn test_cosine_distance_identical_vectors() {
         let v = vec![1.0, 2.0, 3.0];
         let d = cosine_distance(&v, &v).unwrap();
-        assert!(d.abs() < 1e-6, "identical vectors should have cosine distance ~0, got {d}");
+        assert!(
+            d.abs() < 1e-6,
+            "identical vectors should have cosine distance ~0, got {d}"
+        );
     }
 
     #[test]
@@ -157,7 +160,10 @@ mod tests {
     fn test_euclidean_distance_identical() {
         let v = vec![1.0, 2.0, 3.0];
         let d = euclidean_distance(&v, &v).unwrap();
-        assert!(d.abs() < 1e-6, "identical vectors should have L2 distance 0, got {d}");
+        assert!(
+            d.abs() < 1e-6,
+            "identical vectors should have L2 distance 0, got {d}"
+        );
     }
 
     #[test]

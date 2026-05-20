@@ -7,8 +7,8 @@ use astraea_core::types::*;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::buffer_pool::BufferPool;
 use crate::file_manager::FileManager;
@@ -57,14 +57,8 @@ impl AdjacencyIndex {
     }
 
     fn add_edge(&mut self, edge_id: EdgeId, source: NodeId, target: NodeId) {
-        self.outgoing
-            .entry(source)
-            .or_default()
-            .push(edge_id);
-        self.incoming
-            .entry(target)
-            .or_default()
-            .push(edge_id);
+        self.outgoing.entry(source).or_default().push(edge_id);
+        self.incoming.entry(target).or_default().push(edge_id);
     }
 
     fn remove_edge(&mut self, edge_id: EdgeId, source: NodeId, target: NodeId) {
@@ -78,22 +72,10 @@ impl AdjacencyIndex {
 
     fn get_edges(&self, node_id: NodeId, direction: Direction) -> Vec<EdgeId> {
         match direction {
-            Direction::Outgoing => self
-                .outgoing
-                .get(&node_id)
-                .cloned()
-                .unwrap_or_default(),
-            Direction::Incoming => self
-                .incoming
-                .get(&node_id)
-                .cloned()
-                .unwrap_or_default(),
+            Direction::Outgoing => self.outgoing.get(&node_id).cloned().unwrap_or_default(),
+            Direction::Incoming => self.incoming.get(&node_id).cloned().unwrap_or_default(),
             Direction::Both => {
-                let mut result = self
-                    .outgoing
-                    .get(&node_id)
-                    .cloned()
-                    .unwrap_or_default();
+                let mut result = self.outgoing.get(&node_id).cloned().unwrap_or_default();
                 if let Some(incoming) = self.incoming.get(&node_id) {
                     result.extend(incoming);
                 }
@@ -278,8 +260,8 @@ impl DiskStorageEngine {
 
     /// Deserialize a node from bytes.
     fn deserialize_node(id: NodeId, data: &[u8]) -> Result<Node> {
-        let sn: SerializedNode =
-            serde_json::from_slice(data).map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
+        let sn: SerializedNode = serde_json::from_slice(data)
+            .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
         Ok(Node {
             id,
             labels: sn.labels,
@@ -303,8 +285,8 @@ impl DiskStorageEngine {
 
     /// Deserialize an edge from bytes.
     fn deserialize_edge(id: EdgeId, data: &[u8]) -> Result<Edge> {
-        let se: SerializedEdge =
-            serde_json::from_slice(data).map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
+        let se: SerializedEdge = serde_json::from_slice(data)
+            .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
         Ok(Edge {
             id,
             source: NodeId(se.source),
@@ -319,12 +301,7 @@ impl DiskStorageEngine {
     /// Write a record (node or edge) into a page. Reuses a previously freed
     /// page if one is available, otherwise allocates a new one.
     /// Returns the page ID where the record was written.
-    fn write_record(
-        &self,
-        record_id: u64,
-        data: &[u8],
-        page_type: PageType,
-    ) -> Result<PageId> {
+    fn write_record(&self, record_id: u64, data: &[u8], page_type: PageType) -> Result<PageId> {
         let total_size = NODE_RECORD_HEADER_SIZE + data.len();
 
         // Prefer recycling a freed page; fall back to allocating a new one.
@@ -589,10 +566,7 @@ impl StorageEngine for DiskStorageEngine {
         Ok(self.label_index.read().get(label))
     }
 
-    fn find_edges_by_type(
-        &self,
-        edge_type: &str,
-    ) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
+    fn find_edges_by_type(&self, edge_type: &str) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
         // Collect all edge IDs first so we release the index lock before
         // calling get_edge (which acquires the buffer-pool lock).
         let edge_ids: Vec<EdgeId> = self.edge_index.read().keys().copied().collect();
@@ -614,8 +588,7 @@ impl TransactionalEngine for DiskStorageEngine {
         let txn_id = self.txn_manager.begin(current_lsn);
 
         // Write a BeginTransaction WAL record.
-        self.wal
-            .append(&WalRecord::BeginTransaction(txn_id.0))?;
+        self.wal.append(&WalRecord::BeginTransaction(txn_id.0))?;
 
         Ok(txn_id)
     }
@@ -643,8 +616,7 @@ impl TransactionalEngine for DiskStorageEngine {
         }
 
         // Write a CommitTransaction WAL record.
-        self.wal
-            .append(&WalRecord::CommitTransaction(txn_id.0))?;
+        self.wal.append(&WalRecord::CommitTransaction(txn_id.0))?;
 
         Ok(())
     }
@@ -653,8 +625,7 @@ impl TransactionalEngine for DiskStorageEngine {
         self.txn_manager.abort(txn_id)?;
 
         // Write an AbortTransaction WAL record.
-        self.wal
-            .append(&WalRecord::AbortTransaction(txn_id.0))?;
+        self.wal.append(&WalRecord::AbortTransaction(txn_id.0))?;
 
         Ok(())
     }
@@ -932,11 +903,26 @@ mod tests {
         assert_eq!(max_node_id, 3, "max_node_id should be 3");
         assert_eq!(max_edge_id, 11, "max_edge_id should be 11");
 
-        assert!(engine.get_node(NodeId(1)).unwrap().is_some(), "node 1 should survive");
-        assert!(engine.get_node(NodeId(2)).unwrap().is_none(), "node 2 was deleted");
-        assert!(engine.get_node(NodeId(3)).unwrap().is_some(), "node 3 should survive");
-        assert!(engine.get_edge(EdgeId(10)).unwrap().is_some(), "edge 10 should survive");
-        assert!(engine.get_edge(EdgeId(11)).unwrap().is_some(), "edge 11 should survive");
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node 1 should survive"
+        );
+        assert!(
+            engine.get_node(NodeId(2)).unwrap().is_none(),
+            "node 2 was deleted"
+        );
+        assert!(
+            engine.get_node(NodeId(3)).unwrap().is_some(),
+            "node 3 should survive"
+        );
+        assert!(
+            engine.get_edge(EdgeId(10)).unwrap().is_some(),
+            "edge 10 should survive"
+        );
+        assert!(
+            engine.get_edge(EdgeId(11)).unwrap().is_some(),
+            "edge 11 should survive"
+        );
 
         // Label index rebuilt — find_nodes_by_label should return node 1 and 3.
         let persons = engine.find_nodes_by_label("Person").unwrap();
@@ -967,7 +953,11 @@ mod tests {
         engine.delete_node(NodeId(2)).unwrap();
         engine.delete_node(NodeId(3)).unwrap();
         engine.delete_node(NodeId(4)).unwrap();
-        assert_eq!(engine.free_page_count(), 3, "deletes populate the free list");
+        assert_eq!(
+            engine.free_page_count(),
+            3,
+            "deletes populate the free list"
+        );
 
         // Insert 3 more nodes — all 3 should come from the free list, so
         // the underlying file does NOT grow.
@@ -1007,12 +997,14 @@ mod tests {
         let before = engine.file_manager.page_count().unwrap();
         // Overwrite the same node — old page should be freed, new page
         // allocated from it (so total page_count stays put).
-        engine.put_node(&Node {
-            id: NodeId(1),
-            labels: vec!["Updated".to_string()],
-            properties: serde_json::json!({"new": "content"}),
-            embedding: None,
-        }).unwrap();
+        engine
+            .put_node(&Node {
+                id: NodeId(1),
+                labels: vec!["Updated".to_string()],
+                properties: serde_json::json!({"new": "content"}),
+                embedding: None,
+            })
+            .unwrap();
         let after = engine.file_manager.page_count().unwrap();
         assert_eq!(after, before, "update should reuse the freed page");
         let got = engine.get_node(NodeId(1)).unwrap().unwrap();

@@ -16,10 +16,7 @@ use astraea_core::types::*;
 /// # Returns
 /// A vector of components, each being a `Vec<NodeId>`.  Every node in
 /// `nodes` appears in exactly one component.
-pub fn connected_components(
-    graph: &dyn GraphOps,
-    nodes: &[NodeId],
-) -> Result<Vec<Vec<NodeId>>> {
+pub fn connected_components(graph: &dyn GraphOps, nodes: &[NodeId]) -> Result<Vec<Vec<NodeId>>> {
     let mut visited: HashSet<NodeId> = HashSet::with_capacity(nodes.len());
     let node_set: HashSet<NodeId> = nodes.iter().copied().collect();
     let mut components: Vec<Vec<NodeId>> = Vec::new();
@@ -238,7 +235,11 @@ mod tests {
         }
         let nodes: Vec<NodeId> = (1..=4).map(NodeId).collect();
         let components = connected_components(&g, &nodes).unwrap();
-        assert_eq!(components.len(), 4, "Each isolated node is its own component");
+        assert_eq!(
+            components.len(),
+            4,
+            "Each isolated node is its own component"
+        );
     }
 
     #[test]
@@ -264,10 +265,16 @@ mod tests {
         // There should be 2 SCCs: {1,2,3} and {4}.
         assert_eq!(sccs.len(), 2);
 
-        let cycle_scc = sccs.iter().find(|s| s.len() == 3).expect("Expected a 3-node SCC");
+        let cycle_scc = sccs
+            .iter()
+            .find(|s| s.len() == 3)
+            .expect("Expected a 3-node SCC");
         assert_eq!(*cycle_scc, vec![NodeId(1), NodeId(2), NodeId(3)]);
 
-        let singleton = sccs.iter().find(|s| s.len() == 1).expect("Expected a singleton SCC");
+        let singleton = sccs
+            .iter()
+            .find(|s| s.len() == 1)
+            .expect("Expected a singleton SCC");
         assert_eq!(*singleton, vec![NodeId(4)]);
     }
 

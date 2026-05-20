@@ -267,8 +267,8 @@ fn linearize_json(subgraph: &Subgraph) -> String {
 mod tests {
     use super::*;
     use astraea_core::traits::GraphOps;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     /// Build a small test graph for linearization tests.
     /// Alice -[KNOWS {since: 2020}]-> Bob -[WORKS_AT]-> Acme
@@ -321,8 +321,7 @@ mod tests {
             )
             .unwrap();
 
-        let subgraph =
-            crate::subgraph::extract_subgraph(&graph, NodeId(1), 2, 100).unwrap();
+        let subgraph = crate::subgraph::extract_subgraph(&graph, NodeId(1), 2, 100).unwrap();
 
         (graph, subgraph)
     }

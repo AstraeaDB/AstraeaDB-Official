@@ -1,8 +1,8 @@
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use astraea_core::types::{Node, NodeId};
 use crate::keys::SecretKey;
+use astraea_core::types::{Node, NodeId};
 
 /// An encrypted string value (label or property value).
 ///
@@ -123,10 +123,9 @@ impl EncryptedNode {
             .map(|label| EncryptedLabel::encrypt(label, key))
             .collect();
 
-        let properties_json = serde_json::to_string(&node.properties)
-            .unwrap_or_else(|_| "{}".to_string());
-        let encrypted_properties =
-            EncryptedValue::encrypt(properties_json.as_bytes(), key);
+        let properties_json =
+            serde_json::to_string(&node.properties).unwrap_or_else(|_| "{}".to_string());
+        let encrypted_properties = EncryptedValue::encrypt(properties_json.as_bytes(), key);
 
         EncryptedNode {
             id: node.id,

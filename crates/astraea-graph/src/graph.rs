@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use astraea_core::error::{AstraeaError, Result};
 use astraea_core::traits::{GraphOps, StorageEngine, VectorIndex};
@@ -301,11 +301,7 @@ impl GraphOps for Graph {
         traversal::shortest_path_unweighted(self.storage.as_ref(), from, to)
     }
 
-    fn shortest_path_weighted(
-        &self,
-        from: NodeId,
-        to: NodeId,
-    ) -> Result<Option<(GraphPath, f64)>> {
+    fn shortest_path_weighted(&self, from: NodeId, to: NodeId) -> Result<Option<(GraphPath, f64)>> {
         traversal::shortest_path_dijkstra(self.storage.as_ref(), from, to)
     }
 
@@ -595,7 +591,15 @@ mod tests {
             .create_node(vec![], serde_json::json!({}), None)
             .unwrap();
 
-        let result = graph.create_edge(a, NodeId(999), "KNOWS".into(), serde_json::json!({}), 1.0, None, None);
+        let result = graph.create_edge(
+            a,
+            NodeId(999),
+            "KNOWS".into(),
+            serde_json::json!({}),
+            1.0,
+            None,
+            None,
+        );
         assert!(result.is_err());
     }
 
@@ -658,7 +662,15 @@ mod tests {
             .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
         graph
-            .create_edge(c, a, "FOLLOWS".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                c,
+                a,
+                "FOLLOWS".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
 
         let out = graph.neighbors(a, Direction::Outgoing).unwrap();
@@ -690,7 +702,15 @@ mod tests {
             .create_edge(a, b, "KNOWS".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
         graph
-            .create_edge(a, c, "FOLLOWS".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                a,
+                c,
+                "FOLLOWS".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
 
         let knows = graph
@@ -780,19 +800,59 @@ mod semantic_tests {
 
         // Edges: n1->n3, n1->n4, n3->n5, n2->n4, n4->n5
         graph
-            .create_edge(n1, n3, "LINK".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                n1,
+                n3,
+                "LINK".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
         graph
-            .create_edge(n1, n4, "LINK".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                n1,
+                n4,
+                "LINK".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
         graph
-            .create_edge(n3, n5, "LINK".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                n3,
+                n5,
+                "LINK".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
         graph
-            .create_edge(n2, n4, "LINK".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                n2,
+                n4,
+                "LINK".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
         graph
-            .create_edge(n4, n5, "LINK".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                n4,
+                n5,
+                "LINK".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
 
         (graph, n1, n2, n3, n4, n5)
@@ -899,9 +959,7 @@ mod semantic_tests {
         //   dist(n4, concept) = sqrt(0.01+0.81+1) = sqrt(1.82) ~ 1.349
         // Both are equidistant, so either could be picked first.
         // Then from whichever is picked, n5 [0,0,1] should be the next step (exact match to concept).
-        let path = graph
-            .semantic_walk(n1, &[0.0, 0.0, 1.0], 5)
-            .unwrap();
+        let path = graph.semantic_walk(n1, &[0.0, 0.0, 1.0], 5).unwrap();
 
         // Path should start at n1 and end at n5.
         assert!(path.len() >= 2);
@@ -917,9 +975,7 @@ mod semantic_tests {
         let (graph, n1, _n2, n3, n4, n5) = make_semantic_graph();
 
         // Walk toward concept [0, 0, 1] from n1.
-        let path = graph
-            .semantic_walk(n1, &[0.0, 0.0, 1.0], 5)
-            .unwrap();
+        let path = graph.semantic_walk(n1, &[0.0, 0.0, 1.0], 5).unwrap();
 
         // Path should be n1 -> (n3 or n4) -> n5.
         assert_eq!(path.len(), 3);
@@ -934,9 +990,7 @@ mod semantic_tests {
         let (graph, _n1, _n2, _n3, _n4, n5) = make_semantic_graph();
 
         // Walk from n5 -- it has no outgoing edges, so walk should stop immediately.
-        let path = graph
-            .semantic_walk(n5, &[1.0, 0.0, 0.0], 5)
-            .unwrap();
+        let path = graph.semantic_walk(n5, &[1.0, 0.0, 0.0], 5).unwrap();
 
         assert_eq!(path.len(), 1);
         assert_eq!(path[0].0, n5);
@@ -949,18 +1003,22 @@ mod semantic_tests {
         let graph = Graph::with_vector_index(Box::new(storage), vi);
 
         let n1 = graph
-            .create_node(
-                vec![],
-                serde_json::json!({}),
-                Some(vec![1.0, 0.0, 0.0]),
-            )
+            .create_node(vec![], serde_json::json!({}), Some(vec![1.0, 0.0, 0.0]))
             .unwrap();
         // n2 has no embedding.
         let n2 = graph
             .create_node(vec![], serde_json::json!({}), None)
             .unwrap();
         graph
-            .create_edge(n1, n2, "LINK".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                n1,
+                n2,
+                "LINK".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
 
         // Semantic neighbors should exclude n2 (no embedding).
@@ -978,21 +1036,21 @@ mod semantic_tests {
         let graph = Graph::new(Box::new(storage));
 
         let n1 = graph
-            .create_node(
-                vec![],
-                serde_json::json!({}),
-                Some(vec![1.0, 0.0, 0.0]),
-            )
+            .create_node(vec![], serde_json::json!({}), Some(vec![1.0, 0.0, 0.0]))
             .unwrap();
         let n2 = graph
-            .create_node(
-                vec![],
-                serde_json::json!({}),
-                Some(vec![0.0, 1.0, 0.0]),
-            )
+            .create_node(vec![], serde_json::json!({}), Some(vec![0.0, 1.0, 0.0]))
             .unwrap();
         graph
-            .create_edge(n1, n2, "LINK".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                n1,
+                n2,
+                "LINK".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
 
         let results = graph
@@ -1011,30 +1069,36 @@ mod semantic_tests {
 
         // Create a cycle: n1 -> n2 -> n1
         let n1 = graph
-            .create_node(
-                vec![],
-                serde_json::json!({}),
-                Some(vec![1.0, 0.0]),
-            )
+            .create_node(vec![], serde_json::json!({}), Some(vec![1.0, 0.0]))
             .unwrap();
         let n2 = graph
-            .create_node(
-                vec![],
+            .create_node(vec![], serde_json::json!({}), Some(vec![0.0, 1.0]))
+            .unwrap();
+        graph
+            .create_edge(
+                n1,
+                n2,
+                "LINK".into(),
                 serde_json::json!({}),
-                Some(vec![0.0, 1.0]),
+                1.0,
+                None,
+                None,
             )
             .unwrap();
         graph
-            .create_edge(n1, n2, "LINK".into(), serde_json::json!({}), 1.0, None, None)
-            .unwrap();
-        graph
-            .create_edge(n2, n1, "LINK".into(), serde_json::json!({}), 1.0, None, None)
+            .create_edge(
+                n2,
+                n1,
+                "LINK".into(),
+                serde_json::json!({}),
+                1.0,
+                None,
+                None,
+            )
             .unwrap();
 
         // Walk from n1 -- should not loop back.
-        let path = graph
-            .semantic_walk(n1, &[0.0, 1.0], 10)
-            .unwrap();
+        let path = graph.semantic_walk(n1, &[0.0, 1.0], 10).unwrap();
 
         // Should be [n1, n2] and then stop because n1 is already visited.
         assert_eq!(path.len(), 2);
@@ -1059,13 +1123,37 @@ mod semantic_tests {
             .unwrap();
         }
         // Edges reference the imported ids — they must resolve.
-        dst.create_edge(NodeId(1), NodeId(2), "KNOWS".into(), serde_json::json!({}), 1.0, None, None).unwrap();
-        dst.create_edge(NodeId(2), NodeId(3), "KNOWS".into(), serde_json::json!({}), 1.0, None, None).unwrap();
+        dst.create_edge(
+            NodeId(1),
+            NodeId(2),
+            "KNOWS".into(),
+            serde_json::json!({}),
+            1.0,
+            None,
+            None,
+        )
+        .unwrap();
+        dst.create_edge(
+            NodeId(2),
+            NodeId(3),
+            "KNOWS".into(),
+            serde_json::json!({}),
+            1.0,
+            None,
+            None,
+        )
+        .unwrap();
 
         // Subsequent auto-assignment must pick an id strictly greater
         // than the max we supplied (3).
-        let next = dst.create_node(vec![], serde_json::json!({}), None).unwrap();
-        assert!(next.0 > 3, "next auto id {} must exceed supplied max 3", next.0);
+        let next = dst
+            .create_node(vec![], serde_json::json!({}), None)
+            .unwrap();
+        assert!(
+            next.0 > 3,
+            "next auto id {} must exceed supplied max 3",
+            next.0
+        );
 
         // Re-importing the same id must fail with DuplicateNode rather
         // than silently overwriting.
@@ -1074,5 +1162,4 @@ mod semantic_tests {
             .unwrap_err();
         assert!(matches!(err, AstraeaError::DuplicateNode(NodeId(2))));
     }
-
 }

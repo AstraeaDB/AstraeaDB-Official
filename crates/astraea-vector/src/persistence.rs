@@ -170,9 +170,8 @@ pub fn save_to_file(index: &HnswIndex, path: &Path) -> Result<()> {
     write_header(&mut writer, &header)?;
 
     // Serialize the full index via bincode.
-    bincode::serialize_into(&mut writer, index).map_err(|e| {
-        AstraeaError::Serialization(format!("bincode serialization failed: {e}"))
-    })?;
+    bincode::serialize_into(&mut writer, index)
+        .map_err(|e| AstraeaError::Serialization(format!("bincode serialization failed: {e}")))?;
 
     writer.flush()?;
     Ok(())
@@ -407,10 +406,7 @@ mod tests {
             assert_eq!(orig_results.len(), loaded_results.len());
             for (o, l) in orig_results.iter().zip(loaded_results.iter()) {
                 assert_eq!(o.0, l.0, "node IDs should match");
-                assert!(
-                    (o.1 - l.1).abs() < 1e-6,
-                    "distances should match"
-                );
+                assert!((o.1 - l.1).abs() < 1e-6, "distances should match");
             }
         }
     }

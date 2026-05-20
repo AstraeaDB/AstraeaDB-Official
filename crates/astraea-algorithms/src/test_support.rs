@@ -36,9 +36,7 @@ impl TestGraph {
         };
         self.nodes.write().unwrap().insert(NodeId(id), node);
         // Ensure the auto-increment counter stays ahead of manually-assigned IDs.
-        let _ = self
-            .next_node_id
-            .fetch_max(id + 1, Ordering::Relaxed);
+        let _ = self.next_node_id.fetch_max(id + 1, Ordering::Relaxed);
     }
 
     /// Add a directed edge between two nodes with the specified weight.
@@ -53,9 +51,7 @@ impl TestGraph {
             validity: ValidityInterval::always(),
         };
         self.edges.write().unwrap().push(edge);
-        let _ = self
-            .next_edge_id
-            .fetch_max(id + 1, Ordering::Relaxed);
+        let _ = self.next_edge_id.fetch_max(id + 1, Ordering::Relaxed);
     }
 }
 
@@ -109,14 +105,18 @@ impl GraphOps for TestGraph {
     }
 
     fn get_edge(&self, id: EdgeId) -> Result<Option<Edge>> {
-        Ok(self.edges.read().unwrap().iter().find(|e| e.id == id).cloned())
+        Ok(self
+            .edges
+            .read()
+            .unwrap()
+            .iter()
+            .find(|e| e.id == id)
+            .cloned())
     }
 
     fn update_node(&self, id: NodeId, properties: serde_json::Value) -> Result<()> {
         let mut nodes = self.nodes.write().unwrap();
-        let node = nodes
-            .get_mut(&id)
-            .ok_or(AstraeaError::NodeNotFound(id))?;
+        let node = nodes.get_mut(&id).ok_or(AstraeaError::NodeNotFound(id))?;
         if let (serde_json::Value::Object(existing), serde_json::Value::Object(new)) =
             (&mut node.properties, properties)
         {
@@ -145,7 +145,10 @@ impl GraphOps for TestGraph {
 
     fn delete_node(&self, id: NodeId) -> Result<()> {
         self.nodes.write().unwrap().remove(&id);
-        self.edges.write().unwrap().retain(|e| e.source != id && e.target != id);
+        self.edges
+            .write()
+            .unwrap()
+            .retain(|e| e.source != id && e.target != id);
         Ok(())
     }
 

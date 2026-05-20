@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use astraea_core::types::NodeId;
 use crate::encrypted::{EncryptedLabel, EncryptedNode};
+use astraea_core::types::NodeId;
 
 /// An engine that can perform basic operations on encrypted data.
 ///
@@ -79,9 +79,9 @@ impl Default for EncryptedQueryEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use astraea_core::types::Node;
     use crate::encrypted::{EncryptedLabel, EncryptedNode};
     use crate::keys::KeyPair;
+    use astraea_core::types::Node;
 
     fn make_node(id: u64, labels: &[&str], name: &str) -> Node {
         Node {

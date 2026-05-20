@@ -28,9 +28,9 @@ impl ProxyClient {
 
     /// Send a `Request` to the AstraeaDB TCP server and return the `Response`.
     pub async fn send(&self, request: &Request) -> Result<Response, McpError> {
-        let mut stream = TcpStream::connect(&self.address)
-            .await
-            .map_err(|e| McpError::Connection(format!("failed to connect to {}: {e}", self.address)))?;
+        let mut stream = TcpStream::connect(&self.address).await.map_err(|e| {
+            McpError::Connection(format!("failed to connect to {}: {e}", self.address))
+        })?;
 
         let (reader, mut writer) = stream.split();
 
@@ -40,7 +40,10 @@ impl ProxyClient {
 
         if let Some(ref token) = self.auth_token {
             if let Some(obj) = json_value.as_object_mut() {
-                obj.insert("auth_token".to_string(), serde_json::Value::String(token.clone()));
+                obj.insert(
+                    "auth_token".to_string(),
+                    serde_json::Value::String(token.clone()),
+                );
             }
         }
 

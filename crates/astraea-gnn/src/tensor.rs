@@ -124,17 +124,17 @@ impl Tensor {
 
     /// Apply sigmoid activation element-wise: 1 / (1 + exp(-x)).
     pub fn sigmoid(&self) -> Tensor {
-        let data: Vec<f32> = self
-            .data
-            .iter()
-            .map(|x| 1.0 / (1.0 + (-x).exp()))
-            .collect();
+        let data: Vec<f32> = self.data.iter().map(|x| 1.0 / (1.0 + (-x).exp())).collect();
         Tensor::new(data, self.requires_grad)
     }
 
     /// Apply LeakyReLU element-wise: max(0.01 * x, x).
     pub fn leaky_relu(&self) -> Tensor {
-        let data: Vec<f32> = self.data.iter().map(|&x| if x > 0.0 { x } else { 0.01 * x }).collect();
+        let data: Vec<f32> = self
+            .data
+            .iter()
+            .map(|&x| if x > 0.0 { x } else { 0.01 * x })
+            .collect();
         Tensor::new(data, self.requires_grad)
     }
 
@@ -157,7 +157,12 @@ impl Tensor {
     /// Element-wise subtraction.
     pub fn sub(&self, other: &Tensor) -> Tensor {
         assert_eq!(self.data.len(), other.data.len());
-        let data: Vec<f32> = self.data.iter().zip(other.data.iter()).map(|(a, b)| a - b).collect();
+        let data: Vec<f32> = self
+            .data
+            .iter()
+            .zip(other.data.iter())
+            .map(|(a, b)| a - b)
+            .collect();
         Tensor::new(data, self.requires_grad || other.requires_grad)
     }
 

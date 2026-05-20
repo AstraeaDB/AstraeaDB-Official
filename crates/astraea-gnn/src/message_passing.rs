@@ -172,8 +172,8 @@ pub fn message_passing(
 mod tests {
     use super::*;
     use astraea_core::traits::GraphOps;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     /// Helper: build a 3-node linear graph: A --e1--> B --e2--> C.
     /// Returns (graph, node_ids, edge_ids).
@@ -191,26 +191,10 @@ mod tests {
             .unwrap();
 
         let e1 = graph
-            .create_edge(
-                a,
-                b,
-                "LINK".into(),
-                serde_json::json!({}),
-                1.0,
-                None,
-                None,
-            )
+            .create_edge(a, b, "LINK".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
         let e2 = graph
-            .create_edge(
-                b,
-                c,
-                "LINK".into(),
-                serde_json::json!({}),
-                1.0,
-                None,
-                None,
-            )
+            .create_edge(b, c, "LINK".into(), serde_json::json!({}), 1.0, None, None)
             .unwrap();
 
         (graph, [a, b, c], [e1, e2])
@@ -354,11 +338,7 @@ mod tests {
         // All output vectors should have L2 norm close to 1.0.
         for (_, feat) in &result {
             let n = feat.norm();
-            assert!(
-                (n - 1.0).abs() < 1e-5,
-                "expected norm ~1.0, got {}",
-                n
-            );
+            assert!((n - 1.0).abs() < 1e-5, "expected norm ~1.0, got {}", n);
         }
     }
 

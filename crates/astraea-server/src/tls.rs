@@ -429,11 +429,8 @@ mod tests {
 
     #[test]
     fn test_tls_config_with_mtls() {
-        let config = TlsConfig::with_mtls(
-            "/path/to/cert.pem",
-            "/path/to/key.pem",
-            "/path/to/ca.pem",
-        );
+        let config =
+            TlsConfig::with_mtls("/path/to/cert.pem", "/path/to/key.pem", "/path/to/ca.pem");
         assert!(config.ca_cert_path.is_some());
         assert!(config.require_client_cert);
     }
@@ -441,7 +438,8 @@ mod tests {
     #[test]
     fn test_load_server_config_no_client_auth() {
         let (_ca_pem, _, ca_params, ca_key) = generate_ca();
-        let (server_pem, server_key_pem) = generate_signed_cert("test-server", &ca_params, &ca_key, true);
+        let (server_pem, server_key_pem) =
+            generate_signed_cert("test-server", &ca_params, &ca_key, true);
 
         let dir = TempDir::new().unwrap();
         let cert_path = write_file(&dir, "server.pem", &server_pem);
@@ -455,7 +453,8 @@ mod tests {
     #[test]
     fn test_load_server_config_with_mtls() {
         let (ca_pem, _, ca_params, ca_key) = generate_ca();
-        let (server_pem, server_key_pem) = generate_signed_cert("test-server", &ca_params, &ca_key, true);
+        let (server_pem, server_key_pem) =
+            generate_signed_cert("test-server", &ca_params, &ca_key, true);
 
         let dir = TempDir::new().unwrap();
         let cert_path = write_file(&dir, "server.pem", &server_pem);
@@ -481,7 +480,8 @@ mod tests {
     #[test]
     fn test_build_acceptor() {
         let (_, _, ca_params, ca_key) = generate_ca();
-        let (server_pem, server_key_pem) = generate_signed_cert("test-server", &ca_params, &ca_key, true);
+        let (server_pem, server_key_pem) =
+            generate_signed_cert("test-server", &ca_params, &ca_key, true);
 
         let dir = TempDir::new().unwrap();
         let cert_path = write_file(&dir, "server.pem", &server_pem);

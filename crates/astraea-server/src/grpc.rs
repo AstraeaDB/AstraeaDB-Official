@@ -345,14 +345,8 @@ impl AstraeaService for AstraeaGrpcService {
                     .map(|arr| {
                         arr.iter()
                             .map(|entry| NeighborEntry {
-                                edge_id: entry
-                                    .get("edge_id")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0),
-                                node_id: entry
-                                    .get("node_id")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0),
+                                edge_id: entry.get("edge_id").and_then(|v| v.as_u64()).unwrap_or(0),
+                                node_id: entry.get("node_id").and_then(|v| v.as_u64()).unwrap_or(0),
                             })
                             .collect()
                     })
@@ -397,14 +391,8 @@ impl AstraeaService for AstraeaGrpcService {
                     .map(|arr| {
                         arr.iter()
                             .map(|entry| BfsEntry {
-                                node_id: entry
-                                    .get("node_id")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0),
-                                depth: entry
-                                    .get("depth")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0)
+                                node_id: entry.get("node_id").and_then(|v| v.as_u64()).unwrap_or(0),
+                                depth: entry.get("depth").and_then(|v| v.as_u64()).unwrap_or(0)
                                     as u32,
                             })
                             .collect()
@@ -445,18 +433,14 @@ impl AstraeaService for AstraeaGrpcService {
                         if v.is_null() {
                             None
                         } else {
-                            v.as_array().map(|arr| {
-                                arr.iter().filter_map(|val| val.as_u64()).collect()
-                            })
+                            v.as_array()
+                                .map(|arr| arr.iter().filter_map(|val| val.as_u64()).collect())
                         }
                     })
                     .unwrap_or_default();
 
                 let found = !path.is_empty();
-                let length = data
-                    .get("length")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
+                let length = data.get("length").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 let cost = data.get("cost").and_then(|v| v.as_f64());
 
                 Ok(tonic::Response::new(ShortestPathResponse {
@@ -502,10 +486,7 @@ impl AstraeaService for AstraeaGrpcService {
                     .map(|arr| {
                         arr.iter()
                             .map(|entry| VectorSearchResult {
-                                node_id: entry
-                                    .get("node_id")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0),
+                                node_id: entry.get("node_id").and_then(|v| v.as_u64()).unwrap_or(0),
                                 // Read `distance` (the canonical name);
                                 // fall back to `score` for older servers.
                                 // The proto field is still named `score`
@@ -516,8 +497,7 @@ impl AstraeaService for AstraeaGrpcService {
                                     .get("distance")
                                     .or_else(|| entry.get("score"))
                                     .and_then(|v| v.as_f64())
-                                    .unwrap_or(0.0)
-                                    as f32,
+                                    .unwrap_or(0.0) as f32,
                             })
                             .collect()
                     })
@@ -566,7 +546,11 @@ impl AstraeaService for AstraeaGrpcService {
         };
         let internal = Request::NeighborsAt {
             id: req.id,
-            direction: if req.direction.is_empty() { "outgoing".into() } else { req.direction },
+            direction: if req.direction.is_empty() {
+                "outgoing".into()
+            } else {
+                req.direction
+            },
             timestamp: req.timestamp,
             edge_type,
         };
@@ -585,11 +569,15 @@ impl AstraeaService for AstraeaGrpcService {
                             .collect()
                     })
                     .unwrap_or_default();
-                Ok(tonic::Response::new(NeighborsResponse { neighbors, error: String::new() }))
+                Ok(tonic::Response::new(NeighborsResponse {
+                    neighbors,
+                    error: String::new(),
+                }))
             }
-            Response::Error { message } => {
-                Ok(tonic::Response::new(NeighborsResponse { neighbors: vec![], error: message }))
-            }
+            Response::Error { message } => Ok(tonic::Response::new(NeighborsResponse {
+                neighbors: vec![],
+                error: message,
+            })),
         }
     }
 
@@ -598,7 +586,11 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<BfsAtRequest>,
     ) -> Result<tonic::Response<BfsResponse>, Status> {
         let req = request.into_inner();
-        let max_depth = if req.max_depth == 0 { 3 } else { req.max_depth as usize };
+        let max_depth = if req.max_depth == 0 {
+            3
+        } else {
+            req.max_depth as usize
+        };
         let internal = Request::BfsAt {
             start: req.start,
             max_depth,
@@ -614,16 +606,21 @@ impl AstraeaService for AstraeaGrpcService {
                         arr.iter()
                             .map(|entry| BfsEntry {
                                 node_id: entry.get("node_id").and_then(|v| v.as_u64()).unwrap_or(0),
-                                depth: entry.get("depth").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                depth: entry.get("depth").and_then(|v| v.as_u64()).unwrap_or(0)
+                                    as u32,
                             })
                             .collect()
                     })
                     .unwrap_or_default();
-                Ok(tonic::Response::new(BfsResponse { nodes, error: String::new() }))
+                Ok(tonic::Response::new(BfsResponse {
+                    nodes,
+                    error: String::new(),
+                }))
             }
-            Response::Error { message } => {
-                Ok(tonic::Response::new(BfsResponse { nodes: vec![], error: message }))
-            }
+            Response::Error { message } => Ok(tonic::Response::new(BfsResponse {
+                nodes: vec![],
+                error: message,
+            })),
         }
     }
 
@@ -643,16 +640,33 @@ impl AstraeaService for AstraeaGrpcService {
             Response::Ok { data } => {
                 let path: Vec<u64> = data
                     .get("path")
-                    .and_then(|v| if v.is_null() { None } else { v.as_array().map(|arr| arr.iter().filter_map(|val| val.as_u64()).collect()) })
+                    .and_then(|v| {
+                        if v.is_null() {
+                            None
+                        } else {
+                            v.as_array()
+                                .map(|arr| arr.iter().filter_map(|val| val.as_u64()).collect())
+                        }
+                    })
                     .unwrap_or_default();
                 let found = !path.is_empty();
                 let length = data.get("length").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 let cost = data.get("cost").and_then(|v| v.as_f64());
-                Ok(tonic::Response::new(ShortestPathResponse { found, path, length, cost, error: String::new() }))
+                Ok(tonic::Response::new(ShortestPathResponse {
+                    found,
+                    path,
+                    length,
+                    cost,
+                    error: String::new(),
+                }))
             }
-            Response::Error { message } => {
-                Ok(tonic::Response::new(ShortestPathResponse { found: false, path: vec![], length: 0, cost: None, error: message }))
-            }
+            Response::Error { message } => Ok(tonic::Response::new(ShortestPathResponse {
+                found: false,
+                path: vec![],
+                length: 0,
+                cost: None,
+                error: message,
+            })),
         }
     }
 
@@ -663,8 +677,15 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<DfsRequest>,
     ) -> Result<tonic::Response<DfsResponse>, Status> {
         let req = request.into_inner();
-        let max_depth = if req.max_depth == 0 { 3 } else { req.max_depth as usize };
-        let internal = Request::Dfs { start: req.start, max_depth };
+        let max_depth = if req.max_depth == 0 {
+            3
+        } else {
+            req.max_depth as usize
+        };
+        let internal = Request::Dfs {
+            start: req.start,
+            max_depth,
+        };
         let resp = self.handler.handle(internal);
         match resp {
             Response::Ok { data } => {
@@ -673,11 +694,15 @@ impl AstraeaService for AstraeaGrpcService {
                     .and_then(|v| v.as_array())
                     .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
                     .unwrap_or_default();
-                Ok(tonic::Response::new(DfsResponse { nodes, error: String::new() }))
+                Ok(tonic::Response::new(DfsResponse {
+                    nodes,
+                    error: String::new(),
+                }))
             }
-            Response::Error { message } => {
-                Ok(tonic::Response::new(DfsResponse { nodes: vec![], error: message }))
-            }
+            Response::Error { message } => Ok(tonic::Response::new(DfsResponse {
+                nodes: vec![],
+                error: message,
+            })),
         }
     }
 
@@ -686,8 +711,16 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<DfsAtRequest>,
     ) -> Result<tonic::Response<DfsResponse>, Status> {
         let req = request.into_inner();
-        let max_depth = if req.max_depth == 0 { 3 } else { req.max_depth as usize };
-        let internal = Request::DfsAt { start: req.start, max_depth, timestamp: req.timestamp };
+        let max_depth = if req.max_depth == 0 {
+            3
+        } else {
+            req.max_depth as usize
+        };
+        let internal = Request::DfsAt {
+            start: req.start,
+            max_depth,
+            timestamp: req.timestamp,
+        };
         let resp = self.handler.handle(internal);
         match resp {
             Response::Ok { data } => {
@@ -696,11 +729,15 @@ impl AstraeaService for AstraeaGrpcService {
                     .and_then(|v| v.as_array())
                     .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
                     .unwrap_or_default();
-                Ok(tonic::Response::new(DfsResponse { nodes, error: String::new() }))
+                Ok(tonic::Response::new(DfsResponse {
+                    nodes,
+                    error: String::new(),
+                }))
             }
-            Response::Error { message } => {
-                Ok(tonic::Response::new(DfsResponse { nodes: vec![], error: message }))
-            }
+            Response::Error { message } => Ok(tonic::Response::new(DfsResponse {
+                nodes: vec![],
+                error: message,
+            })),
         }
     }
 
@@ -720,11 +757,15 @@ impl AstraeaService for AstraeaGrpcService {
                     .and_then(|v| v.as_array())
                     .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
                     .unwrap_or_default();
-                Ok(tonic::Response::new(FindByLabelResponse { node_ids, error: String::new() }))
+                Ok(tonic::Response::new(FindByLabelResponse {
+                    node_ids,
+                    error: String::new(),
+                }))
             }
-            Response::Error { message } => {
-                Ok(tonic::Response::new(FindByLabelResponse { node_ids: vec![], error: message }))
-            }
+            Response::Error { message } => Ok(tonic::Response::new(FindByLabelResponse {
+                node_ids: vec![],
+                error: message,
+            })),
         }
     }
 
@@ -738,12 +779,20 @@ impl AstraeaService for AstraeaGrpcService {
         let internal = Request::HybridSearch {
             anchor: req.anchor,
             query: req.query,
-            max_hops: if req.max_hops == 0 { 3 } else { req.max_hops as usize },
+            max_hops: if req.max_hops == 0 {
+                3
+            } else {
+                req.max_hops as usize
+            },
             k: if req.k == 0 { 10 } else { req.k as usize },
             alpha: if req.alpha == 0.0 { 0.5 } else { req.alpha },
         };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     async fn semantic_neighbors(
@@ -754,11 +803,19 @@ impl AstraeaService for AstraeaGrpcService {
         let internal = Request::SemanticNeighbors {
             id: req.id,
             concept: req.concept,
-            direction: if req.direction.is_empty() { "outgoing".into() } else { req.direction },
+            direction: if req.direction.is_empty() {
+                "outgoing".into()
+            } else {
+                req.direction
+            },
             k: if req.k == 0 { 10 } else { req.k as usize },
         };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     async fn semantic_walk(
@@ -769,10 +826,18 @@ impl AstraeaService for AstraeaGrpcService {
         let internal = Request::SemanticWalk {
             start: req.start,
             concept: req.concept,
-            max_hops: if req.max_hops == 0 { 3 } else { req.max_hops as usize },
+            max_hops: if req.max_hops == 0 {
+                3
+            } else {
+                req.max_hops as usize
+            },
         };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     // -- Graph algorithms --------------------------------------------------
@@ -782,15 +847,35 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<RunPageRankRequest>,
     ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
         let req = request.into_inner();
-        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let nodes = if req.nodes.is_empty() {
+            None
+        } else {
+            Some(req.nodes)
+        };
         let internal = Request::RunPageRank {
             nodes,
-            damping: if req.damping == 0.0 { 0.85 } else { req.damping },
-            max_iterations: if req.max_iterations == 0 { 100 } else { req.max_iterations as usize },
-            tolerance: if req.tolerance == 0.0 { 1e-6 } else { req.tolerance },
+            damping: if req.damping == 0.0 {
+                0.85
+            } else {
+                req.damping
+            },
+            max_iterations: if req.max_iterations == 0 {
+                100
+            } else {
+                req.max_iterations as usize
+            },
+            tolerance: if req.tolerance == 0.0 {
+                1e-6
+            } else {
+                req.tolerance
+            },
         };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     async fn run_louvain(
@@ -798,10 +883,18 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<RunLouvainRequest>,
     ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
         let req = request.into_inner();
-        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let nodes = if req.nodes.is_empty() {
+            None
+        } else {
+            Some(req.nodes)
+        };
         let internal = Request::RunLouvain { nodes };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     async fn run_connected_components(
@@ -809,10 +902,21 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<RunConnectedComponentsRequest>,
     ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
         let req = request.into_inner();
-        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
-        let internal = Request::RunConnectedComponents { nodes, strong: req.strong };
+        let nodes = if req.nodes.is_empty() {
+            None
+        } else {
+            Some(req.nodes)
+        };
+        let internal = Request::RunConnectedComponents {
+            nodes,
+            strong: req.strong,
+        };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     async fn run_degree_centrality(
@@ -820,13 +924,25 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<RunDegreeCentralityRequest>,
     ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
         let req = request.into_inner();
-        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let nodes = if req.nodes.is_empty() {
+            None
+        } else {
+            Some(req.nodes)
+        };
         let internal = Request::RunDegreeCentrality {
             nodes,
-            direction: if req.direction.is_empty() { "both".into() } else { req.direction },
+            direction: if req.direction.is_empty() {
+                "both".into()
+            } else {
+                req.direction
+            },
         };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     async fn run_betweenness_centrality(
@@ -834,10 +950,18 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<RunBetweennessCentralityRequest>,
     ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
         let req = request.into_inner();
-        let nodes = if req.nodes.is_empty() { None } else { Some(req.nodes) };
+        let nodes = if req.nodes.is_empty() {
+            None
+        } else {
+            Some(req.nodes)
+        };
         let internal = Request::RunBetweennessCentrality { nodes };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     // -- Graph stats & subgraph --------------------------------------------
@@ -848,7 +972,11 @@ impl AstraeaService for AstraeaGrpcService {
     ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
         let internal = Request::GraphStats;
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     async fn get_subgraph(
@@ -859,10 +987,18 @@ impl AstraeaService for AstraeaGrpcService {
         let internal = Request::GetSubgraph {
             center: req.center,
             hops: if req.hops == 0 { 3 } else { req.hops as usize },
-            max_nodes: if req.max_nodes == 0 { 50 } else { req.max_nodes as usize },
+            max_nodes: if req.max_nodes == 0 {
+                50
+            } else {
+                req.max_nodes as usize
+            },
         };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     // -- RAG ---------------------------------------------------------------
@@ -875,11 +1011,23 @@ impl AstraeaService for AstraeaGrpcService {
         let internal = Request::ExtractSubgraph {
             center: req.center,
             hops: if req.hops == 0 { 3 } else { req.hops as usize },
-            max_nodes: if req.max_nodes == 0 { 50 } else { req.max_nodes as usize },
-            format: if req.format.is_empty() { "structured".into() } else { req.format },
+            max_nodes: if req.max_nodes == 0 {
+                50
+            } else {
+                req.max_nodes as usize
+            },
+            format: if req.format.is_empty() {
+                "structured".into()
+            } else {
+                req.format
+            },
         };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     async fn graph_rag(
@@ -887,18 +1035,38 @@ impl AstraeaService for AstraeaGrpcService {
         request: tonic::Request<GraphRagRequest>,
     ) -> Result<tonic::Response<GenericJsonResponse>, Status> {
         let req = request.into_inner();
-        let question_embedding = if req.question_embedding.is_empty() { None } else { Some(req.question_embedding) };
-        let anchor = if req.anchor == 0 { None } else { Some(req.anchor) };
+        let question_embedding = if req.question_embedding.is_empty() {
+            None
+        } else {
+            Some(req.question_embedding)
+        };
+        let anchor = if req.anchor == 0 {
+            None
+        } else {
+            Some(req.anchor)
+        };
         let internal = Request::GraphRag {
             question: req.question,
             question_embedding,
             anchor,
             hops: if req.hops == 0 { 3 } else { req.hops as usize },
-            max_nodes: if req.max_nodes == 0 { 50 } else { req.max_nodes as usize },
-            format: if req.format.is_empty() { "structured".into() } else { req.format },
+            max_nodes: if req.max_nodes == 0 {
+                50
+            } else {
+                req.max_nodes as usize
+            },
+            format: if req.format.is_empty() {
+                "structured".into()
+            } else {
+                req.format
+            },
         };
         let (success, result_json, error) = response_to_parts(self.handler.handle(internal));
-        Ok(tonic::Response::new(GenericJsonResponse { success, result_json, error }))
+        Ok(tonic::Response::new(GenericJsonResponse {
+            success,
+            result_json,
+            error,
+        }))
     }
 
     // -- Health check ------------------------------------------------------
@@ -912,10 +1080,7 @@ impl AstraeaService for AstraeaGrpcService {
 
         match resp {
             Response::Ok { data } => {
-                let pong = data
-                    .get("pong")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
+                let pong = data.get("pong").and_then(|v| v.as_bool()).unwrap_or(true);
                 let version = data
                     .get("version")
                     .and_then(|v| v.as_str())
@@ -962,8 +1127,8 @@ pub async fn run_grpc_server(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::proto::astraea_service_server::AstraeaService;
+    use super::*;
 
     /// Build a handler backed by an in-memory graph for testing.
     fn test_handler() -> Arc<RequestHandler> {
@@ -1002,8 +1167,7 @@ mod tests {
         assert!(create_resp.success, "create failed: {}", create_resp.error);
 
         // Parse the created node_id from the result JSON.
-        let result: serde_json::Value =
-            serde_json::from_str(&create_resp.result_json).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&create_resp.result_json).unwrap();
         let node_id = result.get("node_id").and_then(|v| v.as_u64()).unwrap();
 
         // Get
@@ -1063,8 +1227,7 @@ mod tests {
             .into_inner();
         assert!(edge_resp.success, "create edge failed: {}", edge_resp.error);
 
-        let result: serde_json::Value =
-            serde_json::from_str(&edge_resp.result_json).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&edge_resp.result_json).unwrap();
         let edge_id = result["edge_id"].as_u64().unwrap();
 
         // Get edge.
@@ -1127,8 +1290,7 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        let nid1 = serde_json::from_str::<serde_json::Value>(&r1.result_json).unwrap()
-            ["node_id"]
+        let nid1 = serde_json::from_str::<serde_json::Value>(&r1.result_json).unwrap()["node_id"]
             .as_u64()
             .unwrap();
 
@@ -1141,8 +1303,7 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        let nid2 = serde_json::from_str::<serde_json::Value>(&r2.result_json).unwrap()
-            ["node_id"]
+        let nid2 = serde_json::from_str::<serde_json::Value>(&r2.result_json).unwrap()["node_id"]
             .as_u64()
             .unwrap();
 

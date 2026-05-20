@@ -1,9 +1,9 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use astraea_server::protocol::Request;
+use super::{CallToolResult, ToolDefinition};
 use crate::client::ProxyClient;
 use crate::errors::McpError;
-use super::{CallToolResult, ToolDefinition};
+use astraea_server::protocol::Request;
 
 /// Return tool definitions for all traversal operations.
 pub fn definitions() -> Vec<ToolDefinition> {

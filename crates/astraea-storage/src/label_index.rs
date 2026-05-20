@@ -127,10 +127,7 @@ mod tests {
     #[test]
     fn test_multi_label() {
         let mut idx = LabelIndex::new();
-        idx.add_node(
-            NodeId(1),
-            &["Person".to_string(), "Employee".to_string()],
-        );
+        idx.add_node(NodeId(1), &["Person".to_string(), "Employee".to_string()]);
 
         let persons = idx.get("Person");
         assert_eq!(persons, vec![NodeId(1)]);
@@ -142,24 +139,15 @@ mod tests {
     #[test]
     fn test_intersection() {
         let mut idx = LabelIndex::new();
-        idx.add_node(
-            NodeId(1),
-            &["Person".to_string(), "Employee".to_string()],
-        );
+        idx.add_node(NodeId(1), &["Person".to_string(), "Employee".to_string()]);
         idx.add_node(NodeId(2), &["Person".to_string()]);
         idx.add_node(NodeId(3), &["Employee".to_string()]);
 
-        let both = idx.get_intersection(&[
-            "Person".to_string(),
-            "Employee".to_string(),
-        ]);
+        let both = idx.get_intersection(&["Person".to_string(), "Employee".to_string()]);
         assert_eq!(both, vec![NodeId(1)]);
 
         // If one label doesn't exist, intersection is empty.
-        let none = idx.get_intersection(&[
-            "Person".to_string(),
-            "Nonexistent".to_string(),
-        ]);
+        let none = idx.get_intersection(&["Person".to_string(), "Nonexistent".to_string()]);
         assert!(none.is_empty());
 
         // Empty labels list returns empty.

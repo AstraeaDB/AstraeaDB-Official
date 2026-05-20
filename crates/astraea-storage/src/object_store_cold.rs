@@ -48,9 +48,9 @@ use crate::cold_storage::{ColdPartition, ColdStorage};
 use astraea_core::error::{AstraeaError, Result};
 use bytes::Bytes;
 use futures::StreamExt;
+use object_store::ObjectStore;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
-use object_store::ObjectStore;
 use std::io::{Error as IoError, ErrorKind};
 use std::path::Path;
 use std::sync::Arc;
@@ -117,8 +117,7 @@ impl ObjectStoreColdStorage {
         // Create directory if it doesn't exist.
         std::fs::create_dir_all(base_dir)?;
 
-        let store = LocalFileSystem::new_with_prefix(base_dir)
-            .map_err(object_store_err_to_io)?;
+        let store = LocalFileSystem::new_with_prefix(base_dir).map_err(object_store_err_to_io)?;
 
         Ok(Self {
             store: Arc::new(store),
@@ -282,12 +281,8 @@ impl ColdStorage for ObjectStoreColdStorage {
         match result {
             Ok(get_result) => {
                 // Read the bytes.
-                let bytes = self.block_on(async {
-                    get_result
-                        .bytes()
-                        .await
-                        .map_err(object_store_err_to_io)
-                })?;
+                let bytes = self
+                    .block_on(async { get_result.bytes().await.map_err(object_store_err_to_io) })?;
 
                 // Deserialize from JSON.
                 let partition: ColdPartition = serde_json::from_slice(&bytes)
@@ -493,10 +488,7 @@ mod tests {
         storage.write_partition(&partition).unwrap();
 
         // Verify initial state.
-        let read1 = storage
-            .read_partition("overwrite-test")
-            .unwrap()
-            .unwrap();
+        let read1 = storage.read_partition("overwrite-test").unwrap().unwrap();
         assert_eq!(read1.nodes.len(), 2);
 
         // Overwrite with additional node.
@@ -509,10 +501,7 @@ mod tests {
         storage.write_partition(&partition).unwrap();
 
         // Verify overwritten state.
-        let read2 = storage
-            .read_partition("overwrite-test")
-            .unwrap()
-            .unwrap();
+        let read2 = storage.read_partition("overwrite-test").unwrap().unwrap();
         assert_eq!(read2.nodes.len(), 3);
         assert_eq!(read2.nodes[2].id, 999);
     }
@@ -522,9 +511,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
 
         // Create a LocalFileSystem store without prefix.
-        let store = Arc::new(
-            LocalFileSystem::new_with_prefix(tmp.path()).unwrap(),
-        );
+        let store = Arc::new(LocalFileSystem::new_with_prefix(tmp.path()).unwrap());
 
         // Use ObjectStoreColdStorage with a prefix.
         let storage = ObjectStoreColdStorage::new(store, "cold-data/");

@@ -11,7 +11,7 @@ use crate::connection::{ConnectionConfig, ConnectionManager};
 use crate::handler::RequestHandler;
 use crate::metrics::ServerMetrics;
 use crate::protocol::{Request, Response};
-use crate::tls::{extract_client_cn, TlsConfig};
+use crate::tls::{TlsConfig, extract_client_cn};
 
 /// Configuration for the AstraeaDB server.
 #[derive(Debug, Clone)]
@@ -52,7 +52,10 @@ impl AstraeaServer {
     ///
     /// # Errors
     /// Returns an error if TLS is configured but certificates cannot be loaded.
-    pub fn new(config: ServerConfig, handler: RequestHandler) -> Result<Self, crate::tls::TlsError> {
+    pub fn new(
+        config: ServerConfig,
+        handler: RequestHandler,
+    ) -> Result<Self, crate::tls::TlsError> {
         let connection_manager = Arc::new(ConnectionManager::new(config.connection.clone()));
 
         // Build TLS acceptor if TLS is configured
@@ -343,17 +346,16 @@ where
 
         // Execute with request timeout.
         let handler_ref = Arc::clone(&handler);
-        let response = match tokio::time::timeout(request_timeout, async move {
-            handler_ref.handle(request)
-        })
-        .await
-        {
-            Ok(resp) => resp,
-            Err(_) => {
-                metrics.record_error(request_type);
-                Response::error("request timeout")
-            }
-        };
+        let response =
+            match tokio::time::timeout(request_timeout, async move { handler_ref.handle(request) })
+                .await
+            {
+                Ok(resp) => resp,
+                Err(_) => {
+                    metrics.record_error(request_type);
+                    Response::error("request timeout")
+                }
+            };
 
         let duration = start.elapsed();
         metrics.record_duration(request_type, duration);

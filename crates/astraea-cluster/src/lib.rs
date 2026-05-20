@@ -12,10 +12,10 @@
 //! versions, platforms, and processes. Edge ownership always follows
 //! the source node's shard.
 
+pub mod coordinator;
 pub mod partition;
 pub mod shard;
-pub mod coordinator;
 
-pub use partition::{PartitionStrategy, HashPartitioner, RangePartitioner};
-pub use shard::{ShardId, ShardInfo, ShardMap};
 pub use coordinator::ClusterCoordinator;
+pub use partition::{HashPartitioner, PartitionStrategy, RangePartitioner};
+pub use shard::{ShardId, ShardInfo, ShardMap};

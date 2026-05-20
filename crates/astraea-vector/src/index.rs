@@ -34,7 +34,12 @@ impl HnswVectorIndex {
     /// - `ef_search = 50`
     pub fn new(dimension: usize, metric: DistanceMetric) -> Self {
         Self {
-            inner: RwLock::new(HnswIndex::new(dimension, metric, DEFAULT_M, DEFAULT_EF_CONSTRUCTION)),
+            inner: RwLock::new(HnswIndex::new(
+                dimension,
+                metric,
+                DEFAULT_M,
+                DEFAULT_EF_CONSTRUCTION,
+            )),
             ef_search: DEFAULT_EF_SEARCH,
         }
     }

@@ -112,9 +112,13 @@ impl ToolRegistry {
             // Algorithms
             "run_pagerank" => algorithms::run_pagerank(&self.client, args).await,
             "run_louvain" => algorithms::run_louvain(&self.client, args).await,
-            "run_connected_components" => algorithms::run_connected_components(&self.client, args).await,
+            "run_connected_components" => {
+                algorithms::run_connected_components(&self.client, args).await
+            }
             "run_degree_centrality" => algorithms::run_degree_centrality(&self.client, args).await,
-            "run_betweenness_centrality" => algorithms::run_betweenness_centrality(&self.client, args).await,
+            "run_betweenness_centrality" => {
+                algorithms::run_betweenness_centrality(&self.client, args).await
+            }
 
             // Temporal
             "neighbors_at" => temporal::neighbors_at(&self.client, args).await,

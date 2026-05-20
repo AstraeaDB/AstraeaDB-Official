@@ -1,9 +1,9 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use astraea_server::protocol::Request;
+use super::{CallToolResult, ToolDefinition};
 use crate::client::ProxyClient;
 use crate::errors::McpError;
-use super::{CallToolResult, ToolDefinition};
+use astraea_server::protocol::Request;
 
 /// Return tool definitions for admin/utility operations.
 pub fn definitions() -> Vec<ToolDefinition> {
@@ -24,7 +24,8 @@ pub fn definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "graph_stats".to_string(),
-            description: "Get graph statistics including node count, edge count, and labels.".to_string(),
+            description: "Get graph statistics including node count, edge count, and labels."
+                .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {}

@@ -280,9 +280,7 @@ mod tests {
             _properties: serde_json::Value,
             _embedding: Option<Vec<f32>>,
         ) -> Result<NodeId> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn create_edge(
@@ -295,9 +293,7 @@ mod tests {
             _valid_from: Option<i64>,
             _valid_to: Option<i64>,
         ) -> Result<EdgeId> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn get_node(&self, id: NodeId) -> Result<Option<Node>> {
@@ -309,27 +305,19 @@ mod tests {
         }
 
         fn update_node(&self, _id: NodeId, _properties: serde_json::Value) -> Result<()> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn update_edge(&self, _id: EdgeId, _properties: serde_json::Value) -> Result<()> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn delete_node(&self, _id: NodeId) -> Result<()> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn delete_edge(&self, _id: EdgeId) -> Result<()> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn neighbors(
@@ -338,9 +326,7 @@ mod tests {
             direction: Direction,
         ) -> Result<Vec<(EdgeId, NodeId)>> {
             match direction {
-                Direction::Outgoing => {
-                    Ok(self.outgoing.get(&node_id).cloned().unwrap_or_default())
-                }
+                Direction::Outgoing => Ok(self.outgoing.get(&node_id).cloned().unwrap_or_default()),
                 Direction::Incoming => {
                     let mut result = Vec::new();
                     for edge in self.edges.values() {
@@ -351,8 +337,7 @@ mod tests {
                     Ok(result)
                 }
                 Direction::Both => {
-                    let mut result =
-                        self.outgoing.get(&node_id).cloned().unwrap_or_default();
+                    let mut result = self.outgoing.get(&node_id).cloned().unwrap_or_default();
                     for edge in self.edges.values() {
                         if edge.target == node_id {
                             result.push((edge.id, edge.source));
@@ -369,27 +354,19 @@ mod tests {
             _direction: Direction,
             _edge_type: &str,
         ) -> Result<Vec<(EdgeId, NodeId)>> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn bfs(&self, _start: NodeId, _max_depth: usize) -> Result<Vec<(NodeId, usize)>> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn dfs(&self, _start: NodeId, _max_depth: usize) -> Result<Vec<NodeId>> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn shortest_path(&self, _from: NodeId, _to: NodeId) -> Result<Option<GraphPath>> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn shortest_path_weighted(
@@ -397,9 +374,7 @@ mod tests {
             _from: NodeId,
             _to: NodeId,
         ) -> Result<Option<(GraphPath, f64)>> {
-            Err(AstraeaError::QueryExecution(
-                "not supported in mock".into(),
-            ))
+            Err(AstraeaError::QueryExecution("not supported in mock".into()))
         }
 
         fn find_by_label(&self, label: &str) -> Result<Vec<NodeId>> {

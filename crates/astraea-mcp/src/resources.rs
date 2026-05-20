@@ -52,8 +52,9 @@ pub fn resource_templates() -> Vec<ResourceTemplate> {
         ResourceTemplate {
             uri_template: "astraea://node/{id}".to_string(),
             name: "Node".to_string(),
-            description: "Full data for a node including labels, properties, and embedding metadata."
-                .to_string(),
+            description:
+                "Full data for a node including labels, properties, and embedding metadata."
+                    .to_string(),
             mime_type: "application/json".to_string(),
         },
         ResourceTemplate {
@@ -90,8 +91,7 @@ pub async fn read_resource(client: &ProxyClient, uri: &str) -> Result<ResourceCo
             Ok(ResourceContent {
                 uri: uri.to_string(),
                 mime_type: "application/json".to_string(),
-                text: serde_json::to_string_pretty(&data)
-                    .unwrap_or_else(|_| data.to_string()),
+                text: serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string()),
             })
         }
         ParsedUri::Node(id) => {
@@ -99,8 +99,7 @@ pub async fn read_resource(client: &ProxyClient, uri: &str) -> Result<ResourceCo
             Ok(ResourceContent {
                 uri: uri.to_string(),
                 mime_type: "application/json".to_string(),
-                text: serde_json::to_string_pretty(&data)
-                    .unwrap_or_else(|_| data.to_string()),
+                text: serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string()),
             })
         }
         ParsedUri::Edge(id) => {
@@ -108,11 +107,14 @@ pub async fn read_resource(client: &ProxyClient, uri: &str) -> Result<ResourceCo
             Ok(ResourceContent {
                 uri: uri.to_string(),
                 mime_type: "application/json".to_string(),
-                text: serde_json::to_string_pretty(&data)
-                    .unwrap_or_else(|_| data.to_string()),
+                text: serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string()),
             })
         }
-        ParsedUri::Subgraph { node_id, hops, max_nodes } => {
+        ParsedUri::Subgraph {
+            node_id,
+            hops,
+            max_nodes,
+        } => {
             let data = client
                 .send_and_unwrap(&Request::ExtractSubgraph {
                     center: node_id,
@@ -135,8 +137,7 @@ pub async fn read_resource(client: &ProxyClient, uri: &str) -> Result<ResourceCo
             Ok(ResourceContent {
                 uri: uri.to_string(),
                 mime_type: "application/json".to_string(),
-                text: serde_json::to_string_pretty(&data)
-                    .unwrap_or_else(|_| data.to_string()),
+                text: serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string()),
             })
         }
     }

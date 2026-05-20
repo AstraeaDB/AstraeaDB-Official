@@ -1,7 +1,7 @@
 //! Connection management: pooling, backpressure, timeouts, and graceful shutdown.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::sync::Semaphore;
@@ -26,9 +26,9 @@ impl Default for ConnectionConfig {
         Self {
             max_connections: 1024,
             max_concurrent_requests: 256,
-            idle_timeout: Duration::from_secs(300),   // 5 minutes
-            request_timeout: Duration::from_secs(30),  // 30 seconds
-            drain_timeout: Duration::from_secs(10),    // 10 seconds
+            idle_timeout: Duration::from_secs(300), // 5 minutes
+            request_timeout: Duration::from_secs(30), // 30 seconds
+            drain_timeout: Duration::from_secs(10), // 10 seconds
         }
     }
 }
@@ -181,7 +181,10 @@ mod tests {
 
         let _g1 = mgr.try_accept().expect("first connection should succeed");
         let _g2 = mgr.try_accept().expect("second connection should succeed");
-        assert!(mgr.try_accept().is_none(), "third connection should be rejected");
+        assert!(
+            mgr.try_accept().is_none(),
+            "third connection should be rejected"
+        );
         assert_eq!(mgr.active_connections(), 2);
         assert_eq!(mgr.rejected_connections(), 1);
     }
@@ -221,8 +224,14 @@ mod tests {
         };
         let mgr = ConnectionManager::new(config);
 
-        let _p1 = mgr.acquire_request_permit().await.expect("should get permit");
-        let _p2 = mgr.acquire_request_permit().await.expect("should get permit");
+        let _p1 = mgr
+            .acquire_request_permit()
+            .await
+            .expect("should get permit");
+        let _p2 = mgr
+            .acquire_request_permit()
+            .await
+            .expect("should get permit");
         // Third should timeout quickly in test but we don't want to wait long
     }
 

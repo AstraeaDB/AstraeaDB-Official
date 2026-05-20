@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
-use astraea_core::types::NodeId;
 use crate::partition::PartitionStrategy;
+use astraea_core::types::NodeId;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Unique shard identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -85,7 +85,8 @@ impl ShardMap {
 
     /// Get all active shards.
     pub fn active_shards(&self) -> Vec<&ShardInfo> {
-        self.shards.values()
+        self.shards
+            .values()
             .filter(|s| s.status == ShardStatus::Active)
             .collect()
     }

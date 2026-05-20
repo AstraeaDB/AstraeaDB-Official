@@ -1,5 +1,5 @@
-use astraea_core::types::NodeId;
 use crate::shard::ShardId;
+use astraea_core::types::NodeId;
 
 /// Strategy for partitioning nodes across shards.
 pub trait PartitionStrategy: Send + Sync {
@@ -116,7 +116,10 @@ mod tests {
             seen_shards.insert(shard.0);
         }
         // With 100 nodes and 4 shards, we should see more than 1 shard used.
-        assert!(seen_shards.len() > 1, "expected distribution across multiple shards");
+        assert!(
+            seen_shards.len() > 1,
+            "expected distribution across multiple shards"
+        );
     }
 
     #[test]

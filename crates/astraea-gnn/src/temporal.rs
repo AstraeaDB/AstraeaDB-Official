@@ -119,7 +119,14 @@ impl TemporalGNNModel {
         activation: Activation,
     ) -> Self {
         let mut rng = rand::thread_rng();
-        Self::new_with_rng(input_dim, hidden_dim, num_classes, num_layers, activation, &mut rng)
+        Self::new_with_rng(
+            input_dim,
+            hidden_dim,
+            num_classes,
+            num_layers,
+            activation,
+            &mut rng,
+        )
     }
 
     /// Create a new temporal model with a provided RNG.
@@ -131,8 +138,14 @@ impl TemporalGNNModel {
         activation: Activation,
         rng: &mut impl Rng,
     ) -> Self {
-        let base_model =
-            GNNModel::new_with_rng(input_dim, hidden_dim, num_classes, num_layers, activation, rng);
+        let base_model = GNNModel::new_with_rng(
+            input_dim,
+            hidden_dim,
+            num_classes,
+            num_layers,
+            activation,
+            rng,
+        );
 
         // Each GRU cell evolves a flattened weight summary.
         // We use hidden_dim as the GRU state dimension for simplicity.
@@ -379,11 +392,8 @@ pub fn train_temporal(
             // Track accuracy on the last epoch.
             if epoch == config.epochs - 1 {
                 let labeled_nodes: Vec<NodeId> = training_data.labels.keys().copied().collect();
-                let preds = model::predict_from_logits(
-                    &logits,
-                    &labeled_nodes,
-                    training_data.num_classes,
-                );
+                let preds =
+                    model::predict_from_logits(&logits, &labeled_nodes, training_data.num_classes);
                 let correct = training_data
                     .labels
                     .iter()
@@ -433,8 +443,8 @@ fn detect_temporal_input_dim(graph: &dyn GraphOps, data: &TrainingData) -> Resul
 mod tests {
     use super::*;
     use crate::message_passing::Aggregation;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     fn make_temporal_graph() -> (Graph, Vec<NodeId>) {
         let graph = Graph::new(Box::new(InMemoryStorage::new()));
@@ -536,7 +546,10 @@ mod tests {
         // Output should be bounded (tanh components) and non-trivial.
         for &v in &new_hidden.data {
             assert!(v.is_finite(), "GRU output should be finite");
-            assert!(v.abs() <= 1.0 + 1e-6, "GRU output should be bounded by tanh");
+            assert!(
+                v.abs() <= 1.0 + 1e-6,
+                "GRU output should be bounded by tanh"
+            );
         }
 
         // Feeding the output back as hidden should produce a different result.
@@ -547,7 +560,10 @@ mod tests {
             .zip(new_hidden.data.iter())
             .map(|(a, b)| (a - b).abs())
             .sum();
-        assert!(diff > 1e-6, "Sequential GRU steps should produce different outputs");
+        assert!(
+            diff > 1e-6,
+            "Sequential GRU steps should produce different outputs"
+        );
     }
 
     #[test]

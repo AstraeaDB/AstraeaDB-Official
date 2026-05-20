@@ -344,7 +344,10 @@ mod tests {
 
         assert_eq!(cold.id, 42);
         assert_eq!(cold.labels, vec!["Person", "Employee"]);
-        assert_eq!(cold.properties, serde_json::json!({"name": "Alice", "age": 30}));
+        assert_eq!(
+            cold.properties,
+            serde_json::json!({"name": "Alice", "age": 30})
+        );
         assert_eq!(cold.embedding, Some(vec![0.1, 0.2, 0.3, 0.4]));
     }
 

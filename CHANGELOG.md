@@ -28,6 +28,15 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.2] - 2026-05-20
+
+### Changed
+- **workspace:** apply `cargo fmt --all` across the workspace.
+  No API change, no behavioral change — purely whitespace and
+  formatting normalization to bring the tree in line with rustfmt
+  defaults. Required to unblock the `fmt` job in the
+  `.github/workflows/version-gate.yml` gate.
+
 ## [0.1.1] - 2026-05-20
 
 ### Changed

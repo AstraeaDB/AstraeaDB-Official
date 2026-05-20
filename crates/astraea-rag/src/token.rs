@@ -127,8 +127,8 @@ fn collect_edges_for_nodes(
 mod tests {
     use super::*;
     use astraea_core::traits::GraphOps;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     #[test]
     fn test_estimate_tokens() {
@@ -180,8 +180,7 @@ mod tests {
 
         // Extract with a very large budget -- should get all nodes
         let (subgraph_big, text_big) =
-            extract_with_budget(&graph, NodeId(1), 10, 100_000, TextFormat::Triples)
-                .unwrap();
+            extract_with_budget(&graph, NodeId(1), 10, 100_000, TextFormat::Triples).unwrap();
         assert_eq!(subgraph_big.nodes.len(), 5);
         assert!(!text_big.is_empty());
 
@@ -189,8 +188,7 @@ mod tests {
         // The triples format for 1 node is empty (no edges from just 1 node),
         // so with a tiny budget we should still get at least the center node.
         let (subgraph_small, _text_small) =
-            extract_with_budget(&graph, NodeId(1), 10, 1, TextFormat::Structured)
-                .unwrap();
+            extract_with_budget(&graph, NodeId(1), 10, 1, TextFormat::Structured).unwrap();
         assert!(subgraph_small.nodes.len() < 5);
         // Must include at least the center node
         assert!(subgraph_small.nodes.len() >= 1);

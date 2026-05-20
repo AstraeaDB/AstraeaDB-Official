@@ -105,9 +105,9 @@ pub fn extract_subgraph_semantic(
 ) -> Result<Subgraph> {
     let results = vector_index.search(query_embedding, 1)?;
 
-    let nearest = results.first().ok_or_else(|| {
-        AstraeaError::QueryExecution("vector search returned no results".into())
-    })?;
+    let nearest = results
+        .first()
+        .ok_or_else(|| AstraeaError::QueryExecution("vector search returned no results".into()))?;
 
     extract_subgraph(graph, nearest.node_id, hops, max_nodes)
 }
@@ -117,8 +117,8 @@ mod tests {
     use super::*;
     use astraea_core::traits::GraphOps;
     use astraea_core::types::DistanceMetric;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_vector::HnswVectorIndex;
     use std::sync::Arc;
 
@@ -263,8 +263,7 @@ mod tests {
         assert_eq!(subgraph.edges.len(), 2);
 
         for edge in &subgraph.edges {
-            let node_ids: HashSet<NodeId> =
-                subgraph.nodes.iter().map(|n| n.id).collect();
+            let node_ids: HashSet<NodeId> = subgraph.nodes.iter().map(|n| n.id).collect();
             assert!(node_ids.contains(&edge.source));
             assert!(node_ids.contains(&edge.target));
         }
@@ -277,7 +276,11 @@ mod tests {
 
         // Create an isolated node
         let nid = graph
-            .create_node(vec!["Solo".into()], serde_json::json!({"name": "Loner"}), None)
+            .create_node(
+                vec!["Solo".into()],
+                serde_json::json!({"name": "Loner"}),
+                None,
+            )
             .unwrap();
 
         let subgraph = extract_subgraph(&graph, nid, 3, 100).unwrap();
@@ -300,7 +303,12 @@ mod tests {
         assert!(node_ids.contains(&NodeId(3)));
 
         // Should include the edge 2->3
-        assert!(subgraph.edges.iter().any(|e| e.source == NodeId(2) && e.target == NodeId(3)));
+        assert!(
+            subgraph
+                .edges
+                .iter()
+                .any(|e| e.source == NodeId(2) && e.target == NodeId(3))
+        );
     }
 
     #[test]
@@ -347,8 +355,7 @@ mod tests {
 
         // Semantic search for embedding closest to [1.0, 0.0, 0.0] -> should find n1
         let subgraph =
-            extract_subgraph_semantic(&graph, vi.as_ref(), &[1.0, 0.0, 0.0], 1, 100)
-                .unwrap();
+            extract_subgraph_semantic(&graph, vi.as_ref(), &[1.0, 0.0, 0.0], 1, 100).unwrap();
 
         // Center should be n1 (closest to query)
         assert_eq!(subgraph.center, NodeId(1));

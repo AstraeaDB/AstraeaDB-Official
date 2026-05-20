@@ -60,10 +60,7 @@ const EPSILON: f32 = 1e-3;
 
 /// Collect all node IDs that appear in the graph by scanning the labeled
 /// set and their neighbors. This gives us the working set of nodes.
-fn collect_node_ids(
-    graph: &dyn GraphOps,
-    training_data: &TrainingData,
-) -> Result<Vec<NodeId>> {
+fn collect_node_ids(graph: &dyn GraphOps, training_data: &TrainingData) -> Result<Vec<NodeId>> {
     let mut all_nodes: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
 
     for &node_id in training_data.labels.keys() {
@@ -82,10 +79,7 @@ fn collect_node_ids(
 }
 
 /// Collect all edge IDs connecting the working set of nodes.
-fn collect_edge_ids(
-    graph: &dyn GraphOps,
-    node_ids: &[NodeId],
-) -> Result<Vec<EdgeId>> {
+fn collect_edge_ids(graph: &dyn GraphOps, node_ids: &[NodeId]) -> Result<Vec<EdgeId>> {
     let node_set: std::collections::HashSet<NodeId> = node_ids.iter().copied().collect();
     let mut edge_set: std::collections::HashSet<EdgeId> = std::collections::HashSet::new();
 
@@ -128,9 +122,7 @@ fn init_node_features(
             }
             _ => {
                 // Random initialization in [-0.5, 0.5].
-                let data: Vec<f32> = (0..feature_dim)
-                    .map(|_| rng.r#gen::<f32>() - 0.5)
-                    .collect();
+                let data: Vec<f32> = (0..feature_dim).map(|_| rng.r#gen::<f32>() - 0.5).collect();
                 Tensor::new(data, false)
             }
         };
@@ -141,10 +133,7 @@ fn init_node_features(
 }
 
 /// Initialize edge weights from the graph.
-fn init_edge_weights(
-    graph: &dyn GraphOps,
-    edge_ids: &[EdgeId],
-) -> Result<HashMap<EdgeId, f32>> {
+fn init_edge_weights(graph: &dyn GraphOps, edge_ids: &[EdgeId]) -> Result<HashMap<EdgeId, f32>> {
     let mut weights = HashMap::new();
     for &edge_id in edge_ids {
         let edge = graph.get_edge(edge_id)?;
@@ -262,10 +251,7 @@ fn compute_loss(
 }
 
 /// Compute accuracy: fraction of labeled nodes whose prediction matches the label.
-fn compute_accuracy(
-    predictions: &HashMap<NodeId, usize>,
-    labels: &HashMap<NodeId, usize>,
-) -> f32 {
+fn compute_accuracy(predictions: &HashMap<NodeId, usize>, labels: &HashMap<NodeId, usize>) -> f32 {
     if labels.is_empty() {
         return 1.0;
     }
@@ -320,12 +306,20 @@ impl AdamOptimizer {
         }
     }
 
-    fn step_matrix(&mut self, name: &str, param: &mut crate::tensor::Matrix, grad: &crate::tensor::Matrix) {
+    fn step_matrix(
+        &mut self,
+        name: &str,
+        param: &mut crate::tensor::Matrix,
+        grad: &crate::tensor::Matrix,
+    ) {
         self.t += 1;
-        let state = self.states.entry(name.to_string()).or_insert_with(|| AdamParamState {
-            m: vec![0.0; param.data.len()],
-            v: vec![0.0; param.data.len()],
-        });
+        let state = self
+            .states
+            .entry(name.to_string())
+            .or_insert_with(|| AdamParamState {
+                m: vec![0.0; param.data.len()],
+                v: vec![0.0; param.data.len()],
+            });
 
         let bias_correction1 = 1.0 - self.beta1.powi(self.t as i32);
         let bias_correction2 = 1.0 - self.beta2.powi(self.t as i32);
@@ -341,10 +335,13 @@ impl AdamOptimizer {
 
     fn step_tensor(&mut self, name: &str, param: &mut Tensor, grad: &Tensor) {
         self.t += 1;
-        let state = self.states.entry(name.to_string()).or_insert_with(|| AdamParamState {
-            m: vec![0.0; param.data.len()],
-            v: vec![0.0; param.data.len()],
-        });
+        let state = self
+            .states
+            .entry(name.to_string())
+            .or_insert_with(|| AdamParamState {
+                m: vec![0.0; param.data.len()],
+                v: vec![0.0; param.data.len()],
+            });
 
         let bias_correction1 = 1.0 - self.beta1.powi(self.t as i32);
         let bias_correction2 = 1.0 - self.beta2.powi(self.t as i32);
@@ -360,10 +357,7 @@ impl AdamOptimizer {
 }
 
 /// Detect the input feature dimension by examining node embeddings.
-fn detect_input_dim(
-    graph: &dyn GraphOps,
-    node_ids: &[NodeId],
-) -> Result<usize> {
+fn detect_input_dim(graph: &dyn GraphOps, node_ids: &[NodeId]) -> Result<usize> {
     for &node_id in node_ids {
         if let Some(node) = graph.get_node(node_id)? {
             if let Some(ref emb) = node.embedding {
@@ -455,11 +449,8 @@ fn train_with_backprop(
         )?;
 
         // Compute training loss.
-        let loss = model::compute_loss_from_logits(
-            &logits,
-            &train_labels,
-            training_data.num_classes,
-        );
+        let loss =
+            model::compute_loss_from_logits(&logits, &train_labels, training_data.num_classes);
         epoch_losses.push(loss);
 
         // Backward pass: analytical gradients (on train labels only).
@@ -477,8 +468,16 @@ fn train_with_backprop(
         if let Some(ref mut optimizer) = adam {
             // Adam update.
             for (i, layer) in gnn_model.layers.iter_mut().enumerate() {
-                optimizer.step_matrix(&format!("w_neigh_{}", i), &mut layer.w_neigh, &grads.d_w_neigh[i]);
-                optimizer.step_matrix(&format!("w_self_{}", i), &mut layer.w_self, &grads.d_w_self[i]);
+                optimizer.step_matrix(
+                    &format!("w_neigh_{}", i),
+                    &mut layer.w_neigh,
+                    &grads.d_w_neigh[i],
+                );
+                optimizer.step_matrix(
+                    &format!("w_self_{}", i),
+                    &mut layer.w_self,
+                    &grads.d_w_self[i],
+                );
                 optimizer.step_tensor(&format!("bias_{}", i), &mut layer.bias, &grads.d_bias[i]);
             }
             optimizer.step_matrix("w_out", &mut gnn_model.head.w_out, &grads.d_w_out);
@@ -498,12 +497,11 @@ fn train_with_backprop(
         }
 
         // Early stopping check on validation loss.
-        if let (Some(val_labels_map), Some(patience)) = (&val_labels, config.early_stopping_patience) {
-            let val_loss = model::compute_loss_from_logits(
-                &logits,
-                val_labels_map,
-                training_data.num_classes,
-            );
+        if let (Some(val_labels_map), Some(patience)) =
+            (&val_labels, config.early_stopping_patience)
+        {
+            let val_loss =
+                model::compute_loss_from_logits(&logits, val_labels_map, training_data.num_classes);
             if val_loss < best_val_loss - 1e-6 {
                 best_val_loss = val_loss;
                 patience_counter = 0;
@@ -525,11 +523,8 @@ fn train_with_backprop(
         &config.message_passing,
     )?;
 
-    let final_predictions = model::predict_from_logits(
-        &final_logits,
-        &labeled_nodes,
-        training_data.num_classes,
-    );
+    let final_predictions =
+        model::predict_from_logits(&final_logits, &labeled_nodes, training_data.num_classes);
 
     let accuracy = compute_accuracy(&final_predictions, &training_data.labels);
 
@@ -652,11 +647,7 @@ pub fn train_node_classification(
         config.layers,
     )?;
 
-    let final_predictions = predict(
-        &final_features,
-        &labeled_nodes,
-        training_data.num_classes,
-    );
+    let final_predictions = predict(&final_features, &labeled_nodes, training_data.num_classes);
 
     let accuracy = compute_accuracy(&final_predictions, &training_data.labels);
 
@@ -673,8 +664,8 @@ mod tests {
     use super::*;
     use crate::message_passing::{Activation, Aggregation, MessagePassingConfig};
     use astraea_core::traits::GraphOps;
-    use astraea_graph::test_utils::InMemoryStorage;
     use astraea_graph::Graph;
+    use astraea_graph::test_utils::InMemoryStorage;
 
     /// Build a simple bipartite-ish graph for classification:
     ///

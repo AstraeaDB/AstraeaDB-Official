@@ -1,9 +1,9 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use astraea_server::protocol::Request;
+use super::{CallToolResult, ToolDefinition};
 use crate::client::ProxyClient;
 use crate::errors::McpError;
-use super::{CallToolResult, ToolDefinition};
+use astraea_server::protocol::Request;
 
 /// Return tool definitions for all temporal query operations.
 pub fn definitions() -> Vec<ToolDefinition> {
@@ -128,7 +128,9 @@ pub async fn neighbors_at(client: &ProxyClient, args: Value) -> Result<CallToolR
     let timestamp = args
         .get("timestamp")
         .and_then(|v| v.as_i64())
-        .ok_or_else(|| McpError::InvalidParams("missing required parameter: timestamp".to_string()))?;
+        .ok_or_else(|| {
+            McpError::InvalidParams("missing required parameter: timestamp".to_string())
+        })?;
 
     let edge_type = args
         .get("edge_type")
@@ -164,7 +166,9 @@ pub async fn bfs_at(client: &ProxyClient, args: Value) -> Result<CallToolResult,
     let timestamp = args
         .get("timestamp")
         .and_then(|v| v.as_i64())
-        .ok_or_else(|| McpError::InvalidParams("missing required parameter: timestamp".to_string()))?;
+        .ok_or_else(|| {
+            McpError::InvalidParams("missing required parameter: timestamp".to_string())
+        })?;
 
     let request = Request::BfsAt {
         start,
@@ -194,7 +198,9 @@ pub async fn dfs_at(client: &ProxyClient, args: Value) -> Result<CallToolResult,
     let timestamp = args
         .get("timestamp")
         .and_then(|v| v.as_i64())
-        .ok_or_else(|| McpError::InvalidParams("missing required parameter: timestamp".to_string()))?;
+        .ok_or_else(|| {
+            McpError::InvalidParams("missing required parameter: timestamp".to_string())
+        })?;
 
     let request = Request::DfsAt {
         start,
@@ -209,7 +215,10 @@ pub async fn dfs_at(client: &ProxyClient, args: Value) -> Result<CallToolResult,
 }
 
 /// Find the shortest path between two nodes at a specific point in time.
-pub async fn shortest_path_at(client: &ProxyClient, args: Value) -> Result<CallToolResult, McpError> {
+pub async fn shortest_path_at(
+    client: &ProxyClient,
+    args: Value,
+) -> Result<CallToolResult, McpError> {
     let from = args
         .get("from")
         .and_then(|v| v.as_u64())
@@ -223,7 +232,9 @@ pub async fn shortest_path_at(client: &ProxyClient, args: Value) -> Result<CallT
     let timestamp = args
         .get("timestamp")
         .and_then(|v| v.as_i64())
-        .ok_or_else(|| McpError::InvalidParams("missing required parameter: timestamp".to_string()))?;
+        .ok_or_else(|| {
+            McpError::InvalidParams("missing required parameter: timestamp".to_string())
+        })?;
 
     let weighted = args
         .get("weighted")
