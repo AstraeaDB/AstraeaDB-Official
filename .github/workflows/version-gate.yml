@@ -135,7 +135,9 @@ jobs:
         crate: ${{ fromJSON(needs.compute-impact.outputs.crates) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Toolchain pinned to match `rust-toolchain.toml` at repo root.
+      # Bump both when upgrading the workspace's Rust version.
+      - uses: dtolnay/rust-toolchain@1.95.0
       - name: Install protoc
         # astraea-server's build.rs invokes prost-build, which requires protoc.
         # ubuntu-latest does not ship protoc. Any crate that transitively
@@ -158,7 +160,9 @@ jobs:
         crate: ${{ fromJSON(needs.compute-impact.outputs.crates) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Toolchain pinned to match `rust-toolchain.toml` at repo root.
+      # Bump both when upgrading the workspace's Rust version.
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy
       - name: Install protoc
@@ -173,7 +177,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Toolchain pinned to match `rust-toolchain.toml` at repo root.
+      # Bump both when upgrading the workspace's Rust version.
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check

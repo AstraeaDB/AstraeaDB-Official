@@ -1,0 +1,23 @@
+# Pinned toolchain for the AstraeaDB workspace.
+#
+# This file is the single source of truth for the Rust version used by both
+# local development (rustup automatically honors it via `cargo`) and CI (the
+# `.github/workflows/version-gate.yml` workflow reads this channel to
+# install the matching toolchain).
+#
+# Why pinning matters: clippy's lint set grows with each Rust release.
+# Without a pin, `dtolnay/rust-toolchain@stable` floats to whatever stable
+# is current on the CI runner — a different toolchain than a contributor
+# may have locally — and the workspace can fail the lint-matrix gate on a
+# PR that passed locally. See docs/clippy-cleanup-plan.md for the incident
+# that motivated this pin.
+#
+# Bumping: open a dedicated PR that updates `channel` here and lets the
+# version-gate run the matrix once on the new toolchain. Any new clippy
+# warnings surfaced by the bump must be addressed (or `#[allow]`ed with a
+# rationale) before the bump merges.
+
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
