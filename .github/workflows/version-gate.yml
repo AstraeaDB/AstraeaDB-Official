@@ -1,0 +1,243 @@
+# Version gate workflow.
+#
+# Computes the set of crates impacted by a PR, then fans out
+# `cargo test`, `cargo clippy`, and `cargo fmt --check` over that
+# matrix. Also enforces the workspace version bump and the
+# top-level CHANGELOG.md update required by docs/versioning.md.
+#
+# See:
+#   - docs/versioning.md
+#   - docs/regression-testing.md
+#   - docs/versioning-implementation-plan.md
+#
+# Status: this workflow is meant to land in *advisory mode* first
+# (branch protection NOT yet flipped to require it). After a few
+# clean runs on real PRs, the maintainer flips branch protection on
+# the `official` remote to require the `test-matrix`,
+# `version-bump-check`, and `changelog-check` jobs. See step 5 of
+# the implementation plan.
+
+name: version-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Where the impact-tool source is checked out. Override via repo
+  # variable DEV_ENV_REPO (default assumes the dev env is a sibling
+  # repo under the same owner).
+  DEV_ENV_REPO: ${{ vars.DEV_ENV_REPO }}
+  DEV_ENV_REF: ${{ vars.DEV_ENV_REF || 'main' }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  build-impact-tool:
+    name: Build crate-impact tool
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out astraeadb
+        uses: actions/checkout@v4
+        with:
+          path: astraeadb
+          fetch-depth: 0
+      - name: Check out astraea-development (impact tool source)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.DEV_ENV_REPO }}
+          ref: ${{ env.DEV_ENV_REF }}
+          path: astraea-development
+          token: ${{ secrets.DEV_ENV_TOKEN || github.token }}
+      - name: Rewrite absolute paths in impact-tool Cargo.toml
+        working-directory: astraea-development/projects/version-control
+        # The dev-env template hard-codes the local astraeadb checkout
+        # path. In CI, both repos sit side-by-side; rewrite to a
+        # relative path so cargo resolves the workspace crates from
+        # the sibling checkout. Tracked as a follow-up to vendor the
+        # tool into astraeadb/tools/ — see implementation plan step 7.
+        run: |
+          sed -i 's|/Users/jimharris/Documents/astraeadb|../../../astraeadb|g' Cargo.toml
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: astraea-development/projects/version-control -> target
+      - name: Build
+        working-directory: astraea-development/projects/version-control
+        run: cargo build --release
+      - name: Upload impact-tool binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: impact-tool
+          path: astraea-development/projects/version-control/target/release/astraea-embedded-template
+          retention-days: 1
+          if-no-files-found: error
+
+  compute-impact:
+    name: Compute impacted crates
+    runs-on: ubuntu-latest
+    needs: build-impact-tool
+    outputs:
+      crates: ${{ steps.run.outputs.crates }}
+      count: ${{ steps.run.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: impact-tool
+          path: bin
+      - name: Make tool executable
+        run: chmod +x bin/astraea-embedded-template
+      - id: run
+        name: Run impact tool
+        env:
+          ASTRAEADB_DIR: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE_SHA" ]; then
+            BASE_SHA="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA=$(git rev-parse origin/main)
+          fi
+          echo "Comparing against base: $BASE_SHA"
+          changed=$(git diff --name-only "$BASE_SHA"...HEAD || true)
+          echo "Changed files:"
+          printf '%s\n' "$changed"
+          if [ -z "$changed" ]; then
+            impacted='[]'
+          else
+            impacted=$(printf '%s\n' "$changed" | ./bin/astraea-embedded-template --stdin)
+          fi
+          echo "Impacted: $impacted"
+          count=$(printf '%s' "$impacted" | python3 -c 'import sys, json; print(len(json.load(sys.stdin)))')
+          {
+            echo "crates=$impacted"
+            echo "count=$count"
+          } >> "$GITHUB_OUTPUT"
+
+  test-matrix:
+    name: Test ${{ matrix.crate }}
+    needs: compute-impact
+    if: ${{ needs.compute-impact.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: ${{ fromJSON(needs.compute-impact.outputs.crates) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release -p ${{ matrix.crate }}
+
+  lint-matrix:
+    name: Clippy ${{ matrix.crate }}
+    needs: compute-impact
+    if: ${{ needs.compute-impact.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: ${{ fromJSON(needs.compute-impact.outputs.crates) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p ${{ matrix.crate }} --all-targets -- -D warnings
+
+  fmt:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  version-bump-check:
+    name: Workspace version bumped
+    needs: compute-impact
+    if: ${{ github.event_name == 'pull_request' && needs.compute-impact.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compare workspace.package.version
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          extract_version() {
+            # Read the [workspace.package] version from Cargo.toml on
+            # stdin. Tolerant of whitespace and quoting style.
+            awk '
+              /^\[workspace\.package\]/ { in_block = 1; next }
+              /^\[/ { in_block = 0 }
+              in_block && /^[[:space:]]*version[[:space:]]*=/ {
+                match($0, /"[^"]+"/)
+                print substr($0, RSTART+1, RLENGTH-2)
+                exit
+              }
+            '
+          }
+          base_ver=$(git show "$BASE_SHA:Cargo.toml" | extract_version)
+          head_ver=$(extract_version < Cargo.toml)
+          echo "Base workspace version: ${base_ver:-<missing>}"
+          echo "Head workspace version: ${head_ver:-<missing>}"
+          if [ -z "$head_ver" ]; then
+            echo "::error file=Cargo.toml::workspace.package.version is missing"
+            exit 1
+          fi
+          if [ "$base_ver" = "$head_ver" ]; then
+            echo "::error file=Cargo.toml::workspace.package.version must be bumped (still $head_ver). See docs/versioning.md."
+            exit 1
+          fi
+
+  changelog-check:
+    name: CHANGELOG.md updated
+    needs: [compute-impact, version-bump-check]
+    if: ${{ github.event_name == 'pull_request' && needs.compute-impact.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify CHANGELOG.md has an entry for the new version
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ ! -f CHANGELOG.md ]; then
+            echo "::error file=CHANGELOG.md::CHANGELOG.md does not exist. See docs/versioning.md."
+            exit 1
+          fi
+          if ! git diff --name-only "$BASE_SHA"...HEAD | grep -qx CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::CHANGELOG.md must be updated when crates change. See docs/versioning.md."
+            exit 1
+          fi
+          head_ver=$(awk '
+            /^\[workspace\.package\]/ { in_block = 1; next }
+            /^\[/ { in_block = 0 }
+            in_block && /^[[:space:]]*version[[:space:]]*=/ {
+              match($0, /"[^"]+"/)
+              print substr($0, RSTART+1, RLENGTH-2)
+              exit
+            }
+          ' Cargo.toml)
+          if ! grep -qE "^## \[$head_ver\]" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::CHANGELOG.md is missing a '## [$head_ver]' section."
+            exit 1
+          fi
