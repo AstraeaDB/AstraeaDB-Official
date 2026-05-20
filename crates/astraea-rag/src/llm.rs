@@ -13,6 +13,16 @@
 use crate::embedding::EmbeddingProvider;
 use astraea_core::error::{AstraeaError, Result};
 
+/// HTTP-handler callback used by all `*Provider` types in this module.
+///
+/// The closure receives `(endpoint_url, request_body_json)` and returns
+/// the raw response body as a string. It is boxed and `Send + Sync` so
+/// that providers can live behind shared references and be transferred
+/// across threads. Factored out to keep the field signatures in
+/// `OpenAiProvider`, `AnthropicProvider`, and `OllamaProvider` readable
+/// (silences `clippy::type_complexity`).
+type HttpFn = Box<dyn Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync>;
+
 /// Configuration for an LLM provider.
 #[derive(Debug, Clone)]
 pub struct LlmConfig {
@@ -126,7 +136,7 @@ impl LlmProvider for MockProvider {
 pub struct OpenAiProvider {
     config: LlmConfig,
     /// Optional HTTP handler for actual API calls.
-    http_fn: Option<Box<dyn Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync>>,
+    http_fn: Option<HttpFn>,
 }
 
 impl OpenAiProvider {
@@ -231,7 +241,7 @@ impl LlmProvider for OpenAiProvider {
 pub struct AnthropicProvider {
     config: LlmConfig,
     /// Optional HTTP handler for actual API calls.
-    http_fn: Option<Box<dyn Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync>>,
+    http_fn: Option<HttpFn>,
 }
 
 impl AnthropicProvider {
@@ -355,7 +365,7 @@ impl LlmProvider for AnthropicProvider {
 pub struct OllamaProvider {
     config: LlmConfig,
     /// Optional HTTP handler for chat completion API calls.
-    http_fn: Option<Box<dyn Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync>>,
+    http_fn: Option<HttpFn>,
     /// The Ollama model to use for embedding. Defaults to `"embeddinggemma"`.
     embedding_model: String,
     /// Dimension of the vectors the configured embedding model returns.
@@ -366,7 +376,7 @@ pub struct OllamaProvider {
     /// you use a different model.
     embedding_dim: usize,
     /// Optional HTTP handler for embedding API calls (`POST /api/embed`).
-    embed_http_fn: Option<Box<dyn Fn(&str, &serde_json::Value) -> Result<String> + Send + Sync>>,
+    embed_http_fn: Option<HttpFn>,
 }
 
 impl OllamaProvider {
