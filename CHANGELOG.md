@@ -28,6 +28,18 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.1] - 2026-05-20
+
+### Changed
+- **astraea-core:** annotate `GraphOps::create_edge` with
+  `#[allow(clippy::too_many_arguments)]`. The trait method takes 8
+  parameters, which exceeds clippy's default threshold of 7;
+  without the allow, every crate that depends on astraea-core (i.e.
+  every other workspace crate) fails `cargo clippy -- -D warnings`.
+  A future PR may refactor `create_edge` to take a builder/options
+  struct; the allow is the stopgap that unblocks the version-gate's
+  `lint-matrix` jobs.
+
 ## [0.1.0] - 2026-05-19
 
 Baseline release. This entry catalogues the state of the workspace
