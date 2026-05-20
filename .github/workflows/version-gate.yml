@@ -184,6 +184,51 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  # Aggregator job for branch protection.
+  #
+  # Branch protection requires named status checks, but `test-matrix` and
+  # `lint-matrix` produce one named check per impacted crate (e.g.
+  # `Test astraea-cli`, `Clippy astraea-cli`). The set of names varies
+  # per PR depending on the impact tool's output, so listing them
+  # individually as required checks is brittle.
+  #
+  # This job collapses both matrices into a single named check
+  # (`matrix-gate`) by depending on them and asserting their aggregated
+  # result. Branch protection requires only `matrix-gate`, which then
+  # transitively gates on every matrix entry.
+  #
+  # A matrix `needs.X.result` is:
+  #   - "success"  → every matrix entry succeeded
+  #   - "failure"  → at least one entry failed (fail-fast: false fans out)
+  #   - "skipped"  → the whole matrix was gated off (empty impact set)
+  #   - "cancelled" → cancelled
+  # Passing on success-or-skipped lets empty-impact PRs (docs-only,
+  # workflow-only) merge cleanly; failure or cancellation blocks.
+  matrix-gate:
+    name: matrix-gate
+    needs: [test-matrix, lint-matrix]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert matrix outcomes
+        env:
+          TEST_RESULT: ${{ needs.test-matrix.result }}
+          LINT_RESULT: ${{ needs.lint-matrix.result }}
+        run: |
+          set -euo pipefail
+          echo "test-matrix: $TEST_RESULT"
+          echo "lint-matrix: $LINT_RESULT"
+          fail=0
+          case "$TEST_RESULT" in
+            success|skipped) ;;
+            *) echo "::error::test-matrix did not pass (result=$TEST_RESULT)"; fail=1 ;;
+          esac
+          case "$LINT_RESULT" in
+            success|skipped) ;;
+            *) echo "::error::lint-matrix did not pass (result=$LINT_RESULT)"; fail=1 ;;
+          esac
+          exit "$fail"
+
   version-bump-check:
     name: Workspace version bumped
     needs: compute-impact
