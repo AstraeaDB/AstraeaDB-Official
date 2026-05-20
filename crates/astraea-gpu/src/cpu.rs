@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_cpu_backend_default() {
-        let backend = CpuBackend::default();
+        let backend = CpuBackend;
         assert_eq!(backend.name(), "CPU");
     }
 }

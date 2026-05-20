@@ -234,7 +234,7 @@ impl HnswIndex {
 
         // Register the node in every layer from 0..=level.
         for l in 0..=level {
-            self.layers[l].entry(node_id).or_insert_with(Vec::new);
+            self.layers[l].entry(node_id).or_default();
         }
         self.node_levels.insert(node_id, level);
 
@@ -286,10 +286,10 @@ impl HnswIndex {
             // Add bidirectional connections.
             for &neighbor in &neighbors {
                 // node -> neighbor
-                if let Some(adj) = self.layers[l].get_mut(&node_id) {
-                    if !adj.contains(&neighbor) {
-                        adj.push(neighbor);
-                    }
+                if let Some(adj) = self.layers[l].get_mut(&node_id)
+                    && !adj.contains(&neighbor)
+                {
+                    adj.push(neighbor);
                 }
                 // neighbor -> node
                 if let Some(adj) = self.layers[l].get_mut(&neighbor) {
@@ -400,15 +400,15 @@ impl HnswIndex {
                             .map(|adj| adj.contains(&b))
                             .unwrap_or(false);
                         if !a_has_b {
-                            if let Some(adj) = self.layers[l].get_mut(&a) {
-                                if adj.len() < max_conn {
-                                    adj.push(b);
-                                }
+                            if let Some(adj) = self.layers[l].get_mut(&a)
+                                && adj.len() < max_conn
+                            {
+                                adj.push(b);
                             }
-                            if let Some(adj) = self.layers[l].get_mut(&b) {
-                                if adj.len() < max_conn {
-                                    adj.push(a);
-                                }
+                            if let Some(adj) = self.layers[l].get_mut(&b)
+                                && adj.len() < max_conn
+                            {
+                                adj.push(a);
                             }
                         }
                     }
@@ -523,7 +523,7 @@ impl HnswIndex {
             .into_iter()
             .map(|rc| (rc.distance.into_inner(), rc.node_id))
             .collect();
-        result_vec.sort_by(|a, b| OrderedFloat(a.0).cmp(&OrderedFloat(b.0)));
+        result_vec.sort_by_key(|a| OrderedFloat(a.0));
 
         Ok(result_vec)
     }
@@ -553,7 +553,7 @@ impl HnswIndex {
                 scored.push((OrderedFloat(d), n));
             }
         }
-        scored.sort_by(|a, b| a.0.cmp(&b.0));
+        scored.sort_by_key(|a| a.0);
         scored.truncate(max_conn);
 
         let new_neighbors: Vec<NodeId> = scored.into_iter().map(|(_, id)| id).collect();
@@ -706,7 +706,7 @@ mod tests {
                 (*nid, d)
             })
             .collect();
-        brute_force.sort_by(|a, b| OrderedFloat(a.1).cmp(&OrderedFloat(b.1)));
+        brute_force.sort_by_key(|a| OrderedFloat(a.1));
         let bf_top_k: Vec<NodeId> = brute_force.iter().take(k).map(|(nid, _)| *nid).collect();
 
         // HNSW search with high ef for accuracy.
@@ -780,7 +780,7 @@ mod tests {
                 (*nid, d)
             })
             .collect();
-        brute_force.sort_by(|a, b| OrderedFloat(a.1).cmp(&OrderedFloat(b.1)));
+        brute_force.sort_by_key(|a| OrderedFloat(a.1));
         let bf_top_k: Vec<NodeId> = brute_force.iter().take(k).map(|(nid, _)| *nid).collect();
 
         let hnsw_results = idx.search(&query, k, 200).unwrap();

@@ -163,10 +163,10 @@ impl ColdStorage for JsonFileColdStorage {
         for entry in std::fs::read_dir(&self.base_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "json") {
-                if let Some(stem) = path.file_stem() {
-                    keys.push(stem.to_string_lossy().to_string());
-                }
+            if path.extension().is_some_and(|ext| ext == "json")
+                && let Some(stem) = path.file_stem()
+            {
+                keys.push(stem.to_string_lossy().to_string());
             }
         }
         Ok(keys)

@@ -359,12 +359,11 @@ impl AdamOptimizer {
 /// Detect the input feature dimension by examining node embeddings.
 fn detect_input_dim(graph: &dyn GraphOps, node_ids: &[NodeId]) -> Result<usize> {
     for &node_id in node_ids {
-        if let Some(node) = graph.get_node(node_id)? {
-            if let Some(ref emb) = node.embedding {
-                if !emb.is_empty() {
-                    return Ok(emb.len());
-                }
-            }
+        if let Some(node) = graph.get_node(node_id)?
+            && let Some(ref emb) = node.embedding
+            && !emb.is_empty()
+        {
+            return Ok(emb.len());
         }
     }
     Err(AstraeaError::QueryExecution(

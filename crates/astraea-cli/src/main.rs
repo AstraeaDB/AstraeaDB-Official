@@ -268,10 +268,10 @@ async fn run_import(file: &PathBuf, address: &str) -> Result<(), Box<dyn std::er
                     "labels": labels,
                     "properties": properties,
                 });
-                if let Some(emb) = embedding {
-                    if !emb.is_null() {
-                        req["embedding"] = emb;
-                    }
+                if let Some(emb) = embedding
+                    && !emb.is_null()
+                {
+                    req["embedding"] = emb;
                 }
                 req
             }
@@ -385,25 +385,25 @@ async fn run_export(
                     .get("status")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                if status == "ok" {
-                    if let Some(data) = resp.get("data") {
-                        let mut node_obj = serde_json::json!({
-                            "type": "node",
-                            "id": id,
-                        });
-                        // Copy fields from the response data.
-                        if let Some(labels) = data.get("labels") {
-                            node_obj["labels"] = labels.clone();
-                        }
-                        if let Some(props) = data.get("properties") {
-                            node_obj["properties"] = props.clone();
-                        }
-                        if let Some(emb) = data.get("embedding") {
-                            node_obj["embedding"] = emb.clone();
-                        }
-                        exported.push(node_obj);
-                        node_count += 1;
+                if status == "ok"
+                    && let Some(data) = resp.get("data")
+                {
+                    let mut node_obj = serde_json::json!({
+                        "type": "node",
+                        "id": id,
+                    });
+                    // Copy fields from the response data.
+                    if let Some(labels) = data.get("labels") {
+                        node_obj["labels"] = labels.clone();
                     }
+                    if let Some(props) = data.get("properties") {
+                        node_obj["properties"] = props.clone();
+                    }
+                    if let Some(emb) = data.get("embedding") {
+                        node_obj["embedding"] = emb.clone();
+                    }
+                    exported.push(node_obj);
+                    node_count += 1;
                 }
                 // If status is "error", the node doesn't exist; skip silently.
             }
@@ -429,36 +429,36 @@ async fn run_export(
                     .get("status")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                if status == "ok" {
-                    if let Some(data) = resp.get("data") {
-                        let mut edge_obj = serde_json::json!({
-                            "type": "edge",
-                            "id": id,
-                        });
-                        if let Some(v) = data.get("source") {
-                            edge_obj["source"] = v.clone();
-                        }
-                        if let Some(v) = data.get("target") {
-                            edge_obj["target"] = v.clone();
-                        }
-                        if let Some(v) = data.get("edge_type") {
-                            edge_obj["edge_type"] = v.clone();
-                        }
-                        if let Some(v) = data.get("properties") {
-                            edge_obj["properties"] = v.clone();
-                        }
-                        if let Some(v) = data.get("weight") {
-                            edge_obj["weight"] = v.clone();
-                        }
-                        if let Some(v) = data.get("valid_from") {
-                            edge_obj["valid_from"] = v.clone();
-                        }
-                        if let Some(v) = data.get("valid_to") {
-                            edge_obj["valid_to"] = v.clone();
-                        }
-                        exported.push(edge_obj);
-                        edge_count += 1;
+                if status == "ok"
+                    && let Some(data) = resp.get("data")
+                {
+                    let mut edge_obj = serde_json::json!({
+                        "type": "edge",
+                        "id": id,
+                    });
+                    if let Some(v) = data.get("source") {
+                        edge_obj["source"] = v.clone();
                     }
+                    if let Some(v) = data.get("target") {
+                        edge_obj["target"] = v.clone();
+                    }
+                    if let Some(v) = data.get("edge_type") {
+                        edge_obj["edge_type"] = v.clone();
+                    }
+                    if let Some(v) = data.get("properties") {
+                        edge_obj["properties"] = v.clone();
+                    }
+                    if let Some(v) = data.get("weight") {
+                        edge_obj["weight"] = v.clone();
+                    }
+                    if let Some(v) = data.get("valid_from") {
+                        edge_obj["valid_from"] = v.clone();
+                    }
+                    if let Some(v) = data.get("valid_to") {
+                        edge_obj["valid_to"] = v.clone();
+                    }
+                    exported.push(edge_obj);
+                    edge_count += 1;
                 }
             }
             Err(e) => {
@@ -673,10 +673,11 @@ fn format_response(resp: &serde_json::Value) -> String {
         "ok" => {
             if let Some(data) = resp.get("data") {
                 // Try to format as a table if data contains an array of objects.
-                if let Some(arr) = data.as_array() {
-                    if !arr.is_empty() && arr.iter().all(|v| v.is_object()) {
-                        return format_table(arr);
-                    }
+                if let Some(arr) = data.as_array()
+                    && !arr.is_empty()
+                    && arr.iter().all(|v| v.is_object())
+                {
+                    return format_table(arr);
                 }
                 // Otherwise, pretty-print the data.
                 match serde_json::to_string_pretty(data) {

@@ -131,15 +131,15 @@ fn linearize_prose(subgraph: &Subgraph) -> String {
 
         // Outgoing edges from this node
         for edge in &subgraph.edges {
-            if edge.source == node.id {
-                if let Some(target) = node_map.get(&edge.target) {
-                    let target_name = node_display_name(target);
-                    let edge_props = format_edge_properties(&edge.properties);
-                    parts.push(format!(
-                        "{} {} {}{}",
-                        name, edge.edge_type, target_name, edge_props
-                    ));
-                }
+            if edge.source == node.id
+                && let Some(target) = node_map.get(&edge.target)
+            {
+                let target_name = node_display_name(target);
+                let edge_props = format_edge_properties(&edge.properties);
+                parts.push(format!(
+                    "{} {} {}{}",
+                    name, edge.edge_type, target_name, edge_props
+                ));
             }
         }
 
@@ -176,24 +176,24 @@ fn linearize_structured(subgraph: &Subgraph) -> String {
 
         // Outgoing edges from this node
         for edge in &subgraph.edges {
-            if edge.source == node.id {
-                if let Some(target) = node_map.get(&edge.target) {
-                    let target_name = node_display_name(target);
-                    let target_label = node_label(target);
-                    let target_props = format_properties(&target.properties);
-                    let edge_props = format_edge_properties(&edge.properties);
+            if edge.source == node.id
+                && let Some(target) = node_map.get(&edge.target)
+            {
+                let target_name = node_display_name(target);
+                let target_label = node_label(target);
+                let target_props = format_properties(&target.properties);
+                let edge_props = format_edge_properties(&edge.properties);
 
-                    if target_props.is_empty() {
-                        lines.push(format!(
-                            "  -[{}{}]-> [{}: {}]",
-                            edge.edge_type, edge_props, target_label, target_name
-                        ));
-                    } else {
-                        lines.push(format!(
-                            "  -[{}{}]-> [{}: {}] {}",
-                            edge.edge_type, edge_props, target_label, target_name, target_props
-                        ));
-                    }
+                if target_props.is_empty() {
+                    lines.push(format!(
+                        "  -[{}{}]-> [{}: {}]",
+                        edge.edge_type, edge_props, target_label, target_name
+                    ));
+                } else {
+                    lines.push(format!(
+                        "  -[{}{}]-> [{}: {}] {}",
+                        edge.edge_type, edge_props, target_label, target_name, target_props
+                    ));
                 }
             }
         }

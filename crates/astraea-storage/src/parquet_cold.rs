@@ -438,15 +438,15 @@ impl ColdStorage for ParquetColdStorage {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().is_some_and(|ext| ext == "parquet") {
-                if let Some(stem) = path.file_stem() {
-                    let stem_str = stem.to_string_lossy();
-                    // Remove _nodes or _edges suffix to get partition key
-                    if let Some(key) = stem_str.strip_suffix("_nodes") {
-                        keys.insert(key.to_string());
-                    } else if let Some(key) = stem_str.strip_suffix("_edges") {
-                        keys.insert(key.to_string());
-                    }
+            if path.extension().is_some_and(|ext| ext == "parquet")
+                && let Some(stem) = path.file_stem()
+            {
+                let stem_str = stem.to_string_lossy();
+                // Remove _nodes or _edges suffix to get partition key
+                if let Some(key) = stem_str.strip_suffix("_nodes") {
+                    keys.insert(key.to_string());
+                } else if let Some(key) = stem_str.strip_suffix("_edges") {
+                    keys.insert(key.to_string());
                 }
             }
         }

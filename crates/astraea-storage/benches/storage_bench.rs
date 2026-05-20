@@ -84,7 +84,7 @@ fn storage_benchmarks(c: &mut Criterion) {
     // -- bench_sequential_writes: write 1000 nodes sequentially --
     group.bench_function("sequential_writes_1000", |b| {
         b.iter_batched(
-            || fresh_engine(),
+            fresh_engine,
             |(engine, _tmp)| {
                 for i in 1..=1000u64 {
                     engine.put_node(black_box(&make_node(i))).unwrap();

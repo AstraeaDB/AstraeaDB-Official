@@ -132,10 +132,10 @@ pub fn shortest_path_dijkstra(
         }
 
         // Skip if we already found a shorter path to this node.
-        if let Some(&best) = dist.get(&node) {
-            if distance > best {
-                continue;
-            }
+        if let Some(&best) = dist.get(&node)
+            && distance > best
+        {
+            continue;
         }
 
         let edges = storage.get_edges(node, Direction::Outgoing)?;
@@ -286,10 +286,10 @@ pub fn shortest_path_dijkstra_at(
             return Ok(Some((path, distance)));
         }
 
-        if let Some(&best) = dist.get(&node) {
-            if distance > best {
-                continue;
-            }
+        if let Some(&best) = dist.get(&node)
+            && distance > best
+        {
+            continue;
         }
 
         let edges = storage.get_edges(node, Direction::Outgoing)?;

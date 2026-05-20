@@ -341,10 +341,10 @@ impl Executor {
         for id in node_ids {
             if let Some(node) = self.graph.get_node(id)? {
                 // Apply inline property filter if specified.
-                if let Some(ref required_props) = node_pat.properties {
-                    if !properties_match(&node.properties, required_props) {
-                        continue;
-                    }
+                if let Some(ref required_props) = node_pat.properties
+                    && !properties_match(&node.properties, required_props)
+                {
+                    continue;
                 }
                 results.push((id, node_to_json(&node)));
             }
@@ -400,11 +400,7 @@ impl Executor {
 
         if has_aggregate && bindings.is_empty() {
             // Aggregates on empty input still produce a row (e.g., count(*) = 0).
-            let columns: Vec<String> = return_clause
-                .items
-                .iter()
-                .map(|item| column_name(item))
-                .collect();
+            let columns: Vec<String> = return_clause.items.iter().map(column_name).collect();
 
             let row: Vec<Value> = return_clause
                 .items
@@ -417,11 +413,7 @@ impl Executor {
 
         if has_aggregate {
             // All items must be either aggregates or constants.
-            let columns: Vec<String> = return_clause
-                .items
-                .iter()
-                .map(|item| column_name(item))
-                .collect();
+            let columns: Vec<String> = return_clause.items.iter().map(column_name).collect();
 
             let row: Vec<Value> = return_clause
                 .items
@@ -444,11 +436,7 @@ impl Executor {
         }
 
         // Non-aggregate projection: evaluate each return item for each binding row.
-        let columns: Vec<String> = return_clause
-            .items
-            .iter()
-            .map(|item| column_name(item))
-            .collect();
+        let columns: Vec<String> = return_clause.items.iter().map(column_name).collect();
 
         let rows: Vec<Vec<Value>> = bindings
             .iter()
@@ -477,14 +465,14 @@ impl Executor {
                 PatternElement::Node(node_pat) => {
                     // Check if this variable is already bound (referencing an
                     // existing node created earlier in the pattern).
-                    if let Some(ref var) = node_pat.variable {
-                        if entity_map.contains_key(var) {
-                            // Reuse existing node.
-                            if let Some(BoundEntity::Node(nid)) = entity_map.get(var) {
-                                last_node_id = Some(*nid);
-                            }
-                            continue;
+                    if let Some(ref var) = node_pat.variable
+                        && entity_map.contains_key(var)
+                    {
+                        // Reuse existing node.
+                        if let Some(BoundEntity::Node(nid)) = entity_map.get(var) {
+                            last_node_id = Some(*nid);
                         }
+                        continue;
                     }
 
                     let labels = node_pat.labels.clone();
@@ -581,10 +569,10 @@ impl Executor {
     ) -> Result<NodeId> {
         match elem {
             PatternElement::Node(np) => {
-                if let Some(ref var) = np.variable {
-                    if let Some(BoundEntity::Node(nid)) = entity_map.get(var) {
-                        return Ok(*nid);
-                    }
+                if let Some(ref var) = np.variable
+                    && let Some(BoundEntity::Node(nid)) = entity_map.get(var)
+                {
+                    return Ok(*nid);
                 }
                 Err(AstraeaError::QueryExecution(
                     "cannot resolve node in CREATE pattern".into(),
@@ -649,10 +637,10 @@ pub fn eval_expr(expr: &Expr, bindings: &BindingRow) -> Result<Value> {
                         return Ok(val.clone());
                     }
                     // Then check nested "properties" object (for node/edge JSON).
-                    if let Some(Value::Object(props)) = map.get("properties") {
-                        if let Some(val) = props.get(field) {
-                            return Ok(val.clone());
-                        }
+                    if let Some(Value::Object(props)) = map.get("properties")
+                        && let Some(val) = props.get(field)
+                    {
+                        return Ok(val.clone());
                     }
                     Ok(Value::Null)
                 }

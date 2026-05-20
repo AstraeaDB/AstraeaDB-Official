@@ -198,10 +198,10 @@ pub fn extract_client_cn(certs: &[CertificateDer<'_>]) -> Option<String> {
     // Extract CN from subject
     for rdn in parsed.subject().iter_rdn() {
         for attr in rdn.iter() {
-            if attr.attr_type() == &oid_registry::OID_X509_COMMON_NAME {
-                if let Ok(cn) = attr.attr_value().as_str() {
-                    return Some(cn.to_string());
-                }
+            if attr.attr_type() == &oid_registry::OID_X509_COMMON_NAME
+                && let Ok(cn) = attr.attr_value().as_str()
+            {
+                return Some(cn.to_string());
             }
         }
     }
@@ -214,25 +214,25 @@ pub fn extract_client_cn(certs: &[CertificateDer<'_>]) -> Option<String> {
 pub fn extract_sans(cert: &CertificateDer<'_>) -> Vec<String> {
     let mut sans = Vec::new();
 
-    if let Ok((_, parsed)) = X509Certificate::from_der(cert.as_ref()) {
-        if let Ok(Some(ext)) = parsed.subject_alternative_name() {
-            for name in &ext.value.general_names {
-                match name {
-                    GeneralName::DNSName(dns) => sans.push(dns.to_string()),
-                    GeneralName::IPAddress(ip) => {
-                        if ip.len() == 4 {
-                            sans.push(format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]));
-                        } else if ip.len() == 16 {
-                            // IPv6
-                            let parts: Vec<String> = ip
-                                .chunks(2)
-                                .map(|c| format!("{:02x}{:02x}", c[0], c[1]))
-                                .collect();
-                            sans.push(parts.join(":"));
-                        }
+    if let Ok((_, parsed)) = X509Certificate::from_der(cert.as_ref())
+        && let Ok(Some(ext)) = parsed.subject_alternative_name()
+    {
+        for name in &ext.value.general_names {
+            match name {
+                GeneralName::DNSName(dns) => sans.push(dns.to_string()),
+                GeneralName::IPAddress(ip) => {
+                    if ip.len() == 4 {
+                        sans.push(format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]));
+                    } else if ip.len() == 16 {
+                        // IPv6
+                        let parts: Vec<String> = ip
+                            .chunks(2)
+                            .map(|c| format!("{:02x}{:02x}", c[0], c[1]))
+                            .collect();
+                        sans.push(parts.join(":"));
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
     }
