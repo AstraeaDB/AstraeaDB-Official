@@ -8,6 +8,8 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 
 > **New to AstraeaDB?** Start with the [**Gentle Introduction**](https://astraeadb.github.io/AstraeaDB-Official/gentle-intro.html) — a comprehensive, beginner-friendly guide that takes you from graph database fundamentals through advanced features like vector search, GraphRAG, and GNN training, with examples in Python, R, Go, and Java.
 
+> **Contributing?** See [`docs/versioning.md`](docs/versioning.md) for the workspace-uniform semver policy, [`docs/regression-testing.md`](docs/regression-testing.md) for the per-PR impact-analysis gate, and [`CHANGELOG.md`](CHANGELOG.md) for release history.
+
 ## Architecture
 
 ```
