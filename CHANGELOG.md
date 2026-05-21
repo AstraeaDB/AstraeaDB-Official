@@ -28,6 +28,22 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.9] - 2026-05-21
+
+### Added
+- **astraea-cli:** configurable embedding vector dimension and distance
+  metric via a `[vector]` config section (`dimension`, `metric`),
+  replacing the hard-coded 128-dim cosine index. Omitting `[vector]`
+  keeps the previous 128-dim cosine default for back-compatibility.
+- **astraea-vector:** `load_from_file_with_dimension` and
+  `HnswIndex::load_expecting_dimension` to enforce an expected dimension
+  on load (returns `DimensionMismatch` on mismatch).
+
+### Fixed
+- **astraea-vector:** persisted-index dimension is now written via a
+  checked `u32::try_from` cast, returning a `Serialization` error instead
+  of silently truncating when the dimension exceeds `u32::MAX`.
+
 ## [0.1.8] - 2026-05-20
 
 ### Changed

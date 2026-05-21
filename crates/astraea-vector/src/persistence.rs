@@ -151,14 +151,24 @@ fn read_header<R: Read>(reader: &mut R) -> Result<HnswFileHeader> {
 /// The file format is:
 /// 1. Fixed header (magic, version, metadata)
 /// 2. Bincode-serialized index body (vectors, layers, entry_point, etc.)
+///
+/// Returns `AstraeaError::Serialization` if the index dimension exceeds
+/// `u32::MAX` and therefore cannot be represented in the on-disk header.
 pub fn save_to_file(index: &HnswIndex, path: &Path) -> Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
 
+    let dimension_u32 = u32::try_from(index.dimension()).map_err(|_| {
+        AstraeaError::Serialization(format!(
+            "index dimension {} exceeds u32::MAX and cannot be written to the HNSW file header",
+            index.dimension()
+        ))
+    })?;
+
     let header = HnswFileHeader {
         magic: MAGIC,
         version: FORMAT_VERSION,
-        dimension: index.dimension() as u32,
+        dimension: dimension_u32,
         metric: metric_to_byte(index.metric()),
         m: index.m() as u32,
         m_max0: index.m_max0() as u32,
@@ -208,6 +218,28 @@ pub fn load_from_file(path: &Path) -> Result<HnswIndex> {
     Ok(index)
 }
 
+/// Load an `HnswIndex` from the file at `path`, and verify that its dimension
+/// matches `expected_dimension`.
+///
+/// This is useful when the caller has a configured dimension and wants to
+/// ensure the persisted index was built with the same dimension. If the
+/// dimensions do not match, `AstraeaError::DimensionMismatch` is returned
+/// and no partially-loaded state is exposed.
+///
+/// Existing callers should use [`load_from_file`] if they do not have a
+/// specific dimension expectation.
+pub fn load_from_file_with_dimension(path: &Path, expected_dimension: usize) -> Result<HnswIndex> {
+    let index = load_from_file(path)?;
+    let got = index.dimension();
+    if got != expected_dimension {
+        return Err(AstraeaError::DimensionMismatch {
+            expected: expected_dimension,
+            got,
+        });
+    }
+    Ok(index)
+}
+
 // --- Convenience methods on HnswIndex ---
 
 impl HnswIndex {
@@ -219,6 +251,14 @@ impl HnswIndex {
     /// Load an index from the given file path.
     pub fn load(path: &Path) -> Result<Self> {
         load_from_file(path)
+    }
+
+    /// Load an index from the given file path, verifying that the stored
+    /// dimension matches `expected_dimension`.
+    ///
+    /// Returns `AstraeaError::DimensionMismatch` when the dimensions differ.
+    pub fn load_expecting_dimension(path: &Path, expected_dimension: usize) -> Result<Self> {
+        load_from_file_with_dimension(path, expected_dimension)
     }
 }
 
@@ -408,6 +448,118 @@ mod tests {
                 assert_eq!(o.0, l.0, "node IDs should match");
                 assert!((o.1 - l.1).abs() < 1e-6, "distances should match");
             }
+        }
+    }
+
+    // --- Task 3 tests: checked persist cast + config-vs-file dimension enforcement ---
+
+    /// (a) Loading a persisted 128-dim index while expecting 768 returns DimensionMismatch.
+    #[test]
+    fn test_load_with_dimension_mismatch_returns_error() {
+        let dim = 128;
+        let original = build_test_index(dim, 10);
+        let tmp = NamedTempFile::new().unwrap();
+        original.save(tmp.path()).unwrap();
+
+        let result = HnswIndex::load_expecting_dimension(tmp.path(), 768);
+        assert!(
+            result.is_err(),
+            "expected DimensionMismatch error when loading 128-dim index expecting 768"
+        );
+        match result.unwrap_err() {
+            astraea_core::error::AstraeaError::DimensionMismatch { expected, got } => {
+                assert_eq!(expected, 768);
+                assert_eq!(got, 128);
+            }
+            other => panic!("expected DimensionMismatch, got: {other:?}"),
+        }
+    }
+
+    /// (b) Loading a persisted index while expecting the matching dimension succeeds.
+    #[test]
+    fn test_load_with_dimension_matching_succeeds() {
+        let dim = 128;
+        let original = build_test_index(dim, 10);
+        let tmp = NamedTempFile::new().unwrap();
+        original.save(tmp.path()).unwrap();
+
+        let loaded = HnswIndex::load_expecting_dimension(tmp.path(), dim);
+        assert!(
+            loaded.is_ok(),
+            "loading at the matching dimension should succeed"
+        );
+        assert_eq!(loaded.unwrap().dimension(), dim);
+    }
+
+    /// (c) A dimension greater than u32::MAX fails to persist with a clear error
+    ///     (tests the checked cast directly without allocating a giant index).
+    #[test]
+    fn test_save_dimension_exceeding_u32_max_returns_error() {
+        // u32::MAX + 1 = 4_294_967_296; construct the index but do not insert
+        // any vectors so no allocation is proportional to the dimension.
+        let huge_dim: usize = (u32::MAX as usize) + 1;
+        let idx = HnswIndex::new(huge_dim, DistanceMetric::Euclidean, 16, 200);
+
+        let tmp = NamedTempFile::new().unwrap();
+        let result = idx.save(tmp.path());
+        assert!(
+            result.is_err(),
+            "saving an index with dimension > u32::MAX must fail"
+        );
+        match result.unwrap_err() {
+            astraea_core::error::AstraeaError::Serialization(msg) => {
+                assert!(
+                    msg.contains("u32::MAX"),
+                    "error message should mention u32::MAX, got: {msg}"
+                );
+            }
+            other => panic!("expected Serialization error, got: {other:?}"),
+        }
+    }
+
+    /// (e) Persistence round-trip at the motivating 768-dim size preserves the header dimension.
+    ///
+    /// This is the key non-128 regression guard: if a future change reintroduces
+    /// a hard-coded 128, this test will fail on load because the deserialized
+    /// dimension will be 128 while the header will say 768 (or vice versa).
+    #[test]
+    fn test_round_trip_preserves_non_128_dimension_768() {
+        const DIM: usize = 768;
+        let mut idx = HnswIndex::new(DIM, DistanceMetric::Cosine, 16, 200);
+        let mut rng = rand::thread_rng();
+
+        // Insert a handful of 768-dim vectors.
+        for i in 0..5u64 {
+            let v: Vec<f32> = (0..DIM).map(|_| rng.r#gen::<f32>()).collect();
+            idx.insert(NodeId(i), &v).unwrap();
+        }
+        assert_eq!(idx.dimension(), DIM);
+
+        let tmp = NamedTempFile::new().unwrap();
+        idx.save(tmp.path()).unwrap();
+
+        let loaded = HnswIndex::load(tmp.path()).unwrap();
+
+        assert_eq!(
+            loaded.dimension(),
+            DIM,
+            "loaded index dimension must equal the saved 768, not be truncated or defaulted"
+        );
+        assert_eq!(loaded.metric(), DistanceMetric::Cosine);
+        assert_eq!(loaded.len(), 5);
+
+        // Verify load_expecting_dimension also succeeds at the correct dim.
+        let loaded2 = HnswIndex::load_expecting_dimension(tmp.path(), DIM).unwrap();
+        assert_eq!(loaded2.dimension(), DIM);
+
+        // And fails with DimensionMismatch when the expected dim is wrong.
+        let wrong = HnswIndex::load_expecting_dimension(tmp.path(), 128);
+        match wrong {
+            Err(astraea_core::error::AstraeaError::DimensionMismatch { expected, got }) => {
+                assert_eq!(expected, 128);
+                assert_eq!(got, DIM);
+            }
+            other => panic!("expected DimensionMismatch(128, 768), got: {other:?}"),
         }
     }
 }
