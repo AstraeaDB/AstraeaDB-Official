@@ -832,4 +832,67 @@ mod tests {
         let results = idx.search(&[0.5, 0.5], 5, 50).unwrap();
         assert!(!results.is_empty());
     }
+
+    // --- Task 4 matrix tests ---
+
+    /// (a) Build an index at the motivating 768-dim size, insert and search successfully.
+    #[test]
+    fn test_non_128_dimension_insert_and_search_768() {
+        const DIM: usize = 768;
+        let mut idx = HnswIndex::new(DIM, DistanceMetric::Cosine, 16, 200);
+        assert_eq!(idx.dimension(), DIM);
+
+        // Insert a one-hot vector at position 0 and position 1.
+        let mut v0 = vec![0.0f32; DIM];
+        v0[0] = 1.0;
+        let mut v1 = vec![0.0f32; DIM];
+        v1[1] = 1.0;
+
+        idx.insert(NodeId(1), &v0).unwrap();
+        idx.insert(NodeId(2), &v1).unwrap();
+        assert_eq!(idx.len(), 2);
+
+        // Query with v0; nearest should be NodeId(1) at distance ~0.
+        let results = idx.search(&v0, 1, 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, NodeId(1));
+        assert!(
+            results[0].1 < 1e-5,
+            "cosine distance to identical vector should be ~0"
+        );
+    }
+
+    /// (b) DimensionMismatch on insert — assert the exact error variant and field values.
+    #[test]
+    fn test_dimension_mismatch_on_insert_exact_variant() {
+        let mut idx = make_index(768);
+        // Supply a 3-element vector to a 768-dim index.
+        let result = idx.insert(NodeId(1), &[1.0, 0.0, 0.0]);
+        match result {
+            Err(AstraeaError::DimensionMismatch { expected, got }) => {
+                assert_eq!(expected, 768, "expected field must be the index dimension");
+                assert_eq!(got, 3, "got field must be the supplied vector length");
+            }
+            other => panic!("expected DimensionMismatch, got: {other:?}"),
+        }
+    }
+
+    /// (c) DimensionMismatch on search — assert the exact error variant and field values.
+    #[test]
+    fn test_dimension_mismatch_on_search_exact_variant() {
+        let mut idx = make_index(768);
+        let mut v = vec![0.0f32; 768];
+        v[0] = 1.0;
+        idx.insert(NodeId(1), &v).unwrap();
+
+        // Query with a 5-element vector.
+        let result = idx.search(&[1.0, 0.0, 0.0, 0.0, 0.0], 1, 50);
+        match result {
+            Err(AstraeaError::DimensionMismatch { expected, got }) => {
+                assert_eq!(expected, 768, "expected field must be the index dimension");
+                assert_eq!(got, 5, "got field must be the query vector length");
+            }
+            other => panic!("expected DimensionMismatch, got: {other:?}"),
+        }
+    }
 }

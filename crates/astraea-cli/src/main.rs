@@ -10,8 +10,9 @@
 //! `Serve` opens a [`astraea_storage::DiskStorageEngine`] at
 //! `cfg.storage.data_dir` via `open()` so the WAL is replayed and
 //! node/edge id allocation resumes from the highest id seen. The
-//! vector index is hardcoded to 128-dim cosine — configurable dim is
-//! still tracked as astraedb-issues.md #7.
+//! vector index dimension and distance metric are configurable via the
+//! `[vector]` section of the TOML config file (`dimension`, `metric`).
+//! Omitting `[vector]` defaults to 128-dim cosine for back-compatibility.
 
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
@@ -122,6 +123,8 @@ struct Config {
     server: ServerConfig,
     #[serde(default)]
     storage: StorageConfig,
+    #[serde(default)]
+    vector: VectorConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -158,6 +161,50 @@ impl Default for StorageConfig {
     }
 }
 
+/// Vector index configuration.
+///
+/// Omitting the `[vector]` block in the TOML config file is equivalent to:
+/// ```toml
+/// [vector]
+/// dimension = 128
+/// metric = "cosine"
+/// ```
+/// which preserves back-compatibility with pre-existing persisted indexes.
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+struct VectorConfig {
+    /// Embedding dimension for the HNSW vector index.
+    /// Must match the dimension of all embeddings inserted into this store.
+    dimension: usize,
+    /// Distance metric: `"cosine"`, `"euclidean"`, or `"dot_product"` / `"dot"`.
+    metric: String,
+}
+
+impl Default for VectorConfig {
+    fn default() -> Self {
+        Self {
+            dimension: 128,
+            metric: "cosine".into(),
+        }
+    }
+}
+
+/// Map a metric name string (case-insensitive) to [`astraea_core::types::DistanceMetric`].
+///
+/// Accepted values: `"cosine"`, `"euclidean"`, `"dot_product"`, `"dot"`.
+/// Returns an error message string on unknown values.
+fn parse_metric(s: &str) -> Result<astraea_core::types::DistanceMetric, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "cosine" => Ok(astraea_core::types::DistanceMetric::Cosine),
+        "euclidean" => Ok(astraea_core::types::DistanceMetric::Euclidean),
+        "dot_product" | "dot" => Ok(astraea_core::types::DistanceMetric::DotProduct),
+        other => Err(format!(
+            "Unknown vector metric '{other}'. \
+             Valid values are: cosine, euclidean, dot_product (or dot)."
+        )),
+    }
+}
+
 fn load_config(path: &PathBuf) -> Config {
     match std::fs::read_to_string(path) {
         Ok(contents) => match toml::from_str(&contents) {
@@ -167,12 +214,14 @@ fn load_config(path: &PathBuf) -> Config {
                 Config {
                     server: ServerConfig::default(),
                     storage: StorageConfig::default(),
+                    vector: VectorConfig::default(),
                 }
             }
         },
         Err(_) => Config {
             server: ServerConfig::default(),
             storage: StorageConfig::default(),
+            vector: VectorConfig::default(),
         },
     }
 }
@@ -870,10 +919,23 @@ async fn main() {
             println!("Data directory: {}", cfg.storage.data_dir.display());
             println!("Buffer pool size: {} pages", cfg.storage.buffer_pool_size);
 
-            // Create vector index (128-dim cosine by default).
+            // Create vector index with dimension and metric from config.
+            // Defaults to 128-dim cosine when [vector] is omitted from the
+            // config file, preserving back-compatibility.
+            let metric = match parse_metric(&cfg.vector.metric) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Configuration error: {e}");
+                    std::process::exit(1);
+                }
+            };
+            println!(
+                "Vector index: {} dimensions, metric={}",
+                cfg.vector.dimension, cfg.vector.metric
+            );
             let vector_index = std::sync::Arc::new(astraea_vector::HnswVectorIndex::new(
-                128,
-                astraea_core::types::DistanceMetric::Cosine,
+                cfg.vector.dimension,
+                metric,
             ));
 
             // Open the disk storage engine at the configured data dir. This
@@ -1021,5 +1083,110 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- VectorConfig / parse_metric unit tests ---
+
+    #[test]
+    fn vector_config_defaults_to_128_cosine() {
+        let cfg: Config = toml::from_str("").expect("empty TOML should parse");
+        assert_eq!(cfg.vector.dimension, 128);
+        assert_eq!(cfg.vector.metric, "cosine");
+    }
+
+    #[test]
+    fn vector_config_omitted_block_defaults() {
+        // A config with only a [server] block should still give VectorConfig defaults.
+        let toml = r#"
+[server]
+port = 7687
+"#;
+        let cfg: Config = toml::from_str(toml).expect("should parse");
+        assert_eq!(cfg.vector.dimension, 128);
+        assert_eq!(cfg.vector.metric, "cosine");
+    }
+
+    #[test]
+    fn vector_config_parses_dimension_768() {
+        let toml = r#"
+[vector]
+dimension = 768
+"#;
+        let cfg: Config = toml::from_str(toml).expect("should parse");
+        assert_eq!(cfg.vector.dimension, 768);
+        assert_eq!(cfg.vector.metric, "cosine"); // metric defaults when omitted
+    }
+
+    #[test]
+    fn vector_config_parses_dimension_and_metric() {
+        let toml = r#"
+[vector]
+dimension = 1536
+metric = "euclidean"
+"#;
+        let cfg: Config = toml::from_str(toml).expect("should parse");
+        assert_eq!(cfg.vector.dimension, 1536);
+        assert_eq!(cfg.vector.metric, "euclidean");
+    }
+
+    #[test]
+    fn parse_metric_cosine() {
+        assert_eq!(
+            parse_metric("cosine").unwrap(),
+            astraea_core::types::DistanceMetric::Cosine
+        );
+        // Case-insensitive.
+        assert_eq!(
+            parse_metric("Cosine").unwrap(),
+            astraea_core::types::DistanceMetric::Cosine
+        );
+        assert_eq!(
+            parse_metric("COSINE").unwrap(),
+            astraea_core::types::DistanceMetric::Cosine
+        );
+    }
+
+    #[test]
+    fn parse_metric_euclidean() {
+        assert_eq!(
+            parse_metric("euclidean").unwrap(),
+            astraea_core::types::DistanceMetric::Euclidean
+        );
+        assert_eq!(
+            parse_metric("Euclidean").unwrap(),
+            astraea_core::types::DistanceMetric::Euclidean
+        );
+    }
+
+    #[test]
+    fn parse_metric_dot_product() {
+        assert_eq!(
+            parse_metric("dot_product").unwrap(),
+            astraea_core::types::DistanceMetric::DotProduct
+        );
+        // Short alias.
+        assert_eq!(
+            parse_metric("dot").unwrap(),
+            astraea_core::types::DistanceMetric::DotProduct
+        );
+        assert_eq!(
+            parse_metric("DOT").unwrap(),
+            astraea_core::types::DistanceMetric::DotProduct
+        );
+    }
+
+    #[test]
+    fn parse_metric_unknown_returns_error() {
+        let err = parse_metric("l2").unwrap_err();
+        assert!(
+            err.contains("Unknown vector metric"),
+            "error should mention unknown metric, got: {err}"
+        );
+        assert!(err.contains("l2"), "error should echo the bad value");
     }
 }
