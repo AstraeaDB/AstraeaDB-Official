@@ -28,6 +28,28 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.10] - 2026-06-15
+
+### Added
+- **astraea-core:** `GraphOps::flush()` default method (no-op) so any
+  backend can opt into a real flush without breaking existing
+  implementors.
+- **astraea-graph:** `Graph::flush()` override delegating to
+  `storage.flush()` (buffer-pool flush + WAL checkpoint).
+- **astraea-cli:** SIGTERM/SIGINT handler in `Commands::Serve` that
+  calls `graph.flush()` then `conn_mgr.initiate_shutdown()` so the
+  server drains and exits cleanly. Closes the durability gap on
+  issue #1.
+- **astraea-storage:** `test_durability_across_drop_and_reopen` —
+  writes 50 nodes + 49 edges with a buffer pool small enough to force
+  evictions, drops the engine without flush(), reopens, asserts every
+  node and edge recovers from WAL replay.
+
+### Fixed
+- **astraea-server:** server restart no longer drops dirty buffer-pool
+  pages on a clean shutdown. WAL replay was already wired; the missing
+  piece was the SIGTERM/SIGINT handler.
+
 ## [0.1.9] - 2026-05-21
 
 ### Added
