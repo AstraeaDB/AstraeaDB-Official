@@ -987,6 +987,62 @@ async fn main() {
 
             let grpc_bind = cfg.server.bind_address.clone();
 
+            // Capture shared handles for the shutdown task.  Both are Arc-
+            // counted so cloning is O(1) and doesn't touch the heap.
+            let conn_mgr_for_shutdown = tcp_server.connection_manager().clone();
+            let graph_for_shutdown = std::sync::Arc::clone(&graph);
+
+            // Background task: wait for SIGTERM or SIGINT (Ctrl-C), flush
+            // dirty buffer-pool pages to disk, then tell the TCP accept loop
+            // to drain and exit.  The gRPC future is dropped when the select!
+            // below resolves; individual RPC handlers have already completed
+            // because they hold no long-lived borrows.
+            //
+            // astraeadb-issues.md #1 — signal handler for clean shutdown.
+            tokio::spawn(async move {
+                #[cfg(unix)]
+                {
+                    use tokio::signal::unix::{SignalKind, signal};
+                    let mut sigterm = match signal(SignalKind::terminate()) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("Failed to register SIGTERM handler: {e}");
+                            return;
+                        }
+                    };
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {
+                            eprintln!("Received SIGINT, flushing storage and shutting down...");
+                        }
+                        _ = sigterm.recv() => {
+                            eprintln!("Received SIGTERM, flushing storage and shutting down...");
+                        }
+                    }
+                }
+                #[cfg(not(unix))]
+                {
+                    if tokio::signal::ctrl_c().await.is_err() {
+                        eprintln!("Ctrl-C handler registration failed");
+                        return;
+                    }
+                    eprintln!("Received Ctrl-C, flushing storage and shutting down...");
+                }
+
+                // Flush dirty buffer-pool pages to disk before the process
+                // exits.  WAL replay would also recover on next startup, but
+                // flushing here makes the next cold-start faster and avoids
+                // replaying records that are already on disk.
+                if let Err(e) = graph_for_shutdown.flush() {
+                    eprintln!("Storage flush failed during shutdown: {e}");
+                } else {
+                    eprintln!("Storage flushed successfully.");
+                }
+
+                // Signal the TCP accept loop to stop and drain in-flight
+                // connections (wait_for_drain is called inside AstraeaServer::run).
+                conn_mgr_for_shutdown.initiate_shutdown();
+            });
+
             // Run both servers concurrently. If either exits, shut down.
             tokio::select! {
                 result = tcp_server.run() => {
