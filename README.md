@@ -272,7 +272,7 @@ JSON and gRPC transports delegate to the same `RequestHandler` and `Executor`. T
 - Configurable connection limits (default: 1024) with semaphore-based enforcement
 - Request-level backpressure (default: 256 concurrent requests)
 - Idle timeout (default: 5 minutes) and request timeout (default: 30 seconds)
-- Graceful shutdown: stops accepting, drains in-flight requests, flushes state
+- Graceful shutdown on SIGTERM/SIGINT: flushes dirty buffer-pool pages to disk, then stops accepting and drains in-flight requests
 
 **Observability:**
 - Prometheus text exposition format at the metrics endpoint

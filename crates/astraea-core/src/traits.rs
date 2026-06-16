@@ -179,6 +179,23 @@ pub trait GraphOps: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// Flush any in-memory dirty pages to disk.
+    ///
+    /// Disk-backed implementations (e.g. those wrapping a [`StorageEngine`])
+    /// should override this to propagate the call to the underlying engine so
+    /// that buffer-pool pages are persisted on clean shutdown. The default
+    /// implementation is a no-op, which is correct for in-memory / test
+    /// backends.
+    ///
+    /// This method is called by the server process on receipt of SIGTERM or
+    /// SIGINT so that the buffer pool is written to disk even when WAL replay
+    /// would otherwise recover the data on the next startup.
+    ///
+    /// astraeadb-issues.md #1.
+    fn flush(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Hybrid search combining graph proximity and vector similarity.
     ///
     /// 1. BFS from `anchor` up to `max_hops` to collect candidate nodes

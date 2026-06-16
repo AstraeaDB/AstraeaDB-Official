@@ -361,6 +361,17 @@ impl GraphOps for Graph {
         traversal::shortest_path_dijkstra_at(self.storage.as_ref(), from, to, timestamp)
     }
 
+    /// Flush dirty buffer-pool pages to disk via the underlying storage engine.
+    ///
+    /// Delegates to [`StorageEngine::flush`]. Called by the server on clean
+    /// shutdown (SIGTERM / SIGINT) so the buffer pool is persisted even when
+    /// WAL replay would recover the data on next startup.
+    ///
+    /// astraeadb-issues.md #1.
+    fn flush(&self) -> Result<()> {
+        self.storage.flush()
+    }
+
     fn hybrid_search(
         &self,
         anchor: NodeId,

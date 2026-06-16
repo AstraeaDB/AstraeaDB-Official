@@ -936,6 +936,78 @@ mod tests {
         assert!(engine.get_node(NodeId(4)).unwrap().is_some());
     }
 
+    /// Verify that WAL replay recovers ALL nodes and edges after an unclean
+    /// shutdown, even when the buffer pool is smaller than the working set
+    /// (so some pages were evicted to disk mid-run, but none were flushed
+    /// as part of an explicit `flush()` call).
+    ///
+    /// This is the Rust-level acceptance test for astraeadb-issues.md #1.
+    #[test]
+    fn test_durability_across_drop_and_reopen() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // How many nodes/edges to write.  Choose enough to overflow a tiny
+        // pool (8 frames) so that some dirty pages are evicted during the
+        // write loop, exercising the "WAL written before page" invariant.
+        const N: u64 = 50;
+
+        // Phase 1 — write N nodes and N-1 edges, then DROP without flush.
+        // This simulates a kill -9 / SIGKILL crash scenario.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 8).unwrap();
+            for i in 1..=N {
+                engine.put_node(&test_node(i)).unwrap();
+            }
+            for i in 1..N {
+                // Edge i*100 from node i to node i+1.
+                engine.put_edge(&test_edge(i * 100, i, i + 1)).unwrap();
+            }
+            // Engine dropped here — no explicit flush().
+        }
+
+        // Phase 2 — reopen via WAL replay and assert full state is recovered.
+        let (engine, max_node_id, max_edge_id) = DiskStorageEngine::open(data_dir).unwrap();
+
+        assert_eq!(max_node_id, N, "max_node_id must match last written node");
+        assert_eq!(
+            max_edge_id,
+            (N - 1) * 100,
+            "max_edge_id must match last written edge"
+        );
+
+        // Every node must be readable.
+        for i in 1..=N {
+            assert!(
+                engine.get_node(NodeId(i)).unwrap().is_some(),
+                "node {i} must survive WAL replay"
+            );
+        }
+        // Every edge must be readable.
+        for i in 1..N {
+            assert!(
+                engine.get_edge(EdgeId(i * 100)).unwrap().is_some(),
+                "edge {} must survive WAL replay",
+                i * 100
+            );
+        }
+
+        // Label index must also have been rebuilt by replay.
+        let persons = engine.find_nodes_by_label("Person").unwrap();
+        assert_eq!(
+            persons.len() as u64,
+            N,
+            "all {N} Person nodes must appear in label index after replay"
+        );
+
+        // New writes after recovery must succeed and not corrupt the log.
+        engine.put_node(&test_node(N + 1)).unwrap();
+        assert!(
+            engine.get_node(NodeId(N + 1)).unwrap().is_some(),
+            "fresh write after recovery must be readable"
+        );
+    }
+
     #[test]
     fn test_compaction_reclaims_pages() {
         // astraeadb-issues.md #15: writes used to leak pages under churn.
