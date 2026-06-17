@@ -21,12 +21,45 @@ use crate::wal::{WalReader, WalRecord, WalWriter};
 /// Default buffer pool size (number of page frames).
 const DEFAULT_POOL_SIZE: usize = 1024;
 
+/// Format tag for the v1 binary node-record body.
+///
+/// Byte 0 of the record body distinguishes the encoding:
+///   `0x01` → v1 binary container (see `serialize_node` for the full layout)
+///   any other byte → legacy `serde_json`-encoded `SerializedNode` (back-compat)
+///
+/// Legacy records always begin with `{` (0x7B, the JSON object opener), so
+/// `0x01` is unambiguously a v1 record and can never collide with any
+/// well-formed pre-Phase-1 data file.  Tags `0x02`–`0xFF` are reserved for
+/// future formats.
+const RECORD_TAG_V1: u8 = 0x01;
+
+/// Maximum byte length of record *data* (the payload that follows the
+/// `NodeRecordHeader`) that fits on a fresh page:
+///   `PAGE_SIZE − PAGE_HEADER_SIZE − NODE_RECORD_HEADER_SIZE = 8192 − 17 − 16 = 8159`
+///
+/// Used for the WAL-poisoning pre-flight check in `put_node` / `put_edge`:
+/// an oversized record is rejected here, before `wal_append`, so it can never
+/// brick `open()` on the next restart (issue #26 §2a).
+const MAX_RECORD_DATA_BYTES: usize = PAGE_SIZE - PAGE_HEADER_SIZE - NODE_RECORD_HEADER_SIZE;
+
 /// Serialized node data stored in a page (properties + embedding + labels).
+/// Retained for the legacy JSON back-compat deserialization path; new writes
+/// use `SerializedNodeBody` + raw f32 bytes via the v1 binary container.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SerializedNode {
     labels: Vec<String>,
     properties: serde_json::Value,
     embedding: Option<Vec<f32>>,
+}
+
+/// JSON-encodable body of a v1 node record: labels and properties only.
+/// The embedding is stored separately as raw little-endian f32 bytes in the
+/// v1 binary container (see `serialize_node`), so it is excluded here to
+/// avoid JSON-encoding the embedding and doubling the per-record footprint.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerializedNodeBody {
+    labels: Vec<String>,
+    properties: serde_json::Value,
 }
 
 /// Serialized edge data stored in a page.
@@ -248,26 +281,129 @@ impl DiskStorageEngine {
         }
     }
 
-    /// Serialize a node into bytes for storage in a page.
+    /// Serialize a node into bytes for page storage using the v1 binary container.
+    ///
+    /// # v1 binary container layout (leading byte = `RECORD_TAG_V1` = `0x01`)
+    ///
+    /// ```text
+    /// [tag      : u8  = 0x01]
+    /// [json_len : u32 LE   ]  -- byte length of the JSON body that follows
+    /// [json body: bytes    ]  -- serde_json of SerializedNodeBody {labels, properties}
+    /// [dim      : u32 LE   ]  -- embedding dimension; 0 means no embedding
+    /// [f32 LE × dim        ]  -- raw little-endian f32 values; absent when dim == 0
+    /// ```
+    ///
+    /// Encoding a 768-dim embedding as 3,072 raw bytes vs. the ~6–9 KB produced
+    /// by JSON decimal-float encoding cuts the per-record footprint by roughly
+    /// half and keeps typical nodes well within the 8,159-byte single-page budget.
+    /// The f32 values round-trip bit-identically through `from_le_bytes` /
+    /// `to_le_bytes`.
     fn serialize_node(node: &Node) -> Result<Vec<u8>> {
-        let sn = SerializedNode {
+        let body = SerializedNodeBody {
             labels: node.labels.clone(),
             properties: node.properties.clone(),
-            embedding: node.embedding.clone(),
         };
-        serde_json::to_vec(&sn).map_err(|e| AstraeaError::Serialization(e.to_string()))
+        let json_bytes =
+            serde_json::to_vec(&body).map_err(|e| AstraeaError::Serialization(e.to_string()))?;
+
+        let dim = node.embedding.as_ref().map_or(0u32, |v| v.len() as u32);
+        let embedding_byte_len = dim as usize * 4;
+
+        // Total capacity: tag(1) + json_len(4) + json body + dim(4) + f32 bytes.
+        let mut out = Vec::with_capacity(1 + 4 + json_bytes.len() + 4 + embedding_byte_len);
+        out.push(RECORD_TAG_V1);
+        out.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+        out.extend_from_slice(&json_bytes);
+        out.extend_from_slice(&dim.to_le_bytes());
+        if let Some(emb) = &node.embedding {
+            for &f in emb {
+                out.extend_from_slice(&f.to_le_bytes());
+            }
+        }
+        Ok(out)
     }
 
-    /// Deserialize a node from bytes.
+    /// Deserialize a node from page bytes.
+    ///
+    /// Reads the leading byte to choose the decoding path:
+    /// - `RECORD_TAG_V1` (`0x01`) → v1 binary container (see `serialize_node`).
+    /// - any other byte → legacy `serde_json`-encoded `SerializedNode`, which
+    ///   always starts with `{` (`0x7B`).  This path handles every data file
+    ///   written before Phase 1 with no migration required.
     fn deserialize_node(id: NodeId, data: &[u8]) -> Result<Node> {
-        let sn: SerializedNode = serde_json::from_slice(data)
-            .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
-        Ok(Node {
-            id,
-            labels: sn.labels,
-            properties: sn.properties,
-            embedding: sn.embedding,
-        })
+        if data.is_empty() {
+            return Err(AstraeaError::Deserialization(
+                "node record is empty".to_string(),
+            ));
+        }
+
+        if data[0] == RECORD_TAG_V1 {
+            // --- v1 binary container ---
+            // Layout: [0x01][json_len:u32 LE][json body][dim:u32 LE][f32 LE…]
+            if data.len() < 5 {
+                return Err(AstraeaError::Deserialization(
+                    "v1 node record too short (missing json_len)".to_string(),
+                ));
+            }
+            let json_len =
+                u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
+            let json_start = 5;
+            let json_end = json_start + json_len;
+            if data.len() < json_end + 4 {
+                return Err(AstraeaError::Deserialization(
+                    "v1 node record: JSON body truncated".to_string(),
+                ));
+            }
+            let body: SerializedNodeBody =
+                serde_json::from_slice(&data[json_start..json_end])
+                    .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
+
+            let dim_start = json_end;
+            let dim = u32::from_le_bytes([
+                data[dim_start],
+                data[dim_start + 1],
+                data[dim_start + 2],
+                data[dim_start + 3],
+            ]) as usize;
+
+            let embedding = if dim == 0 {
+                None
+            } else {
+                let emb_start = dim_start + 4;
+                let emb_end = emb_start + dim * 4;
+                if data.len() < emb_end {
+                    return Err(AstraeaError::Deserialization(
+                        "v1 node record: embedding bytes truncated".to_string(),
+                    ));
+                }
+                let floats: Vec<f32> = data[emb_start..emb_end]
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                Some(floats)
+            };
+
+            Ok(Node {
+                id,
+                labels: body.labels,
+                properties: body.properties,
+                embedding,
+            })
+        } else {
+            // --- Legacy JSON path (back-compat) ---
+            // Records written before v1 begin with `{` (0x7B).  Any
+            // unrecognized leading byte also routes here; serde_json will
+            // return a Deserialization error rather than silently producing
+            // corrupt data.
+            let sn: SerializedNode = serde_json::from_slice(data)
+                .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
+            Ok(Node {
+                id,
+                labels: sn.labels,
+                properties: sn.properties,
+                embedding: sn.embedding,
+            })
+        }
     }
 
     /// Serialize an edge into bytes for storage in a page.
@@ -395,7 +531,22 @@ impl DiskStorageEngine {
 
 impl StorageEngine for DiskStorageEngine {
     fn put_node(&self, node: &Node) -> Result<()> {
-        // Log to WAL first (unless we are replaying — see `open`).
+        // Serialize FIRST so we can check the size before WAL-logging.
+        // This is the WAL-poisoning pre-flight guard for issue #26 §2a:
+        // if the record is too large we return Err here without touching the
+        // WAL, so open() can never brick on replay of an oversized record.
+        // Phase 2 (overflow chain) will remove this rejection once write_record
+        // can span multiple pages.
+        let data = Self::serialize_node(node)?;
+        if data.len() > MAX_RECORD_DATA_BYTES {
+            return Err(AstraeaError::Serialization(format!(
+                "record too large for a single page: {} bytes, free: {}",
+                NODE_RECORD_HEADER_SIZE + data.len(),
+                PAGE_SIZE - PAGE_HEADER_SIZE,
+            )));
+        }
+
+        // Log to WAL (unless we are replaying — see `open`).
         self.wal_append(&WalRecord::InsertNode(node.clone()))?;
 
         // If this node already exists, remove its old labels from the index
@@ -410,9 +561,6 @@ impl StorageEngine for DiskStorageEngine {
                 self.free_pages.lock().push(pid);
             }
         }
-
-        // Serialize.
-        let data = Self::serialize_node(node)?;
 
         // Write to a recycled page if available, otherwise a freshly allocated
         // one. `write_record` consults `self.free_pages` first.
@@ -466,6 +614,18 @@ impl StorageEngine for DiskStorageEngine {
     }
 
     fn put_edge(&self, edge: &Edge) -> Result<()> {
+        // Serialize first for the same WAL-poisoning pre-flight as put_node
+        // (issue #26 §2a): reject an oversized edge record before wal_append
+        // so it can never brick open() on replay.
+        let data = Self::serialize_edge(edge)?;
+        if data.len() > MAX_RECORD_DATA_BYTES {
+            return Err(AstraeaError::Serialization(format!(
+                "record too large for a single page: {} bytes, free: {}",
+                NODE_RECORD_HEADER_SIZE + data.len(),
+                PAGE_SIZE - PAGE_HEADER_SIZE,
+            )));
+        }
+
         // Log to WAL (unless replaying).
         self.wal_append(&WalRecord::InsertEdge(edge.clone()))?;
 
@@ -482,9 +642,6 @@ impl StorageEngine for DiskStorageEngine {
                 self.free_pages.lock().push(pid);
             }
         }
-
-        // Serialize.
-        let data = Self::serialize_edge(edge)?;
 
         let page_id = self.write_record(edge.id.0, &data, PageType::EdgePage)?;
 
@@ -1091,5 +1248,119 @@ mod tests {
         assert_eq!(max_edge, 0);
         engine.put_node(&test_node(1)).unwrap();
         assert!(engine.get_node(NodeId(1)).unwrap().is_some());
+    }
+
+    /// Verify that a node with a 768-dim embedding round-trips through a
+    /// restart via WAL replay using the v1 binary encoding (issue #26 Phase 1).
+    ///
+    /// Capacity check: a node with ~2 KB of text properties + a 768-dim f32
+    /// embedding encodes to ~5.1 KB in v1 binary format (3,072 raw bytes for
+    /// the embedding + JSON body overhead).  The same node would have been
+    /// ~9 KB under the legacy JSON encoding (~6,912 bytes for the embedding as
+    /// a JSON float array + ~2 KB props) and would have failed `write_record`'s
+    /// 8,159-byte single-page budget with the old code.
+    #[test]
+    fn test_binary_embedding_round_trip_and_restart() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // Standard model dimension.
+        let embedding: Vec<f32> =
+            (0..768u32).map(|i| i as f32 * 0.001_f32 + 0.5_f32).collect();
+
+        // ~2 KB of text ensures that the old JSON-encoded embedding (~6-9 KB)
+        // would overflow the 8,159-byte page budget while the v1 binary
+        // container (3,072 bytes for embedding + ~2 KB JSON body) fits.
+        let content = "A".repeat(2_000);
+        let node = Node {
+            id: NodeId(1),
+            labels: vec!["EmbeddedNote".to_string()],
+            properties: serde_json::json!({ "content": content }),
+            embedding: Some(embedding.clone()),
+        };
+
+        // Phase 1: write and drop without an explicit flush (simulates crash).
+        // Small pool forces page eviction, exercising the WAL replay path.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 8).unwrap();
+            engine.put_node(&node).unwrap();
+        }
+
+        // Phase 2: reopen via WAL replay.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir).unwrap();
+        assert_eq!(max_node_id, 1, "max_node_id must be recovered");
+
+        let recovered = engine
+            .get_node(NodeId(1))
+            .unwrap()
+            .expect("node must survive restart");
+
+        // Embedding must be present and bit-identical (f32 round-trips through
+        // to_le_bytes / from_le_bytes with no precision loss).
+        assert!(
+            recovered.embedding.is_some(),
+            "embedding must be present after restart"
+        );
+        let got_emb = recovered.embedding.unwrap();
+        assert_eq!(got_emb.len(), 768, "embedding dimension preserved");
+        for (i, (orig, got)) in embedding.iter().zip(got_emb.iter()).enumerate() {
+            assert_eq!(
+                orig.to_bits(),
+                got.to_bits(),
+                "embedding[{i}] must be bit-identical: {orig} != {got}"
+            );
+        }
+        assert_eq!(recovered.labels, vec!["EmbeddedNote".to_string()]);
+    }
+
+    /// Verify that an oversized node is rejected WITHOUT poisoning the WAL
+    /// (issue #26 §2a: WAL-poisoning brick bug).
+    ///
+    /// Before the fix, `put_node` logged `InsertNode` to the WAL *before* the
+    /// size check in `write_record`.  The rejected insert left an unplayable
+    /// record in the WAL and caused the next `open()` to brick.  After the
+    /// fix, the pre-flight in `put_node` rejects the insert before `wal_append`
+    /// so the WAL remains clean and `open()` succeeds.
+    #[test]
+    fn test_oversized_node_does_not_poison_wal() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 64).unwrap();
+
+            // Write a normal node first so the WAL has at least one valid
+            // record and we can confirm it survives the subsequent open().
+            engine.put_node(&test_node(1)).unwrap();
+
+            // Build a node whose v1-encoded body exceeds MAX_RECORD_DATA_BYTES
+            // (8,159 B).  A ~9 KiB string property with no embedding produces a
+            // body of ~9,040 B in both JSON and v1 binary, well over the limit.
+            let big_content = "x".repeat(9_000);
+            let oversized = Node {
+                id: NodeId(2),
+                labels: vec!["TooBig".to_string()],
+                properties: serde_json::json!({ "content": big_content }),
+                embedding: None,
+            };
+            let result = engine.put_node(&oversized);
+            assert!(result.is_err(), "oversized node must be rejected");
+            // No partial state should be visible.
+            assert!(engine.get_node(NodeId(2)).unwrap().is_none());
+        }
+
+        // Reopen — must succeed cleanly because the WAL was not poisoned.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
+            .expect("open() must succeed after a rejected oversized insert");
+
+        assert_eq!(max_node_id, 1, "only node 1 was written successfully");
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node 1 must survive"
+        );
+        assert!(
+            engine.get_node(NodeId(2)).unwrap().is_none(),
+            "oversized node 2 must not exist"
+        );
     }
 }
