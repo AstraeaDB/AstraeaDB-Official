@@ -16,8 +16,25 @@ pub const PAGE_SIZE: usize = 8192;
 pub const PAGE_HEADER_SIZE: usize = 17;
 
 /// Size of a node record header within a page.
-/// Layout: node_id(8) + data_len(4) + adjacency_offset(4) = 16
+/// Layout: node_id(8) + data_len(4) + overflow_page_id(4) = 16
 pub const NODE_RECORD_HEADER_SIZE: usize = 16;
+
+/// Number of bytes occupied by the overflow-chain link at the start of an
+/// overflow page's body (immediately after `PageHeader`).
+///
+/// Layout: `[next_overflow_encoded: u64 LE]`
+///   - `0`  → end of chain (no next overflow page)
+///   - `n`  → next overflow page is at `PageId(n − 1)` ("+1 encoding")
+pub const OVERFLOW_LINK_SIZE: usize = 8;
+
+/// Maximum payload bytes per overflow page.
+/// = PAGE_SIZE − PAGE_HEADER_SIZE − OVERFLOW_LINK_SIZE = 8192 − 17 − 8 = 8167
+pub const OVERFLOW_PAGE_PAYLOAD: usize = PAGE_SIZE - PAGE_HEADER_SIZE - OVERFLOW_LINK_SIZE;
+
+/// Maximum data bytes held in the HEAD record on a NodePage or EdgePage
+/// (the portion stored inline on the head page when the record spans multiple pages).
+/// = PAGE_SIZE − PAGE_HEADER_SIZE − NODE_RECORD_HEADER_SIZE = 8192 − 17 − 16 = 8159
+pub const HEAD_PAGE_CAPACITY: usize = PAGE_SIZE - PAGE_HEADER_SIZE - NODE_RECORD_HEADER_SIZE;
 
 /// Type of data stored in a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,16 +124,29 @@ impl PageHeader {
     }
 }
 
-/// Header for a node record stored within a NodePage.
+/// Header for a node record stored within a NodePage or EdgePage.
+///
+/// The header is 16 bytes and immediately precedes the record's data bytes.
+/// When a record's data exceeds the single-page budget (`HEAD_PAGE_CAPACITY`)
+/// the remainder is chained through one or more `OverflowPage`s; `data_len`
+/// always records the **total** byte count across the entire chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NodeRecordHeader {
     /// The node's unique identifier.
     pub node_id: u64,
-    /// Length of the serialized data (JSON properties + embedding) following this header.
+    /// Total byte length of the serialized record data (head + all overflow chunks).
     pub data_len: u32,
-    /// Byte offset within the page (or overflow page reference) where adjacency
-    /// (outgoing edge IDs) are stored. 0 means no adjacency data.
-    pub adjacency_offset: u32,
+    /// Pointer to the first overflow page in the continuation chain.
+    ///
+    /// **"+1 encoding"**: stores `PageId.0 + 1` so that `0` unambiguously means
+    /// "no overflow" and `PageId(0)` (the first page in a fresh file) is still
+    /// representable.  Old records written before Phase 2 always have this field
+    /// as `0`, which decodes as "no overflow" — fully back-compatible.
+    ///
+    /// The overflow page itself carries an 8-byte `next_overflow_encoded: u64`
+    /// field (immediately after its `PageHeader`) using the same "+1 encoding"
+    /// to chain further pages; `0` terminates the chain.
+    pub overflow_page_id: u32,
 }
 
 impl NodeRecordHeader {
@@ -124,7 +154,7 @@ impl NodeRecordHeader {
     pub fn write_to(&self, buf: &mut [u8; PAGE_SIZE], offset: usize) {
         buf[offset..offset + 8].copy_from_slice(&self.node_id.to_le_bytes());
         buf[offset + 8..offset + 12].copy_from_slice(&self.data_len.to_le_bytes());
-        buf[offset + 12..offset + 16].copy_from_slice(&self.adjacency_offset.to_le_bytes());
+        buf[offset + 12..offset + 16].copy_from_slice(&self.overflow_page_id.to_le_bytes());
     }
 
     /// Read a record header from the buffer at the given offset.
@@ -136,7 +166,7 @@ impl NodeRecordHeader {
                 .try_into()
                 .expect("slice len == 4"),
         );
-        let adjacency_offset = u32::from_le_bytes(
+        let overflow_page_id = u32::from_le_bytes(
             buf[offset + 12..offset + 16]
                 .try_into()
                 .expect("slice len == 4"),
@@ -144,7 +174,7 @@ impl NodeRecordHeader {
         Self {
             node_id,
             data_len,
-            adjacency_offset,
+            overflow_page_id,
         }
     }
 }
@@ -202,10 +232,11 @@ mod tests {
 
     #[test]
     fn test_node_record_header_roundtrip() {
+        // overflow_page_id = 1025 encodes "overflow at PageId(1024)" via the +1 encoding.
         let rec = NodeRecordHeader {
             node_id: 999,
             data_len: 512,
-            adjacency_offset: 1024,
+            overflow_page_id: 1025,
         };
         let mut buf = [0u8; PAGE_SIZE];
         let offset = PAGE_HEADER_SIZE;
@@ -213,6 +244,20 @@ mod tests {
 
         let restored = NodeRecordHeader::read_from(&buf, offset);
         assert_eq!(rec, restored);
+    }
+
+    #[test]
+    fn test_overflow_page_capacity_constants() {
+        // Verify the invariant: HEAD_PAGE_CAPACITY + NODE_RECORD_HEADER_SIZE + PAGE_HEADER_SIZE == PAGE_SIZE
+        assert_eq!(
+            PAGE_HEADER_SIZE + NODE_RECORD_HEADER_SIZE + HEAD_PAGE_CAPACITY,
+            PAGE_SIZE
+        );
+        // And the overflow page: OVERFLOW_LINK_SIZE + OVERFLOW_PAGE_PAYLOAD + PAGE_HEADER_SIZE == PAGE_SIZE
+        assert_eq!(
+            PAGE_HEADER_SIZE + OVERFLOW_LINK_SIZE + OVERFLOW_PAGE_PAYLOAD,
+            PAGE_SIZE
+        );
     }
 
     #[test]
