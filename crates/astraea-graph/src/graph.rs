@@ -1172,3 +1172,226 @@ mod semantic_tests {
         assert!(matches!(err, AstraeaError::DuplicateNode(NodeId(2))));
     }
 }
+
+/// Issue #26 end-to-end integration tests: graph-level restart with
+/// a 768-dim embedding + large (~8 KB) properties that force the multi-page
+/// overflow chain introduced in Phase 1 and Phase 2 of the fix.
+///
+/// These tests exercise `DiskStorageEngine` directly and require the
+/// `tempfile` dev-dependency.
+///
+/// # Known gap (HNSW not repopulated on restart)
+///
+/// `DiskStorageEngine::open()` replays the WAL by calling
+/// `StorageEngine::put_node` directly — it never goes through
+/// `Graph::create_node`, so the in-memory HNSW vector index is NOT
+/// updated during replay.  `Graph::with_start_ids` (the recovery
+/// constructor) also hard-codes `vector_index: None`; calling
+/// `set_vector_index` afterwards only attaches a fresh, empty index.
+/// `HnswVectorIndex::load_from_file` / `HnswIndex::load` exist but are
+/// never called on the open path.
+///
+/// Result: after a restart, `get_node` returns the node with its
+/// embedding (storage is correct) but a vector/HNSW `search` for that
+/// embedding returns zero hits.
+///
+/// The test `test_issue_26_hnsw_gap_after_restart` documents this gap:
+/// it asserts the current (broken) behavior and carries a `TODO` comment
+/// explaining what must change once repopulation is implemented.
+#[cfg(test)]
+mod disk_restart_tests {
+    use super::*;
+    use astraea_core::types::DistanceMetric;
+    use astraea_storage::DiskStorageEngine;
+    use astraea_vector::HnswVectorIndex;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    /// Build a deterministic 768-dim embedding for use across test phases.
+    fn make_embedding() -> Vec<f32> {
+        (0..768u32).map(|i| i as f32 * 0.001 + 0.5).collect()
+    }
+
+    /// Issue #26 regression test — graph level.
+    ///
+    /// Verifies that a node with a 768-dim embedding AND ~8 KB of properties
+    /// (which forces the multi-page overflow chain) round-trips through a
+    /// `Graph` backed by `DiskStorageEngine` across a simulated restart:
+    ///
+    ///   Phase 1 — write via `Graph::create_node`.
+    ///   Phase 2 — drop + reopen via `DiskStorageEngine::open` and
+    ///             `Graph::with_start_ids` + `set_vector_index`.
+    ///
+    /// Storage assertions (GREEN): `get_node` returns the node with
+    /// `embedding.is_some()` and bit-identical f32 values.
+    ///
+    /// Vector index assertion (documents the GAP — see module doc and
+    /// `test_issue_26_hnsw_gap_after_restart`): HNSW search for the node's
+    /// own embedding returns zero results after restart because the index is
+    /// never repopulated.
+    #[test]
+    fn test_issue_26_graph_restart_storage_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let embedding = make_embedding();
+        // ~8 KB property body + 3,072-byte embedding exceeds a single 8 KB
+        // page, so the multi-page overflow chain (Phase 2) is exercised.
+        let large_prop = "A".repeat(8_000);
+
+        let node_id;
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let vi = Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine));
+            let graph = Graph::with_vector_index(Box::new(engine), vi);
+
+            node_id = graph
+                .create_node(
+                    vec!["BigEmbeddedNode".into()],
+                    serde_json::json!({ "content": large_prop }),
+                    Some(embedding.clone()),
+                )
+                .expect("create_node with 768-dim embedding + 8 KB props must succeed");
+
+            // Sanity: HNSW search finds the node before restart.
+            let pre_results = graph
+                .vector_index()
+                .unwrap()
+                .search(&embedding, 1)
+                .unwrap();
+            assert_eq!(
+                pre_results.len(),
+                1,
+                "HNSW must find the node before restart"
+            );
+            assert_eq!(
+                pre_results[0].node_id, node_id,
+                "HNSW result must be the inserted node"
+            );
+
+            graph.flush().unwrap();
+        } // graph + engine dropped here
+
+        // ── Restart ──────────────────────────────────────────────────────────
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed after overflow-chain writes");
+
+        assert_eq!(
+            max_node_id, node_id.0,
+            "WAL replay must recover the correct max node id"
+        );
+
+        // Attach a fresh (empty) HNSW index — no repopulation happens.
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        graph2.set_vector_index(Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine)));
+
+        // ── Storage assertions (GREEN) ────────────────────────────────────────
+        let recovered = graph2
+            .get_node(node_id)
+            .expect("get_node must not error after restart")
+            .expect("node must be present after WAL replay");
+
+        assert!(
+            recovered.embedding.is_some(),
+            "embedding must survive restart via WAL replay (storage fix is correct)"
+        );
+        let got_emb = recovered.embedding.as_ref().unwrap();
+        assert_eq!(
+            got_emb.len(),
+            768,
+            "embedding dimension must be preserved after restart"
+        );
+        for (i, (orig, got)) in embedding.iter().zip(got_emb.iter()).enumerate() {
+            assert_eq!(
+                orig.to_bits(),
+                got.to_bits(),
+                "embedding[{i}] must be bit-identical after restart"
+            );
+        }
+        assert_eq!(
+            recovered.properties["content"].as_str().unwrap().len(),
+            8_000,
+            "large property body must survive restart"
+        );
+    }
+
+    /// Documents the HNSW repopulation gap exposed by the issue #26 fix.
+    ///
+    /// `get_node` after restart correctly returns the node (storage is fixed),
+    /// but a vector/HNSW `search` for that node's own embedding returns zero
+    /// results because the in-memory index is never repopulated.
+    ///
+    /// The assertion `assert!(post_results.is_empty(), ...)` captures the
+    /// current (broken) behavior.  Once HNSW repopulation on open is
+    /// implemented, replace it with:
+    ///
+    /// ```text
+    /// // TODO(issue-26-hnsw-repopulation): change to these assertions:
+    /// assert!(!post_results.is_empty(), "HNSW must find node after restart");
+    /// assert_eq!(post_results[0].node_id, node_id, "top hit must be the recovered node");
+    /// ```
+    #[test]
+    fn test_issue_26_hnsw_gap_after_restart() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let embedding = make_embedding();
+
+        let node_id;
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let vi = Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine));
+            let graph = Graph::with_vector_index(Box::new(engine), vi);
+
+            node_id = graph
+                .create_node(
+                    vec!["EmbeddedNode".into()],
+                    serde_json::json!({ "content": "x".repeat(8_000) }),
+                    Some(embedding.clone()),
+                )
+                .expect("create_node must succeed");
+
+            graph.flush().unwrap();
+        }
+
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed");
+
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        // Attach a fresh, empty HNSW index (no scan-and-reinsert, no file load).
+        graph2.set_vector_index(Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine)));
+
+        // Storage is correct: the node is present with its embedding.
+        let recovered = graph2.get_node(node_id).unwrap().unwrap();
+        assert!(recovered.embedding.is_some());
+
+        // GAP: the HNSW index is empty — WAL replay called put_node on the
+        // storage engine directly, bypassing Graph::create_node and therefore
+        // never inserting into the vector index.
+        //
+        // Current behavior (documented here, not a desired invariant):
+        let post_results = graph2
+            .vector_index()
+            .unwrap()
+            .search(&embedding, 1)
+            .unwrap();
+
+        assert!(
+            post_results.is_empty(),
+            // If this assertion starts failing it means HNSW repopulation was
+            // implemented — remove this assert and enable the TODO block below.
+            "GAP: HNSW index must be empty after restart because repopulation \
+             is not yet implemented (engine.rs WAL replay bypasses Graph::create_node)"
+        );
+
+        // TODO(issue-26-hnsw-repopulation): Once the open path rebuilds the
+        // in-memory HNSW (via HnswIndex::load or scan-and-reinsert), replace
+        // the assert above with:
+        //
+        //   assert!(!post_results.is_empty(),
+        //       "HNSW must find node after restart once repopulation is wired");
+        //   assert_eq!(post_results[0].node_id, node_id,
+        //       "top HNSW hit must be the recovered node");
+        let _ = node_id; // suppress unused warning when TODO is active
+    }
+}
