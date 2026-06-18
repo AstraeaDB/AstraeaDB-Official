@@ -1,11 +1,37 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use astraea_core::error::{AstraeaError, Result};
 use astraea_core::traits::{GraphOps, StorageEngine, VectorIndex};
 use astraea_core::types::*;
+use astraea_vector::HnswVectorIndex;
 
 use crate::traversal;
+
+/// Reports the outcome of [`Graph::load_or_rebuild_vector_index`].
+///
+/// Callers can log or assert on this to distinguish a fast snapshot-load
+/// path from a full O(n·log n) rebuild.
+#[derive(Debug, PartialEq)]
+pub enum VectorIndexInit {
+    /// The snapshot file was loaded successfully.
+    ///
+    /// Delta-reconcile added `inserted` embeddings for nodes that were
+    /// written to storage after the last snapshot (WAL-durable, snapshot-
+    /// not-yet-written), and stripped `removed` node ids from the index
+    /// for nodes that were deleted after the last snapshot.
+    Loaded { inserted: usize, removed: usize },
+
+    /// The snapshot was missing, corrupt, had a dimension mismatch, or had a
+    /// metric mismatch (e.g. the operator changed the configured metric since
+    /// the last snapshot was saved).
+    ///
+    /// A fresh index was constructed and the full O(n) scan-and-reinsert
+    /// fallback ran.  `count` is the number of embeddings inserted.
+    /// The rebuilt index was also saved so the next restart is fast.
+    Rebuilt { count: usize },
+}
 
 /// The primary graph database handle.
 ///
@@ -77,6 +103,200 @@ impl Graph {
     /// Get a reference to the vector index, if configured.
     pub fn vector_index(&self) -> Option<&Arc<dyn VectorIndex>> {
         self.vector_index.as_ref()
+    }
+
+    /// Rebuild the in-memory vector index by scanning every node in storage.
+    ///
+    /// Iterates all node IDs returned by [`StorageEngine::list_all_nodes`],
+    /// fetches each node, and inserts any node that carries an embedding into
+    /// the attached [`VectorIndex`].  Nodes without embeddings are skipped.
+    ///
+    /// This is O(n) over stored nodes and is the correct way to restore HNSW
+    /// consistency after a WAL replay / restart.  Call it after constructing a
+    /// `Graph` over a recovered [`DiskStorageEngine`] and attaching a fresh
+    /// vector index via [`set_vector_index`]:
+    ///
+    /// ```rust,ignore
+    /// let (engine, max_node_id, max_edge_id) = DiskStorageEngine::open(data_dir)?;
+    /// let mut graph = Graph::with_start_ids(Box::new(engine), max_node_id + 1, max_edge_id + 1);
+    /// graph.set_vector_index(Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine)));
+    /// graph.rebuild_vector_index()?;
+    /// ```
+    ///
+    /// Returns the number of embeddings inserted into the index.
+    /// Returns `Ok(0)` immediately if no vector index is attached.
+    pub fn rebuild_vector_index(&self) -> astraea_core::error::Result<usize> {
+        let vi = match &self.vector_index {
+            Some(vi) => vi,
+            None => return Ok(0),
+        };
+
+        let node_ids = self.storage.list_all_nodes()?;
+        let mut count = 0usize;
+        for id in node_ids {
+            let node = match self.storage.get_node(id)? {
+                Some(n) => n,
+                None => continue,
+            };
+            if let Some(ref emb) = node.embedding {
+                vi.insert(id, emb)?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    /// Persist the attached vector index to `path` using an **atomic write**.
+    ///
+    /// Internally writes to `<path>.tmp` and then renames it over `path`, so a
+    /// crash mid-write never leaves a torn `.hnsw` file on disk.
+    ///
+    /// If no vector index is attached, this is a no-op and returns `Ok(())`.
+    /// If the index implementation does not support persistence (i.e., its
+    /// [`VectorIndex::save_to_path`] returns an error), that error is propagated.
+    pub fn save_vector_index(&self, path: &Path) -> Result<()> {
+        let vi = match &self.vector_index {
+            Some(vi) => vi,
+            None => return Ok(()),
+        };
+
+        // Build the temp path as `<path>.tmp` in the same directory.
+        let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+        tmp_name.push(".tmp");
+        let tmp_path = path.with_file_name(tmp_name);
+
+        // Write to temp; rename atomically.  If the rename fails we leave
+        // the tmp file behind (harmless — it will be overwritten next time).
+        vi.save_to_path(&tmp_path)?;
+        std::fs::rename(&tmp_path, path)?;
+        Ok(())
+    }
+
+    /// Load the vector index from `path`, attach it, and delta-reconcile it
+    /// against storage.  Falls back to a full rebuild when the file is
+    /// missing, corrupt, or has a dimension mismatch.
+    ///
+    /// # Load + reconcile (fast path)
+    ///
+    /// 1. Deserialise the snapshot from `path`.
+    /// 2. Check dimension against `dim`; return [`AstraeaError::DimensionMismatch`]
+    ///    as the trigger for the fallback (not a hard error).
+    /// 3. Compute the symmetric diff between `storage.list_all_nodes()` and
+    ///    `index.node_ids()`:
+    ///    - **Missing** (in storage, not in index): nodes written to the WAL after
+    ///      the last snapshot — re-insert their embeddings.
+    ///    - **Extra** (in index, not in storage): nodes deleted after the last
+    ///      snapshot — remove them from the index.
+    ///
+    /// # Rebuild fallback
+    ///
+    /// On any load error, construct a fresh `HnswVectorIndex::new(dim, metric)`,
+    /// call [`rebuild_vector_index`], and then [`save_vector_index`] so the next
+    /// restart is fast.  The save failure is non-fatal (only logged).
+    ///
+    /// Returns a [`VectorIndexInit`] so callers can log or assert on which path
+    /// was taken and how many deltas were applied.
+    pub fn load_or_rebuild_vector_index(
+        &mut self,
+        path: &Path,
+        dim: usize,
+        metric: DistanceMetric,
+    ) -> Result<VectorIndexInit> {
+        use std::collections::HashSet;
+
+        // Attempt to deserialise the snapshot.
+        let load_result: Result<HnswVectorIndex> = (|| {
+            let loaded = HnswVectorIndex::load_from_file(path)?;
+            if loaded.dimension() != dim {
+                return Err(AstraeaError::DimensionMismatch {
+                    expected: dim,
+                    got: loaded.dimension(),
+                });
+            }
+            if loaded.metric() != metric {
+                return Err(AstraeaError::Config(format!(
+                    "metric mismatch: expected {:?}, got {:?}",
+                    metric,
+                    loaded.metric(),
+                )));
+            }
+            Ok(loaded)
+        })();
+
+        match load_result {
+            Ok(loaded_idx) => {
+                // Attach the loaded index; keep a local Arc for the reconcile
+                // loop so we can call insert/remove without going through self.
+                let vi: Arc<dyn VectorIndex> = Arc::new(loaded_idx);
+                self.set_vector_index(vi.clone());
+
+                // Snapshot ids vs. current storage ids (post-WAL-replay).
+                let storage_ids: HashSet<NodeId> =
+                    self.storage.list_all_nodes()?.into_iter().collect();
+                let index_ids: HashSet<NodeId> = vi.node_ids().into_iter().collect();
+
+                // Collect both diff directions before mutating.
+                let missing: Vec<NodeId> =
+                    storage_ids.difference(&index_ids).copied().collect();
+                let extra: Vec<NodeId> =
+                    index_ids.difference(&storage_ids).copied().collect();
+
+                // LIMITATION: this reconcile only covers *existence* deltas —
+                // nodes written to the WAL after the snapshot (missing from the
+                // index) and nodes deleted after the snapshot (extra in the
+                // index).  A node present in BOTH sets whose embedding was
+                // *updated* in storage after the snapshot was saved will keep
+                // the stale vector from the snapshot until the next full
+                // rebuild.  Correcting this would require per-node
+                // versioning/generation tracking so the reconcile can detect
+                // changed content, not just changed membership.
+                // Tracked as a follow-up.
+
+                // Post-snapshot inserts: WAL-replayed but not yet snapshotted.
+                let mut inserted = 0usize;
+                for id in missing {
+                    if let Some(node) = self.storage.get_node(id)?
+                        && let Some(ref emb) = node.embedding
+                    {
+                        vi.insert(id, emb)?;
+                        inserted += 1;
+                    }
+                }
+
+                // Post-snapshot deletes: still in snapshot but gone from storage.
+                let mut removed = 0usize;
+                for id in extra {
+                    vi.remove(id)?;
+                    removed += 1;
+                }
+
+                Ok(VectorIndexInit::Loaded { inserted, removed })
+            }
+
+            Err(load_err) => {
+                // Missing file, corrupt magic/version/body, or dimension mismatch.
+                tracing::warn!(
+                    "vector index load from {:?} failed ({}); rebuilding from storage",
+                    path,
+                    load_err
+                );
+
+                let fresh = Arc::new(HnswVectorIndex::new(dim, metric));
+                self.set_vector_index(fresh);
+                let count = self.rebuild_vector_index()?;
+
+                // Persist the freshly built index — best-effort, non-fatal.
+                if let Err(e) = self.save_vector_index(path) {
+                    tracing::warn!(
+                        "failed to persist rebuilt vector index to {:?}: {}",
+                        path,
+                        e
+                    );
+                }
+
+                Ok(VectorIndexInit::Rebuilt { count })
+            }
+        }
     }
 }
 
@@ -1170,5 +1390,582 @@ mod semantic_tests {
             .create_node_with_id(NodeId(2), vec![], serde_json::json!({}), None)
             .unwrap_err();
         assert!(matches!(err, AstraeaError::DuplicateNode(NodeId(2))));
+    }
+}
+
+/// Issue #26 end-to-end integration tests: graph-level restart with
+/// a 768-dim embedding + large (~8 KB) properties that force the multi-page
+/// overflow chain introduced in Phase 1 and Phase 2 of the fix.
+///
+/// These tests exercise `DiskStorageEngine` directly and require the
+/// `tempfile` dev-dependency.
+///
+/// # HNSW repopulation on restart
+///
+/// `DiskStorageEngine::open()` replays the WAL by calling
+/// `StorageEngine::put_node` directly — it never goes through
+/// `Graph::create_node`, so the in-memory HNSW vector index is NOT
+/// updated during replay.  After reconstruction via `Graph::with_start_ids`
+/// and attaching a fresh index via `set_vector_index`, callers must call
+/// `Graph::rebuild_vector_index()` to scan all stored nodes and re-insert
+/// their embeddings into the HNSW.  This is O(n) over nodes and restores
+/// full vector-search correctness after restart.
+#[cfg(test)]
+mod disk_restart_tests {
+    use super::*;
+    use astraea_core::types::DistanceMetric;
+    use astraea_storage::DiskStorageEngine;
+    use astraea_vector::HnswVectorIndex;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    /// Build a deterministic 768-dim embedding for use across test phases.
+    fn make_embedding() -> Vec<f32> {
+        (0..768u32).map(|i| i as f32 * 0.001 + 0.5).collect()
+    }
+
+    /// Issue #26 regression test — graph level.
+    ///
+    /// Verifies that a node with a 768-dim embedding AND ~8 KB of properties
+    /// (which forces the multi-page overflow chain) round-trips through a
+    /// `Graph` backed by `DiskStorageEngine` across a simulated restart:
+    ///
+    ///   Phase 1 — write via `Graph::create_node`.
+    ///   Phase 2 — drop + reopen via `DiskStorageEngine::open` and
+    ///             `Graph::with_start_ids` + `set_vector_index`.
+    ///
+    /// Storage assertions (GREEN): `get_node` returns the node with
+    /// `embedding.is_some()` and bit-identical f32 values.
+    ///
+    /// Vector index assertion (documents the GAP — see module doc and
+    /// `test_issue_26_hnsw_gap_after_restart`): HNSW search for the node's
+    /// own embedding returns zero results after restart because the index is
+    /// never repopulated.
+    #[test]
+    fn test_issue_26_graph_restart_storage_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let embedding = make_embedding();
+        // ~8 KB property body + 3,072-byte embedding exceeds a single 8 KB
+        // page, so the multi-page overflow chain (Phase 2) is exercised.
+        let large_prop = "A".repeat(8_000);
+
+        let node_id;
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let vi = Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine));
+            let graph = Graph::with_vector_index(Box::new(engine), vi);
+
+            node_id = graph
+                .create_node(
+                    vec!["BigEmbeddedNode".into()],
+                    serde_json::json!({ "content": large_prop }),
+                    Some(embedding.clone()),
+                )
+                .expect("create_node with 768-dim embedding + 8 KB props must succeed");
+
+            // Sanity: HNSW search finds the node before restart.
+            let pre_results = graph
+                .vector_index()
+                .unwrap()
+                .search(&embedding, 1)
+                .unwrap();
+            assert_eq!(
+                pre_results.len(),
+                1,
+                "HNSW must find the node before restart"
+            );
+            assert_eq!(
+                pre_results[0].node_id, node_id,
+                "HNSW result must be the inserted node"
+            );
+
+            graph.flush().unwrap();
+        } // graph + engine dropped here
+
+        // ── Restart ──────────────────────────────────────────────────────────
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed after overflow-chain writes");
+
+        assert_eq!(
+            max_node_id, node_id.0,
+            "WAL replay must recover the correct max node id"
+        );
+
+        // Attach a fresh (empty) HNSW index — no repopulation happens.
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        graph2.set_vector_index(Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine)));
+
+        // ── Storage assertions (GREEN) ────────────────────────────────────────
+        let recovered = graph2
+            .get_node(node_id)
+            .expect("get_node must not error after restart")
+            .expect("node must be present after WAL replay");
+
+        assert!(
+            recovered.embedding.is_some(),
+            "embedding must survive restart via WAL replay (storage fix is correct)"
+        );
+        let got_emb = recovered.embedding.as_ref().unwrap();
+        assert_eq!(
+            got_emb.len(),
+            768,
+            "embedding dimension must be preserved after restart"
+        );
+        for (i, (orig, got)) in embedding.iter().zip(got_emb.iter()).enumerate() {
+            assert_eq!(
+                orig.to_bits(),
+                got.to_bits(),
+                "embedding[{i}] must be bit-identical after restart"
+            );
+        }
+        assert_eq!(
+            recovered.properties["content"].as_str().unwrap().len(),
+            8_000,
+            "large property body must survive restart"
+        );
+    }
+
+    /// Issue #26 — HNSW repopulation after restart.
+    ///
+    /// Verifies that calling `Graph::rebuild_vector_index()` after reopening
+    /// a `DiskStorageEngine` restores full vector-search correctness.
+    ///
+    /// Sequence:
+    ///   1. Create a node with a 768-dim embedding via `Graph::create_node`.
+    ///   2. Flush and drop the graph (simulated restart).
+    ///   3. Reopen via `DiskStorageEngine::open` + `Graph::with_start_ids`.
+    ///   4. Attach a fresh HNSW index via `set_vector_index`.
+    ///   5. Call `rebuild_vector_index()` — O(n) scan-and-reinsert.
+    ///   6. Assert HNSW search for the node's own embedding returns the node.
+    #[test]
+    fn test_issue_26_hnsw_repopulated_after_restart() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let embedding = make_embedding();
+
+        let node_id;
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let vi = Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine));
+            let graph = Graph::with_vector_index(Box::new(engine), vi);
+
+            node_id = graph
+                .create_node(
+                    vec!["EmbeddedNode".into()],
+                    serde_json::json!({ "content": "x".repeat(8_000) }),
+                    Some(embedding.clone()),
+                )
+                .expect("create_node must succeed");
+
+            graph.flush().unwrap();
+        } // graph + engine dropped here
+
+        // ── Restart ──────────────────────────────────────────────────────────
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed");
+
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        graph2.set_vector_index(Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine)));
+
+        // Rebuild the HNSW from storage (Option B: scan-and-reinsert).
+        let inserted = graph2
+            .rebuild_vector_index()
+            .expect("rebuild_vector_index must not error");
+        assert_eq!(inserted, 1, "exactly one embedding should be reinserted");
+
+        // Storage is correct: the node is present with its embedding.
+        let recovered = graph2.get_node(node_id).unwrap().unwrap();
+        assert!(
+            recovered.embedding.is_some(),
+            "embedding must survive restart via WAL replay"
+        );
+
+        // Vector search now returns the node after repopulation.
+        let post_results = graph2
+            .vector_index()
+            .unwrap()
+            .search(&embedding, 1)
+            .unwrap();
+
+        assert!(
+            !post_results.is_empty(),
+            "HNSW must find the node after restart once rebuild_vector_index is called"
+        );
+        assert_eq!(
+            post_results[0].node_id, node_id,
+            "top HNSW hit must be the recovered node"
+        );
+    }
+
+    // ── Task A/B/C tests: persisted-index round-trip + delta-reconcile ─────────
+
+    /// Helper: build a small deterministic embedding for a given integer seed.
+    /// Uses dim=4 for speed in the reconcile tests.
+    fn make_small_embedding(seed: f32) -> Vec<f32> {
+        vec![seed, seed * 0.5, seed * 0.25, seed * 0.125]
+    }
+
+    /// Round-trip: create a node with embedding, `save_vector_index`, drop,
+    /// reopen, `load_or_rebuild_vector_index` → must report `Loaded` (not
+    /// Rebuilt) with zero deltas, and vector search must return the node.
+    ///
+    /// Proves we actually used the persisted file rather than rebuilding.
+    #[test]
+    fn test_hnsw_loaded_index_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let hnsw_path = data_dir.join("astraea.hnsw");
+        let embedding = make_embedding(); // 768-dim + 8 KB props exercises overflow chain
+        let large_prop = "Z".repeat(8_000);
+        let node_id;
+
+        // ─── Phase 1: write, save snapshot, flush ─────────────────────────────
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let vi = Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine));
+            let graph = Graph::with_vector_index(Box::new(engine), vi);
+
+            node_id = graph
+                .create_node(
+                    vec!["Snapshotted".into()],
+                    serde_json::json!({ "body": large_prop }),
+                    Some(embedding.clone()),
+                )
+                .expect("create_node must succeed");
+
+            graph
+                .save_vector_index(&hnsw_path)
+                .expect("save_vector_index must succeed");
+            graph.flush().unwrap();
+        }
+
+        // ─── Phase 2: reopen + load (must NOT rebuild) ────────────────────────
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed");
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+
+        let init = graph2
+            .load_or_rebuild_vector_index(&hnsw_path, 768, DistanceMetric::Cosine)
+            .expect("load_or_rebuild must not error");
+
+        // Must have loaded from the file, not rebuilt.
+        assert!(
+            matches!(init, VectorIndexInit::Loaded { inserted: 0, removed: 0 }),
+            "expected Loaded{{inserted:0, removed:0}}, got {:?}",
+            init
+        );
+
+        // Vector search must return the node.
+        let results = graph2
+            .vector_index()
+            .unwrap()
+            .search(&embedding, 1)
+            .unwrap();
+        assert!(!results.is_empty(), "search must return at least one result");
+        assert_eq!(
+            results[0].node_id, node_id,
+            "top result must be the snapshotted node"
+        );
+    }
+
+    /// Crash-simulation delta-reconcile (both insert and delete directions).
+    ///
+    /// All writes happen in **one** `DiskStorageEngine` session so that WAL
+    /// records are appended correctly (avoids the cursor-at-0 issue on
+    /// re-open).  The snapshot is saved **mid-session** (representing the last
+    /// checkpoint), then B1/B2 are added and A1 is deleted **without** a
+    /// second snapshot save (crash simulation).  On the next open, WAL replay
+    /// gives storage {A2, A3, B1, B2}; the stale snapshot has {A1, A2, A3}.
+    ///
+    /// Expected: `Loaded { inserted: 2, removed: 1 }`.
+    /// B1/B2 searchable; A1 absent from the index.
+    #[test]
+    fn test_hnsw_delta_reconcile_crash_sim() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let hnsw_path = data_dir.join("astraea.hnsw");
+        const DIM: usize = 4;
+        let metric = DistanceMetric::Euclidean;
+
+        // ─── Single write session ──────────────────────────────────────────────
+        // Create A1/A2/A3, checkpoint the snapshot, then add B1/B2 and delete
+        // A1 WITHOUT a second snapshot save.  This models:
+        //   t=0  snapshot saved (index = {A1, A2, A3})
+        //   t=1  WAL-durable: create B1, create B2, delete A1
+        //   t=2  crash before next checkpoint
+        let id_a1;
+        let id_b1;
+        let id_b2;
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let vi = Arc::new(HnswVectorIndex::new(DIM, metric));
+            let graph = Graph::with_vector_index(Box::new(engine), vi);
+
+            id_a1 = graph
+                .create_node(vec![], serde_json::json!({}), Some(make_small_embedding(1.0)))
+                .unwrap();
+            let _id_a2 = graph
+                .create_node(vec![], serde_json::json!({}), Some(make_small_embedding(2.0)))
+                .unwrap();
+            let _id_a3 = graph
+                .create_node(vec![], serde_json::json!({}), Some(make_small_embedding(3.0)))
+                .unwrap();
+
+            // Checkpoint: save snapshot with {A1, A2, A3}.
+            graph
+                .save_vector_index(&hnsw_path)
+                .expect("save_vector_index must succeed");
+
+            // Post-checkpoint WAL-durable writes — snapshot NOT updated.
+            id_b1 = graph
+                .create_node(
+                    vec![],
+                    serde_json::json!({}),
+                    Some(make_small_embedding(10.0)),
+                )
+                .unwrap();
+            id_b2 = graph
+                .create_node(
+                    vec![],
+                    serde_json::json!({}),
+                    Some(make_small_embedding(20.0)),
+                )
+                .unwrap();
+            graph.delete_node(id_a1).unwrap();
+
+            // Flush (WAL fsynced) — no second save_vector_index (crash sim).
+            graph.flush().unwrap();
+        }
+
+        // ─── Restart: WAL replay → storage {A2, A3, B1, B2}; load stale snap ─
+        {
+            let (engine, max_node_id, max_edge_id) =
+                DiskStorageEngine::open(data_dir).expect("reopen must succeed");
+            let mut graph2 =
+                Graph::with_start_ids(Box::new(engine), max_node_id + 1, max_edge_id + 1);
+
+            let init = graph2
+                .load_or_rebuild_vector_index(&hnsw_path, DIM, metric)
+                .expect("load_or_rebuild must succeed");
+
+            match init {
+                VectorIndexInit::Loaded { inserted, removed } => {
+                    assert_eq!(inserted, 2, "reconcile must insert B1 and B2");
+                    assert_eq!(removed, 1, "reconcile must remove A1");
+                }
+                VectorIndexInit::Rebuilt { .. } => {
+                    panic!("expected Loaded (snapshot exists), got Rebuilt")
+                }
+            }
+
+            let vi = graph2.vector_index().unwrap();
+
+            // B1 and B2 must be searchable after reconcile.
+            let r1 = vi.search(&make_small_embedding(10.0), 1).unwrap();
+            assert!(
+                !r1.is_empty() && r1[0].node_id == id_b1,
+                "B1 must be findable after reconcile"
+            );
+            let r2 = vi.search(&make_small_embedding(20.0), 1).unwrap();
+            assert!(
+                !r2.is_empty() && r2[0].node_id == id_b2,
+                "B2 must be findable after reconcile"
+            );
+
+            // A1 must have been stripped from the loaded index.
+            let index_ids: std::collections::HashSet<NodeId> =
+                vi.node_ids().into_iter().collect();
+            assert!(
+                !index_ids.contains(&id_a1),
+                "A1 must be absent from the index after reconcile"
+            );
+        }
+    }
+
+    /// N1 regression: a persisted index loaded with a *different* metric than
+    /// it was built with must trigger `Rebuilt`, not silently serve stale
+    /// ranked results.
+    ///
+    /// Sequence:
+    ///   1. Build and save a snapshot with `DistanceMetric::Cosine`.
+    ///   2. Call `load_or_rebuild_vector_index` requesting `DistanceMetric::Euclidean`.
+    ///   3. Assert the result is `Rebuilt` (not `Loaded`).
+    ///   4. Assert vector search still returns the correct node (rebuild was full).
+    #[test]
+    fn test_hnsw_metric_mismatch_triggers_rebuild() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let hnsw_path = data_dir.join("astraea.hnsw");
+        const DIM: usize = 4;
+        let embedding = make_small_embedding(1.0);
+        let node_id;
+
+        // ─── Phase 1: write with Cosine, save snapshot ────────────────────────
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let vi = Arc::new(HnswVectorIndex::new(DIM, DistanceMetric::Cosine));
+            let graph = Graph::with_vector_index(Box::new(engine), vi);
+
+            node_id = graph
+                .create_node(
+                    vec![],
+                    serde_json::json!({}),
+                    Some(embedding.clone()),
+                )
+                .expect("create_node must succeed");
+
+            graph
+                .save_vector_index(&hnsw_path)
+                .expect("save_vector_index must succeed");
+            graph.flush().unwrap();
+        }
+
+        // ─── Phase 2: reopen requesting Euclidean (mismatch) ─────────────────
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed");
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+
+        let init = graph2
+            .load_or_rebuild_vector_index(&hnsw_path, DIM, DistanceMetric::Euclidean)
+            .expect("load_or_rebuild must not error on metric mismatch");
+
+        // Metric mismatch must fall through to the rebuild path.
+        assert!(
+            matches!(init, VectorIndexInit::Rebuilt { count: 1 }),
+            "expected Rebuilt{{count:1}} on metric mismatch, got {:?}",
+            init
+        );
+
+        // The rebuilt index (now Euclidean) must still find the node.
+        let results = graph2
+            .vector_index()
+            .unwrap()
+            .search(&embedding, 1)
+            .unwrap();
+        assert!(!results.is_empty(), "search must return a result after metric-mismatch rebuild");
+        assert_eq!(results[0].node_id, node_id, "top result must be the node");
+    }
+
+    /// Fallback (a): no `.hnsw` file present → must report `Rebuilt`, leave
+    /// the file on disk for the next restart, and return correct search results.
+    #[test]
+    fn test_hnsw_missing_snapshot_rebuilds() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let hnsw_path = data_dir.join("astraea.hnsw");
+        let embedding = make_embedding();
+        let node_id;
+
+        // Create a node but do NOT save the index.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let graph = Graph::new(Box::new(engine));
+            node_id = graph
+                .create_node(
+                    vec![],
+                    serde_json::json!({ "content": "x".repeat(8_000) }),
+                    Some(embedding.clone()),
+                )
+                .unwrap();
+            graph.flush().unwrap();
+        }
+
+        // No .hnsw file should exist at this point.
+        assert!(
+            !hnsw_path.exists(),
+            "hnsw file must not exist before load_or_rebuild"
+        );
+
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed");
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+
+        let init = graph2
+            .load_or_rebuild_vector_index(&hnsw_path, 768, DistanceMetric::Cosine)
+            .expect("load_or_rebuild must not fail even with missing file");
+
+        assert!(
+            matches!(init, VectorIndexInit::Rebuilt { count: 1 }),
+            "expected Rebuilt{{count:1}}, got {:?}",
+            init
+        );
+
+        // The rebuild must have saved the file so the next boot is fast.
+        assert!(
+            hnsw_path.exists(),
+            "save_vector_index after rebuild must create the .hnsw file"
+        );
+
+        // Vector search must work.
+        let results = graph2
+            .vector_index()
+            .unwrap()
+            .search(&embedding, 1)
+            .unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].node_id, node_id);
+    }
+
+    /// Fallback (b): a corrupt `.hnsw` file → must report `Rebuilt` (not an
+    /// error), replace the corrupt file with a valid one, and return correct
+    /// search results.
+    #[test]
+    fn test_hnsw_corrupt_snapshot_rebuilds() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let hnsw_path = data_dir.join("astraea.hnsw");
+        let embedding = make_embedding();
+        let node_id;
+
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let graph = Graph::new(Box::new(engine));
+            node_id = graph
+                .create_node(
+                    vec![],
+                    serde_json::json!({ "content": "y".repeat(8_000) }),
+                    Some(embedding.clone()),
+                )
+                .unwrap();
+            graph.flush().unwrap();
+        }
+
+        // Plant a corrupt file at the expected snapshot path.
+        std::fs::write(&hnsw_path, b"not a valid HNSW file -- garbage bytes").unwrap();
+
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed");
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+
+        let init = graph2
+            .load_or_rebuild_vector_index(&hnsw_path, 768, DistanceMetric::Cosine)
+            .expect("load_or_rebuild must not propagate a corrupt-file error");
+
+        assert!(
+            matches!(init, VectorIndexInit::Rebuilt { count: 1 }),
+            "expected Rebuilt{{count:1}} for corrupt snapshot, got {:?}",
+            init
+        );
+
+        // File must have been replaced with a valid snapshot.
+        assert!(
+            hnsw_path.exists(),
+            "corrupt file must be replaced by a valid rebuild snapshot"
+        );
+
+        let results = graph2
+            .vector_index()
+            .unwrap()
+            .search(&embedding, 1)
+            .unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].node_id, node_id);
     }
 }

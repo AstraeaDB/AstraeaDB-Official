@@ -62,13 +62,20 @@ pub struct WalWriter {
 
 impl WalWriter {
     /// Open or create a WAL file at the given path.
+    ///
+    /// Opens with `O_APPEND` so every write atomically positions to EOF before
+    /// being committed by the kernel. This is the canonical fix for the
+    /// cursor-at-zero bug: without `O_APPEND`, reopening an existing WAL left
+    /// the OS write cursor at offset 0, so the first `append` call after a
+    /// `DiskStorageEngine::open` would overwrite records from the beginning of
+    /// the file while `current_lsn` still reported the old (larger) length.
+    /// `WalReader` uses its own `File::open` handle for all reads, so
+    /// `.read(true)` is not needed on the writer's file descriptor.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let file = OpenOptions::new()
-            .read(true)
-            .write(true)
+            .append(true)
             .create(true)
-            .truncate(false)
             .open(&path)?;
 
         let file_len = file.metadata()?.len();
@@ -151,8 +158,18 @@ impl WalReader {
     }
 
     /// Read all records starting from the given LSN.
-    /// Returns a vector of (Lsn, WalRecord) pairs.
-    pub fn read_from(&self, lsn: Lsn) -> Result<Vec<(Lsn, WalRecord)>> {
+    ///
+    /// Returns `(records, last_good_offset)` where `last_good_offset` is the
+    /// byte position immediately after the last successfully verified record.
+    /// Any bytes from `last_good_offset` to EOF are a torn tail from a crash
+    /// and should be truncated before the next [`WalWriter`] append.
+    ///
+    /// Stops at the first record that fails to parse (bad length field, partial
+    /// read, or CRC mismatch) and treats that position as end-of-log.  This is
+    /// standard WAL semantics: an append-only log is authoritative only up to
+    /// the first bad record; anything after it is unreplayable regardless of
+    /// whether more bytes happen to follow.
+    pub fn read_from(&self, lsn: Lsn) -> Result<(Vec<(Lsn, WalRecord)>, u64)> {
         let file = File::open(&self.path)?;
         let file_len = file.metadata()?.len();
         let mut reader = BufReader::new(file);
@@ -167,11 +184,14 @@ impl WalReader {
             // Read length (4 bytes).
             let mut len_buf = [0u8; 4];
             if reader.read_exact(&mut len_buf).is_err() {
+                // Partial read at EOF — torn tail; stop here.
                 break;
             }
             let length = u32::from_le_bytes(len_buf);
 
             if length == 0 || pos + 4 + length as u64 + 4 > file_len {
+                // Length is zero or claims more bytes than remain — torn record
+                // at the tail; treat as end-of-log.
                 break;
             }
 
@@ -201,23 +221,41 @@ impl WalReader {
             hasher.update(&payload);
             let computed_crc = hasher.finalize();
 
+            // CRC mismatch: per standard WAL semantics, the first bad record
+            // IS the log tail — anything after it is unreplayable (either a
+            // torn write or bytes written after a crash that corrupted this
+            // slot).  Stop here and return the byte offset of the end of the
+            // last *good* record so callers can truncate the torn tail.
             if stored_crc != computed_crc {
-                return Err(AstraeaError::Deserialization(format!(
-                    "WAL CRC mismatch at LSN {}: stored={:#x}, computed={:#x}",
-                    pos, stored_crc, computed_crc
-                )));
+                tracing::debug!(
+                    "WAL: CRC mismatch at byte offset {} (stored={:#x}, computed={:#x}); \
+                     treating as end-of-log (torn tail)",
+                    pos, stored_crc, computed_crc,
+                );
+                break;
             }
 
-            // Deserialize the record.
-            let record: WalRecord = serde_json::from_slice(&payload)
-                .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
+            // Deserialize the record.  A parse failure after a valid CRC is
+            // not expected for well-formed data, but treat it as end-of-log
+            // consistent with the torn-tail policy above.
+            let record: WalRecord = match serde_json::from_slice(&payload) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::debug!(
+                        "WAL: deserialization error at byte offset {}: {}; \
+                         treating as end-of-log",
+                        pos, e,
+                    );
+                    break;
+                }
+            };
 
             records.push((Lsn(pos), record));
 
             pos += 4 + length as u64 + 4;
         }
 
-        Ok(records)
+        Ok((records, pos))
     }
 }
 
@@ -324,7 +362,7 @@ mod tests {
 
         // Read all records from the beginning.
         let reader = WalReader::new(&path);
-        let records = reader.read_from(Lsn(0)).unwrap();
+        let (records, _last_good) = reader.read_from(Lsn(0)).unwrap();
         assert_eq!(records.len(), 3);
 
         // Verify record types.
@@ -351,7 +389,7 @@ mod tests {
 
         // Read from lsn1 onward — should get 2 records.
         let reader = WalReader::new(&path);
-        let records = reader.read_from(lsn1).unwrap();
+        let (records, _last_good) = reader.read_from(lsn1).unwrap();
         assert_eq!(records.len(), 2);
     }
 
@@ -377,7 +415,7 @@ mod tests {
 
         // Now reading from LSN 0 should give us the records that were at lsn1+.
         let reader = WalReader::new(&path);
-        let records = reader.read_from(Lsn(0)).unwrap();
+        let (records, _last_good) = reader.read_from(Lsn(0)).unwrap();
         assert_eq!(records.len(), 2);
 
         // No stale sibling file left behind.
@@ -413,7 +451,7 @@ mod tests {
         assert!(!tmp_path.exists(), "stale sibling should have been removed");
 
         let reader = WalReader::new(&path);
-        let records = reader.read_from(Lsn(0)).unwrap();
+        let (records, _last_good) = reader.read_from(Lsn(0)).unwrap();
         assert_eq!(
             records.len(),
             2,
@@ -437,8 +475,55 @@ mod tests {
             // Open a fresh reader without dropping the writer — this proves
             // every record is already on disk, not just in the writer's buffer.
             let reader = WalReader::new(&path);
-            let records = reader.read_from(Lsn(0)).unwrap();
+            let (records, _last_good) = reader.read_from(Lsn(0)).unwrap();
             assert_eq!(records.len() as u64, i + 1);
         }
+    }
+
+    /// Verify that `read_from` stops at a CRC-mismatch (torn tail) and returns
+    /// `Ok` with the correct `last_good_offset`, rather than returning `Err`.
+    #[test]
+    fn test_wal_read_from_stops_at_crc_mismatch() {
+        use std::io::Write;
+
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+
+        let writer = WalWriter::new(&path).unwrap();
+        writer.append(&WalRecord::InsertNode(make_test_node(1))).unwrap();
+        writer.append(&WalRecord::InsertNode(make_test_node(2))).unwrap();
+        // Snapshot the byte offset after both good records; that is where
+        // last_good_offset must land after we stop at the corrupt record.
+        let good_end = writer.current_lsn().0;
+        drop(writer);
+
+        // Append a well-formed-looking record whose CRC is wrong, simulating
+        // a torn write at crash time.  length=10 means the total blob is
+        // 4 + 10 + 4 = 18 bytes, so the length-guard does NOT trip (18 bytes
+        // are present); only the CRC check will catch it.
+        {
+            let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+            let mut blob = vec![10u8, 0, 0, 0]; // length = 10 LE
+            blob.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x01]);
+            blob.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]); // deliberately wrong CRC
+            f.write_all(&blob).unwrap();
+        }
+
+        let reader = WalReader::new(&path);
+        // Must return Ok, NOT Err.
+        let (records, last_good_offset) = reader
+            .read_from(Lsn(0))
+            .expect("read_from must return Ok even when a CRC-bad record is present");
+
+        assert_eq!(records.len(), 2, "both good records must be parsed before the corrupt one");
+        assert_eq!(
+            last_good_offset, good_end,
+            "last_good_offset must be the end of the last clean record"
+        );
+        let file_len = std::fs::metadata(&path).unwrap().len();
+        assert!(
+            last_good_offset < file_len,
+            "garbage bytes must lie beyond last_good_offset"
+        );
     }
 }
