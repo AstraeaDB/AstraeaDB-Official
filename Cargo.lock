@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-algorithms"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "serde",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-cli"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "astraea-graph",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-cluster"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "serde",
@@ -442,7 +442,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-core"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "bytes",
  "ordered-float",
@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-crypto"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "rand 0.8.6",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-flight"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "arrow",
  "arrow-flight",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-gnn"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "astraea-graph",
@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-gpu"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "serde",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-graph"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "astraea-storage",
@@ -524,7 +524,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-mcp"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "astraea-server",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-query"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "parking_lot",
@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-rag"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "astraea-graph",
@@ -562,7 +562,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-server"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-algorithms",
  "astraea-core",
@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-storage"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "arrow",
  "astraea-core",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "astraea-vector"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "astraea-core",
  "bincode",

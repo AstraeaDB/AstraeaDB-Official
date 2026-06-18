@@ -236,10 +236,8 @@ impl Graph {
                 let index_ids: HashSet<NodeId> = vi.node_ids().into_iter().collect();
 
                 // Collect both diff directions before mutating.
-                let missing: Vec<NodeId> =
-                    storage_ids.difference(&index_ids).copied().collect();
-                let extra: Vec<NodeId> =
-                    index_ids.difference(&storage_ids).copied().collect();
+                let missing: Vec<NodeId> = storage_ids.difference(&index_ids).copied().collect();
+                let extra: Vec<NodeId> = index_ids.difference(&storage_ids).copied().collect();
 
                 // LIMITATION: this reconcile only covers *existence* deltas —
                 // nodes written to the WAL after the snapshot (missing from the
@@ -1465,11 +1463,7 @@ mod disk_restart_tests {
                 .expect("create_node with 768-dim embedding + 8 KB props must succeed");
 
             // Sanity: HNSW search finds the node before restart.
-            let pre_results = graph
-                .vector_index()
-                .unwrap()
-                .search(&embedding, 1)
-                .unwrap();
+            let pre_results = graph.vector_index().unwrap().search(&embedding, 1).unwrap();
             assert_eq!(
                 pre_results.len(),
                 1,
@@ -1484,8 +1478,8 @@ mod disk_restart_tests {
         } // graph + engine dropped here
 
         // ── Restart ──────────────────────────────────────────────────────────
-        let (engine2, max_node_id, max_edge_id) =
-            DiskStorageEngine::open(data_dir).expect("reopen must succeed after overflow-chain writes");
+        let (engine2, max_node_id, max_edge_id) = DiskStorageEngine::open(data_dir)
+            .expect("reopen must succeed after overflow-chain writes");
 
         assert_eq!(
             max_node_id, node_id.0,
@@ -1493,8 +1487,7 @@ mod disk_restart_tests {
         );
 
         // Attach a fresh (empty) HNSW index — no repopulation happens.
-        let mut graph2 =
-            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        let mut graph2 = Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
         graph2.set_vector_index(Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine)));
 
         // ── Storage assertions (GREEN) ────────────────────────────────────────
@@ -1566,8 +1559,7 @@ mod disk_restart_tests {
         let (engine2, max_node_id, max_edge_id) =
             DiskStorageEngine::open(data_dir).expect("reopen must succeed");
 
-        let mut graph2 =
-            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        let mut graph2 = Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
         graph2.set_vector_index(Arc::new(HnswVectorIndex::new(768, DistanceMetric::Cosine)));
 
         // Rebuild the HNSW from storage (Option B: scan-and-reinsert).
@@ -1645,8 +1637,7 @@ mod disk_restart_tests {
         // ─── Phase 2: reopen + load (must NOT rebuild) ────────────────────────
         let (engine2, max_node_id, max_edge_id) =
             DiskStorageEngine::open(data_dir).expect("reopen must succeed");
-        let mut graph2 =
-            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        let mut graph2 = Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
 
         let init = graph2
             .load_or_rebuild_vector_index(&hnsw_path, 768, DistanceMetric::Cosine)
@@ -1654,7 +1645,13 @@ mod disk_restart_tests {
 
         // Must have loaded from the file, not rebuilt.
         assert!(
-            matches!(init, VectorIndexInit::Loaded { inserted: 0, removed: 0 }),
+            matches!(
+                init,
+                VectorIndexInit::Loaded {
+                    inserted: 0,
+                    removed: 0
+                }
+            ),
             "expected Loaded{{inserted:0, removed:0}}, got {:?}",
             init
         );
@@ -1665,7 +1662,10 @@ mod disk_restart_tests {
             .unwrap()
             .search(&embedding, 1)
             .unwrap();
-        assert!(!results.is_empty(), "search must return at least one result");
+        assert!(
+            !results.is_empty(),
+            "search must return at least one result"
+        );
         assert_eq!(
             results[0].node_id, node_id,
             "top result must be the snapshotted node"
@@ -1706,13 +1706,25 @@ mod disk_restart_tests {
             let graph = Graph::with_vector_index(Box::new(engine), vi);
 
             id_a1 = graph
-                .create_node(vec![], serde_json::json!({}), Some(make_small_embedding(1.0)))
+                .create_node(
+                    vec![],
+                    serde_json::json!({}),
+                    Some(make_small_embedding(1.0)),
+                )
                 .unwrap();
             let _id_a2 = graph
-                .create_node(vec![], serde_json::json!({}), Some(make_small_embedding(2.0)))
+                .create_node(
+                    vec![],
+                    serde_json::json!({}),
+                    Some(make_small_embedding(2.0)),
+                )
                 .unwrap();
             let _id_a3 = graph
-                .create_node(vec![], serde_json::json!({}), Some(make_small_embedding(3.0)))
+                .create_node(
+                    vec![],
+                    serde_json::json!({}),
+                    Some(make_small_embedding(3.0)),
+                )
                 .unwrap();
 
             // Checkpoint: save snapshot with {A1, A2, A3}.
@@ -1777,8 +1789,7 @@ mod disk_restart_tests {
             );
 
             // A1 must have been stripped from the loaded index.
-            let index_ids: std::collections::HashSet<NodeId> =
-                vi.node_ids().into_iter().collect();
+            let index_ids: std::collections::HashSet<NodeId> = vi.node_ids().into_iter().collect();
             assert!(
                 !index_ids.contains(&id_a1),
                 "A1 must be absent from the index after reconcile"
@@ -1811,11 +1822,7 @@ mod disk_restart_tests {
             let graph = Graph::with_vector_index(Box::new(engine), vi);
 
             node_id = graph
-                .create_node(
-                    vec![],
-                    serde_json::json!({}),
-                    Some(embedding.clone()),
-                )
+                .create_node(vec![], serde_json::json!({}), Some(embedding.clone()))
                 .expect("create_node must succeed");
 
             graph
@@ -1827,8 +1834,7 @@ mod disk_restart_tests {
         // ─── Phase 2: reopen requesting Euclidean (mismatch) ─────────────────
         let (engine2, max_node_id, max_edge_id) =
             DiskStorageEngine::open(data_dir).expect("reopen must succeed");
-        let mut graph2 =
-            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        let mut graph2 = Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
 
         let init = graph2
             .load_or_rebuild_vector_index(&hnsw_path, DIM, DistanceMetric::Euclidean)
@@ -1847,7 +1853,10 @@ mod disk_restart_tests {
             .unwrap()
             .search(&embedding, 1)
             .unwrap();
-        assert!(!results.is_empty(), "search must return a result after metric-mismatch rebuild");
+        assert!(
+            !results.is_empty(),
+            "search must return a result after metric-mismatch rebuild"
+        );
         assert_eq!(results[0].node_id, node_id, "top result must be the node");
     }
 
@@ -1883,8 +1892,7 @@ mod disk_restart_tests {
 
         let (engine2, max_node_id, max_edge_id) =
             DiskStorageEngine::open(data_dir).expect("reopen must succeed");
-        let mut graph2 =
-            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        let mut graph2 = Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
 
         let init = graph2
             .load_or_rebuild_vector_index(&hnsw_path, 768, DistanceMetric::Cosine)
@@ -1941,8 +1949,7 @@ mod disk_restart_tests {
 
         let (engine2, max_node_id, max_edge_id) =
             DiskStorageEngine::open(data_dir).expect("reopen must succeed");
-        let mut graph2 =
-            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+        let mut graph2 = Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
 
         let init = graph2
             .load_or_rebuild_vector_index(&hnsw_path, 768, DistanceMetric::Cosine)

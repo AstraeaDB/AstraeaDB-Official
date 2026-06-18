@@ -941,7 +941,10 @@ mod tests {
         ids.sort();
         assert_eq!(ids, vec![NodeId(1), NodeId(3)]);
         assert!(idx.contains(NodeId(1)));
-        assert!(!idx.contains(NodeId(2)), "removed node must not be contained");
+        assert!(
+            !idx.contains(NodeId(2)),
+            "removed node must not be contained"
+        );
         assert!(idx.contains(NodeId(3)));
     }
 }

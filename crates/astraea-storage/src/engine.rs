@@ -381,8 +381,7 @@ impl DiskStorageEngine {
                     "v1 node record too short (missing json_len)".to_string(),
                 ));
             }
-            let json_len =
-                u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
+            let json_len = u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
             let json_start = 5;
             let json_end = json_start + json_len;
             if data.len() < json_end + 4 {
@@ -390,9 +389,8 @@ impl DiskStorageEngine {
                     "v1 node record: JSON body truncated".to_string(),
                 ));
             }
-            let body: SerializedNodeBody =
-                serde_json::from_slice(&data[json_start..json_end])
-                    .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
+            let body: SerializedNodeBody = serde_json::from_slice(&data[json_start..json_end])
+                .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
 
             let dim_start = json_end;
             let dim = u32::from_le_bytes([
@@ -484,7 +482,10 @@ impl DiskStorageEngine {
     /// Called from `write_record` in reverse chunk order (last chunk first) so
     /// each page can write its own "next" pointer before being finalized.
     fn write_overflow_page(&self, chunk: &[u8], next_encoded: u64) -> Result<PageId> {
-        debug_assert!(chunk.len() <= OVERFLOW_PAGE_PAYLOAD, "overflow chunk too large");
+        debug_assert!(
+            chunk.len() <= OVERFLOW_PAGE_PAYLOAD,
+            "overflow chunk too large"
+        );
 
         // Allocate or recycle a page for this overflow chunk.
         let recycled = self.free_pages.lock().pop();
@@ -1513,8 +1514,9 @@ mod tests {
         let data_dir = tmp.path();
 
         // Standard model dimension.
-        let embedding: Vec<f32> =
-            (0..768u32).map(|i| i as f32 * 0.001_f32 + 0.5_f32).collect();
+        let embedding: Vec<f32> = (0..768u32)
+            .map(|i| i as f32 * 0.001_f32 + 0.5_f32)
+            .collect();
 
         // ~2 KB of text ensures that the old JSON-encoded embedding (~6-9 KB)
         // would overflow the 8,159-byte page budget while the v1 binary
@@ -1591,7 +1593,9 @@ mod tests {
                 embedding: None,
             };
             // Must succeed — overflow chain handles the extra size.
-            engine.put_node(&large).expect("large node must be accepted via overflow");
+            engine
+                .put_node(&large)
+                .expect("large node must be accepted via overflow");
             let got = engine.get_node(NodeId(2)).unwrap().unwrap();
             assert_eq!(got.labels, vec!["LargeNode".to_string()]);
         }
@@ -1601,11 +1605,21 @@ mod tests {
             .expect("open() must succeed after an overflow-chain insert");
 
         assert_eq!(max_node_id, 2);
-        assert!(engine.get_node(NodeId(1)).unwrap().is_some(), "node 1 must survive");
-        let got = engine.get_node(NodeId(2)).unwrap().expect("large node must survive restart");
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node 1 must survive"
+        );
+        let got = engine
+            .get_node(NodeId(2))
+            .unwrap()
+            .expect("large node must survive restart");
         assert_eq!(got.labels, vec!["LargeNode".to_string()]);
         let recovered_content = got.properties["content"].as_str().unwrap();
-        assert_eq!(recovered_content.len(), 9_000, "full content must round-trip");
+        assert_eq!(
+            recovered_content.len(),
+            9_000,
+            "full content must round-trip"
+        );
     }
 
     /// Issue #26 headline regression test (storage-level portion).
@@ -1636,11 +1650,16 @@ mod tests {
 
         {
             let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
-            engine.put_node(&node).expect("large embedding+props node must succeed");
+            engine
+                .put_node(&node)
+                .expect("large embedding+props node must succeed");
 
             // Verify immediately after write.
             let got = engine.get_node(NodeId(42)).unwrap().unwrap();
-            assert!(got.embedding.is_some(), "embedding must be present after write");
+            assert!(
+                got.embedding.is_some(),
+                "embedding must be present after write"
+            );
             let emb = got.embedding.unwrap();
             assert_eq!(emb.len(), 768);
             for (i, (orig, got)) in embedding.iter().zip(emb.iter()).enumerate() {
@@ -1661,9 +1680,16 @@ mod tests {
             .unwrap()
             .expect("node must survive restart");
 
-        assert!(recovered.embedding.is_some(), "embedding must survive restart");
+        assert!(
+            recovered.embedding.is_some(),
+            "embedding must survive restart"
+        );
         let got_emb = recovered.embedding.unwrap();
-        assert_eq!(got_emb.len(), 768, "embedding dimension preserved after restart");
+        assert_eq!(
+            got_emb.len(),
+            768,
+            "embedding dimension preserved after restart"
+        );
         for (i, (orig, got)) in embedding.iter().zip(got_emb.iter()).enumerate() {
             assert_eq!(
                 orig.to_bits(),
@@ -1737,7 +1763,11 @@ mod tests {
             embedding: None,
         };
         engine.put_node(&large_node2).unwrap();
-        assert_eq!(engine.free_page_count(), 0, "freed pages should be consumed");
+        assert_eq!(
+            engine.free_page_count(),
+            0,
+            "freed pages should be consumed"
+        );
         let pages_after_reuse = engine.file_manager.page_count().unwrap();
         assert_eq!(
             pages_after_reuse, pages_after_insert,
@@ -1780,9 +1810,15 @@ mod tests {
 
         assert_eq!(max_node_id, 20);
         // Large node must be gone.
-        assert!(engine.get_node(NodeId(10)).unwrap().is_none(), "deleted large node must not exist");
+        assert!(
+            engine.get_node(NodeId(10)).unwrap().is_none(),
+            "deleted large node must not exist"
+        );
         // Small node must survive.
-        assert!(engine.get_node(NodeId(20)).unwrap().is_some(), "small node must survive");
+        assert!(
+            engine.get_node(NodeId(20)).unwrap().is_some(),
+            "small node must survive"
+        );
 
         // New writes after recovery must work.
         engine.put_node(&test_node(30)).unwrap();
@@ -1822,7 +1858,10 @@ mod tests {
         // overwrote the InsertNode(A) record.
         {
             let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir).unwrap();
-            assert_eq!(max_node_id, 2, "session 2 must recover A and B (max_node_id=2)");
+            assert_eq!(
+                max_node_id, 2,
+                "session 2 must recover A and B (max_node_id=2)"
+            );
             assert!(
                 engine.get_node(NodeId(1)).unwrap().is_some(),
                 "A must be visible after session-1 WAL replay"
@@ -1885,7 +1924,10 @@ mod tests {
         let head_data = engine.buffer_pool.pin_page(head_pid).unwrap().data();
         let rec = NodeRecordHeader::read_from(&head_data, PAGE_HEADER_SIZE);
         let overflow_encoded = rec.overflow_page_id as u64;
-        assert!(overflow_encoded != 0, "test setup: node must span an overflow page");
+        assert!(
+            overflow_encoded != 0,
+            "test setup: node must span an overflow page"
+        );
         let overflow_pid = PageId(overflow_encoded - 1);
         engine.buffer_pool.unpin_page(head_pid, false).unwrap();
 
@@ -1969,8 +2011,14 @@ mod tests {
         let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
             .expect("open() must succeed even with a torn WAL tail");
         assert_eq!(max_node_id, 2, "nodes 1 and 2 must be recovered");
-        assert!(engine.get_node(NodeId(1)).unwrap().is_some(), "node 1 must survive");
-        assert!(engine.get_node(NodeId(2)).unwrap().is_some(), "node 2 must survive");
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node 1 must survive"
+        );
+        assert!(
+            engine.get_node(NodeId(2)).unwrap().is_some(),
+            "node 2 must survive"
+        );
 
         // Step 3: write a new node; with the fix the torn tail was truncated in
         // step 2, so this append lands cleanly at the true EOF.
@@ -1983,7 +2031,10 @@ mod tests {
         // CRC-mismatch error that propagated up through open(), bricking the dir.
         let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
             .expect("second open() must succeed after torn-tail recovery");
-        assert_eq!(max_node_id, 3, "all three nodes must survive the second reopen");
+        assert_eq!(
+            max_node_id, 3,
+            "all three nodes must survive the second reopen"
+        );
         assert!(
             engine.get_node(NodeId(1)).unwrap().is_some(),
             "node 1 must survive second reopen"

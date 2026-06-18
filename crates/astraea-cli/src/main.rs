@@ -959,11 +959,8 @@ async fn main() {
             // that were WAL-durable but not yet snapshotted, so vector search
             // is always consistent with storage after open.
             let hnsw_path = cfg.storage.data_dir.join("astraea.hnsw");
-            match graph_inner.load_or_rebuild_vector_index(
-                &hnsw_path,
-                cfg.vector.dimension,
-                metric,
-            ) {
+            match graph_inner.load_or_rebuild_vector_index(&hnsw_path, cfg.vector.dimension, metric)
+            {
                 Ok(astraea_graph::graph::VectorIndexInit::Loaded { inserted, removed }) => {
                     println!(
                         "Vector index loaded from snapshot: +{inserted} reconciled, \
@@ -971,9 +968,7 @@ async fn main() {
                     );
                 }
                 Ok(astraea_graph::graph::VectorIndexInit::Rebuilt { count }) => {
-                    println!(
-                        "Vector index rebuilt from storage: {count} embeddings indexed"
-                    );
+                    println!("Vector index rebuilt from storage: {count} embeddings indexed");
                 }
                 Err(e) => {
                     eprintln!("Failed to initialize vector index: {e}");

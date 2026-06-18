@@ -73,10 +73,7 @@ impl WalWriter {
     /// `.read(true)` is not needed on the writer's file descriptor.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
-        let file = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(&path)?;
+        let file = OpenOptions::new().append(true).create(true).open(&path)?;
 
         let file_len = file.metadata()?.len();
         let writer = BufWriter::new(file);
@@ -230,7 +227,9 @@ impl WalReader {
                 tracing::debug!(
                     "WAL: CRC mismatch at byte offset {} (stored={:#x}, computed={:#x}); \
                      treating as end-of-log (torn tail)",
-                    pos, stored_crc, computed_crc,
+                    pos,
+                    stored_crc,
+                    computed_crc,
                 );
                 break;
             }
@@ -244,7 +243,8 @@ impl WalReader {
                     tracing::debug!(
                         "WAL: deserialization error at byte offset {}: {}; \
                          treating as end-of-log",
-                        pos, e,
+                        pos,
+                        e,
                     );
                     break;
                 }
@@ -490,8 +490,12 @@ mod tests {
         let path = tmp.path().to_path_buf();
 
         let writer = WalWriter::new(&path).unwrap();
-        writer.append(&WalRecord::InsertNode(make_test_node(1))).unwrap();
-        writer.append(&WalRecord::InsertNode(make_test_node(2))).unwrap();
+        writer
+            .append(&WalRecord::InsertNode(make_test_node(1)))
+            .unwrap();
+        writer
+            .append(&WalRecord::InsertNode(make_test_node(2)))
+            .unwrap();
         // Snapshot the byte offset after both good records; that is where
         // last_good_offset must land after we stop at the corrupt record.
         let good_end = writer.current_lsn().0;
@@ -502,7 +506,10 @@ mod tests {
         // 4 + 10 + 4 = 18 bytes, so the length-guard does NOT trip (18 bytes
         // are present); only the CRC check will catch it.
         {
-            let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
             let mut blob = vec![10u8, 0, 0, 0]; // length = 10 LE
             blob.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x01]);
             blob.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]); // deliberately wrong CRC
@@ -515,7 +522,11 @@ mod tests {
             .read_from(Lsn(0))
             .expect("read_from must return Ok even when a CRC-bad record is present");
 
-        assert_eq!(records.len(), 2, "both good records must be parsed before the corrupt one");
+        assert_eq!(
+            records.len(),
+            2,
+            "both good records must be parsed before the corrupt one"
+        );
         assert_eq!(
             last_good_offset, good_end,
             "last_good_offset must be the end of the last clean record"
