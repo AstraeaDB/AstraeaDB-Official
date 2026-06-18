@@ -127,6 +127,10 @@ impl StorageEngine for InMemoryStorage {
             .map(|e| (e.id, e.source, e.target))
             .collect())
     }
+
+    fn list_all_nodes(&self) -> Result<Vec<NodeId>> {
+        Ok(self.nodes.read().keys().copied().collect())
+    }
 }
 
 #[cfg(test)]

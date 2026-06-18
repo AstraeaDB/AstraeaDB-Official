@@ -914,6 +914,10 @@ impl StorageEngine for DiskStorageEngine {
         }
         Ok(result)
     }
+
+    fn list_all_nodes(&self) -> Result<Vec<NodeId>> {
+        Ok(self.node_index.read().keys().copied().collect())
+    }
 }
 
 impl TransactionalEngine for DiskStorageEngine {
@@ -1716,6 +1720,76 @@ mod tests {
         // New writes after recovery must work.
         engine.put_node(&test_node(30)).unwrap();
         assert!(engine.get_node(NodeId(30)).unwrap().is_some());
+    }
+
+    /// Regression test for WAL cursor-at-zero data-corruption bug.
+    ///
+    /// Before the fix, `WalWriter::new` opened the file with `.write(true)`,
+    /// which left the OS cursor at offset 0. After `DiskStorageEngine::open`
+    /// replayed the WAL, the very first `put_node` call would write the new
+    /// record's WAL entry starting at byte 0, silently overwriting the existing
+    /// InsertNode(A) record, while `current_lsn` still reported the old (larger)
+    /// length. A subsequent restart would then replay a corrupted record for A
+    /// (wrong bytes / CRC mismatch) and lose the node.
+    ///
+    /// After the fix (`.append(true)` on the WAL file), every write is
+    /// atomically positioned at EOF by the kernel, so existing records survive
+    /// across multiple open/write/close cycles.
+    #[test]
+    fn test_wal_no_overwrite_on_reopen() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // Session 1: insert nodes A (id=1) and B (id=2), then drop.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 64).unwrap();
+            engine.put_node(&test_node(1)).unwrap();
+            engine.put_node(&test_node(2)).unwrap();
+            // Drop without explicit flush — simulates a clean process exit that
+            // did not call flush().  WAL records for A and B are on disk.
+        }
+
+        // Session 2: open (WAL replay sees A and B), insert node C (id=3), drop.
+        // This is where the bug struck: before the fix, the first put_node
+        // call wrote the InsertNode(C) WAL record starting at offset 0, which
+        // overwrote the InsertNode(A) record.
+        {
+            let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir).unwrap();
+            assert_eq!(max_node_id, 2, "session 2 must recover A and B (max_node_id=2)");
+            assert!(
+                engine.get_node(NodeId(1)).unwrap().is_some(),
+                "A must be visible after session-1 WAL replay"
+            );
+            assert!(
+                engine.get_node(NodeId(2)).unwrap().is_some(),
+                "B must be visible after session-1 WAL replay"
+            );
+            engine.put_node(&test_node(3)).unwrap();
+        }
+
+        // Session 3: final open. ALL THREE of A, B, C must be present.
+        // Before the fix this would fail: either a CRC error on A's corrupted
+        // record, or A simply missing from the index because the replay saw
+        // InsertNode(C) where InsertNode(A) used to be.
+        let (engine, max_node_id, _) =
+            DiskStorageEngine::open(data_dir).expect("third open must succeed without CRC errors");
+
+        assert_eq!(
+            max_node_id, 3,
+            "all three nodes written; max_node_id must be 3 (got {max_node_id})"
+        );
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node A (id=1) must survive two reopen cycles"
+        );
+        assert!(
+            engine.get_node(NodeId(2)).unwrap().is_some(),
+            "node B (id=2) must survive two reopen cycles"
+        );
+        assert!(
+            engine.get_node(NodeId(3)).unwrap().is_some(),
+            "node C (id=3, written in session 2) must survive the final reopen"
+        );
     }
 
     /// Verify that updating a chained node frees its old chain and the file

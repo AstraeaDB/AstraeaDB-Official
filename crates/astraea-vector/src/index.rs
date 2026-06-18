@@ -131,6 +131,15 @@ impl VectorIndex for HnswVectorIndex {
         let idx = self.inner.read();
         idx.len()
     }
+
+    fn node_ids(&self) -> Vec<NodeId> {
+        let idx = self.inner.read();
+        idx.node_ids()
+    }
+
+    fn save_to_path(&self, path: &Path) -> Result<()> {
+        self.save_to_file(path)
+    }
 }
 
 #[cfg(test)]
@@ -174,5 +183,53 @@ mod tests {
         let idx = HnswVectorIndex::with_params(4, DistanceMetric::DotProduct, 8, 100, 30);
         assert_eq!(idx.dimension(), 4);
         assert_eq!(idx.metric(), DistanceMetric::DotProduct);
+    }
+
+    // --- Task 2 & 3 (issue-26 §11): node_ids and save_to_path through the trait ---
+
+    /// node_ids on HnswVectorIndex reflects inserts/removes through the VectorIndex trait.
+    #[test]
+    fn test_node_ids_via_trait() {
+        let idx: Box<dyn VectorIndex> =
+            Box::new(HnswVectorIndex::new(2, DistanceMetric::Euclidean));
+
+        assert!(idx.node_ids().is_empty());
+
+        idx.insert(NodeId(10), &[1.0, 0.0]).unwrap();
+        idx.insert(NodeId(20), &[0.0, 1.0]).unwrap();
+
+        let mut ids = idx.node_ids();
+        ids.sort();
+        assert_eq!(ids, vec![NodeId(10), NodeId(20)]);
+
+        idx.remove(NodeId(10)).unwrap();
+        let ids = idx.node_ids();
+        assert_eq!(ids, vec![NodeId(20)]);
+    }
+
+    /// save_to_path on HnswVectorIndex persists a file that load_from_file can read back.
+    #[test]
+    fn test_save_to_path_via_trait() {
+        use astraea_core::traits::VectorIndex as VTrait;
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_owned();
+        // Close the NamedTempFile so save_to_file can create the file (it calls File::create).
+        drop(tmp);
+
+        let original: Box<dyn VTrait> =
+            Box::new(HnswVectorIndex::new(3, DistanceMetric::Euclidean));
+        original.insert(NodeId(1), &[1.0, 0.0, 0.0]).unwrap();
+        original.insert(NodeId(2), &[0.0, 1.0, 0.0]).unwrap();
+
+        // Save through the trait.
+        original.save_to_path(&path).unwrap();
+
+        // Load back directly (the Graph layer's load path).
+        let loaded = HnswVectorIndex::load_from_file(&path).unwrap();
+        let mut ids = loaded.node_ids();
+        ids.sort();
+        assert_eq!(ids, vec![NodeId(1), NodeId(2)]);
+        assert_eq!(loaded.dimension(), 3);
     }
 }

@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::error::Result;
 use crate::types::*;
 
@@ -44,6 +46,16 @@ pub trait StorageEngine: Send + Sync {
     /// The default implementation returns an empty vector. Storage engines
     /// that maintain an edge index should override this.
     fn find_edges_by_type(&self, _edge_type: &str) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
+        Ok(Vec::new())
+    }
+
+    /// List all node IDs currently stored in the engine.
+    ///
+    /// The default implementation returns an empty vector. Storage engines
+    /// that maintain a node index should override this to return every stored
+    /// node ID. Used by `Graph::rebuild_vector_index` to repopulate an
+    /// in-memory HNSW index after a WAL replay / restart.
+    fn list_all_nodes(&self) -> Result<Vec<NodeId>> {
         Ok(Vec::new())
     }
 }
@@ -323,5 +335,28 @@ pub trait VectorIndex: Send + Sync {
     /// Whether the index is empty.
     fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Return all node IDs currently held by the index.
+    ///
+    /// The default implementation returns an empty `Vec`. Implementors that
+    /// support snapshot reconciliation (e.g. `HnswVectorIndex`) should override
+    /// this to return the exact set of stored ids so the Graph layer can
+    /// diff them against storage (§11.3 of the issue-26 design).
+    fn node_ids(&self) -> Vec<NodeId> {
+        Vec::new()
+    }
+
+    /// Persist the full index state to the given file path.
+    ///
+    /// The default implementation returns an error so that callers can detect
+    /// when an index implementation does not support persistence and fall back
+    /// appropriately (e.g. skip the save or log a warning). Implementations
+    /// that wrap a serialisable index (e.g. `HnswVectorIndex`) should override
+    /// this to write a versioned binary snapshot.
+    fn save_to_path(&self, _path: &Path) -> Result<()> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "save_to_path not supported by this VectorIndex implementation".into(),
+        ))
     }
 }
