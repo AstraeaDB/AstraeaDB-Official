@@ -10,6 +10,7 @@ use std::path::Path;
 
 use astraea_core::error::{AstraeaError, Result};
 use astraea_core::types::DistanceMetric;
+use bincode::Options as _;
 
 use crate::hnsw::HnswIndex;
 
@@ -18,6 +19,21 @@ const MAGIC: u32 = 0x48_4E_53_57;
 
 /// Current file format version.
 const FORMAT_VERSION: u32 = 1;
+
+/// Maximum total file size accepted by any load entry point.
+///
+/// Files larger than this cap are rejected before any deserialization.
+/// This prevents a corrupt or adversarial `.hnsw` file from causing an
+/// allocator abort (OOM kill) through an inflated bincode collection-count
+/// field.  The limit is intentionally generous: 4 GiB accommodates roughly
+/// 100 million 768-dimensional f32 vectors plus graph adjacency overhead.
+const MAX_HNSW_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+/// Byte length of the fixed on-disk header written by [`write_header`].
+///
+/// magic(4) + version(4) + dimension(4) + metric(1) + m(4) + m_max0(4)
+/// + ef_construction(4) + num_vectors(8) + num_layers(4) = 37 bytes.
+const HEADER_SIZE: u64 = 37;
 
 /// Fixed-size header written at the start of every HNSW index file.
 ///
@@ -191,20 +207,68 @@ pub fn save_to_file(index: &HnswIndex, path: &Path) -> Result<()> {
 ///
 /// Validates the file header (magic bytes and format version) before
 /// deserializing the index body.
+///
+/// # Security
+///
+/// Two guards prevent a corrupt or adversarial file from causing an OOM abort
+/// at startup:
+///
+/// 1. **File-size pre-check** — the file is stat'd before any deserialization;
+///    if it exceeds [`MAX_HNSW_BYTES`] the call returns `Err` immediately.
+/// 2. **Bounded deserialization** — bincode is configured with a byte limit
+///    equal to the remaining file size after the header.  This converts any
+///    attempt to read more bytes than the file contains into a recoverable
+///    `Err` rather than an allocator abort.
+///
+/// The magic / version header is validated **before** the unbounded body is
+/// touched, so corrupt non-HNSW files are rejected cheaply.
 pub fn load_from_file(path: &Path) -> Result<HnswIndex> {
     let file = File::open(path)?;
+
+    // Guard 1: stat the file and reject before any deserialization if it
+    // exceeds the hard cap.  This is the first line of defence against a
+    // corrupt file claiming an impossibly large allocation.
+    let file_size = file.metadata()?.len();
+    if file_size > MAX_HNSW_BYTES {
+        return Err(AstraeaError::Deserialization(format!(
+            "HNSW file is too large ({file_size} bytes > {MAX_HNSW_BYTES} byte cap): \
+             refusing to load"
+        )));
+    }
+
     let mut reader = BufReader::new(file);
 
-    // Read and validate the header.
+    // Read and validate the header first (magic, version, dimension, …).
+    // Header bytes are consumed by hand via `read_exact`, so bincode never
+    // sees them and we do not count them against the body limit below.
     let header = read_header(&mut reader)?;
 
     // Validate the metric byte is known.
     let _metric = byte_to_metric(header.metric)?;
 
-    // Deserialize the index body.
-    let index: HnswIndex = bincode::deserialize_from(&mut reader).map_err(|e| {
-        AstraeaError::Deserialization(format!("bincode deserialization failed: {e}"))
-    })?;
+    // Guard 2: bound the bincode body decode to the remaining file bytes.
+    //
+    // bincode 1.x free functions (serialize_into / deserialize_from) use
+    // FixintEncoding + AllowTrailing (see bincode/src/config/legacy.rs).
+    // DefaultOptions::new() uses VarintEncoding + RejectTrailing by default,
+    // so we must explicitly restore the free-function settings before adding
+    // the limit to avoid breaking existing files on disk.
+    //
+    // The limit converts an attacker-supplied huge collection-count field
+    // (which would otherwise call HashMap::with_capacity with an enormous
+    // hint) into a recoverable SizeLimit error.  serde already caps the
+    // initial with_capacity call via its internal `cautious()` helper
+    // (≤ 1 MiB / sizeof(element)), so the two layers together prevent both
+    // the upfront capacity OOM and the per-entry allocation OOM.
+    let body_limit = file_size.saturating_sub(HEADER_SIZE).max(1);
+    let index: HnswIndex = bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .with_limit(body_limit)
+        .deserialize_from(&mut reader)
+        .map_err(|e| {
+            AstraeaError::Deserialization(format!("bincode deserialization failed: {e}"))
+        })?;
 
     // Cross-check header against deserialized data.
     if index.dimension() != header.dimension as usize {
@@ -514,6 +578,106 @@ mod tests {
                 );
             }
             other => panic!("expected Serialization error, got: {other:?}"),
+        }
+    }
+
+    // --- M1 security tests: bounded deserialization (no OOM abort on corrupt files) ---
+
+    /// A file with a valid HNSW header followed by random garbage in the body
+    /// must return `Err`, not panic or abort the process.
+    #[test]
+    fn test_corrupt_body_garbage_returns_err_not_abort() {
+        // Build header bytes manually so we can control every field.
+        let dim: u32 = 4;
+        let mut data: Vec<u8> = Vec::new();
+
+        // Valid header (37 bytes).
+        data.extend_from_slice(&MAGIC.to_le_bytes());
+        data.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+        data.extend_from_slice(&dim.to_le_bytes());
+        data.push(0u8); // metric = Cosine
+        data.extend_from_slice(&16u32.to_le_bytes()); // m
+        data.extend_from_slice(&32u32.to_le_bytes()); // m_max0
+        data.extend_from_slice(&200u32.to_le_bytes()); // ef_construction
+        data.extend_from_slice(&0u64.to_le_bytes()); // num_vectors
+        data.extend_from_slice(&0u32.to_le_bytes()); // num_layers
+
+        // 200 bytes of 0xFF as the "body" — cannot decode as a valid HnswIndex.
+        data.extend(std::iter::repeat_n(0xFFu8, 200));
+
+        let tmp = NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), &data).unwrap();
+
+        let result = HnswIndex::load(tmp.path());
+        assert!(
+            result.is_err(),
+            "loading a file with a garbage body must return Err, not panic or abort"
+        );
+    }
+
+    /// A file with a valid HNSW header and a body that declares `u64::MAX`
+    /// vectors (an adversarially huge collection count) must return `Err`
+    /// without OOM-aborting the process.
+    ///
+    /// Without the `with_limit` guard, bincode would propagate this count to
+    /// serde which would call `HashMap::with_capacity(huge)` before reading
+    /// any entries.  With the guard, bincode exhausts the body-byte limit as
+    /// soon as it tries to read the first HashMap entry and returns a
+    /// recoverable `SizeLimit` error.
+    ///
+    /// Byte layout rationale (FixintEncoding, little-endian):
+    ///   struct HnswIndex preamble = dimension(8) + metric(4) + m(8) +
+    ///                               m_max0(8) + ef_construction(8) + ml(8)
+    ///                             = 44 bytes consumed before `vectors` count
+    ///   vectors HashMap count     =  8 bytes (we set this to u64::MAX)
+    /// Total body written          = 52 bytes  →  body_limit = 52
+    /// After reading the count, limit = 0.  Next read for first entry key
+    /// (NodeId = 8 bytes) underflows the limit → SizeLimit Err returned.
+    #[test]
+    fn test_corrupt_body_huge_vector_count_returns_err_not_abort() {
+        let dim: u32 = 4;
+        let m: u32 = 16;
+        let m_max0: u32 = 32;
+        let ef_construction: u32 = 200;
+        let ml: f64 = 1.0_f64 / (m as f64).ln();
+
+        let mut data: Vec<u8> = Vec::new();
+
+        // Valid header (37 bytes).
+        data.extend_from_slice(&MAGIC.to_le_bytes());
+        data.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+        data.extend_from_slice(&dim.to_le_bytes());
+        data.push(0u8); // metric = Cosine
+        data.extend_from_slice(&m.to_le_bytes());
+        data.extend_from_slice(&m_max0.to_le_bytes());
+        data.extend_from_slice(&ef_construction.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // num_vectors (header field)
+        data.extend_from_slice(&0u32.to_le_bytes()); // num_layers
+
+        // Body: HnswIndex struct preamble in FixintEncoding (matches serialize_into).
+        data.extend_from_slice(&(dim as u64).to_le_bytes()); // dimension: usize → u64
+        data.extend_from_slice(&0u32.to_le_bytes()); // metric discriminant (Cosine = 0)
+        data.extend_from_slice(&(m as u64).to_le_bytes()); // m: usize
+        data.extend_from_slice(&(m_max0 as u64).to_le_bytes()); // m_max0: usize
+        data.extend_from_slice(&(ef_construction as u64).to_le_bytes()); // ef_construction: usize
+        data.extend_from_slice(&ml.to_le_bytes()); // ml: f64
+        // Adversarial vectors HashMap count — claims u64::MAX entries.
+        data.extend_from_slice(&u64::MAX.to_le_bytes());
+        // No entry bytes follow; body is truncated right after the count.
+
+        let tmp = NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), &data).unwrap();
+
+        // Must return Err, not OOM-abort or panic.
+        let result = HnswIndex::load(tmp.path());
+        assert!(
+            result.is_err(),
+            "loading a file claiming u64::MAX vectors must return Err, not abort"
+        );
+        // The error must be a recoverable Deserialization variant.
+        match result.unwrap_err() {
+            AstraeaError::Deserialization(_) => {} // expected
+            other => panic!("expected Deserialization error, got: {other:?}"),
         }
     }
 

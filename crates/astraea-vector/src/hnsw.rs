@@ -176,6 +176,20 @@ impl HnswIndex {
         self.vectors.is_empty()
     }
 
+    /// Return all node IDs currently stored in the index.
+    ///
+    /// Iterates the `vectors` map keys; allocation is O(n) in the number of
+    /// stored vectors. Used by the Graph layer for snapshot reconciliation
+    /// (§11.3 of the issue-26 design).
+    pub fn node_ids(&self) -> Vec<NodeId> {
+        self.vectors.keys().copied().collect()
+    }
+
+    /// Return whether the index contains a vector for the given node ID.
+    pub fn contains(&self, id: NodeId) -> bool {
+        self.vectors.contains_key(&id)
+    }
+
     /// Return the configured dimension.
     pub fn dimension(&self) -> usize {
         self.dimension
@@ -894,5 +908,43 @@ mod tests {
             }
             other => panic!("expected DimensionMismatch, got: {other:?}"),
         }
+    }
+
+    // --- Task 1 (issue-26 §11): node_ids / contains ---
+
+    /// node_ids returns exactly the inserted ids; contains reflects insert+remove.
+    #[test]
+    fn test_node_ids_and_contains_after_insert_remove() {
+        let mut idx = make_index(2);
+
+        // Empty index.
+        assert!(idx.node_ids().is_empty());
+        assert!(!idx.contains(NodeId(1)));
+
+        // Insert three nodes.
+        idx.insert(NodeId(1), &[1.0, 0.0]).unwrap();
+        idx.insert(NodeId(2), &[0.0, 1.0]).unwrap();
+        idx.insert(NodeId(3), &[1.0, 1.0]).unwrap();
+
+        let mut ids = idx.node_ids();
+        ids.sort();
+        assert_eq!(ids, vec![NodeId(1), NodeId(2), NodeId(3)]);
+        assert!(idx.contains(NodeId(1)));
+        assert!(idx.contains(NodeId(2)));
+        assert!(idx.contains(NodeId(3)));
+        assert!(!idx.contains(NodeId(99)));
+
+        // Remove one node.
+        assert!(idx.remove(NodeId(2)).unwrap());
+
+        let mut ids = idx.node_ids();
+        ids.sort();
+        assert_eq!(ids, vec![NodeId(1), NodeId(3)]);
+        assert!(idx.contains(NodeId(1)));
+        assert!(
+            !idx.contains(NodeId(2)),
+            "removed node must not be contained"
+        );
+        assert!(idx.contains(NodeId(3)));
     }
 }

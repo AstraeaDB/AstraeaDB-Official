@@ -28,6 +28,36 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.11] - 2026-06-18
+
+### Added
+- **astraea-storage:** versioned v1 binary node-record encoding (raw
+  little-endian f32 embeddings instead of JSON) plus a multi-page
+  overflow-record chain, so a node carrying an embedding *and* large
+  properties is storable and survives restart (resolves issue #26).
+  Legacy JSON records still deserialize.
+- **astraea-vector:** `HnswIndex::node_ids()`/`contains()` and the
+  `VectorIndex::node_ids()`/`save_to_path()` trait methods (defaulted)
+  for index enumeration and persistence.
+- **astraea-core:** `StorageEngine::list_all_nodes()` (defaulted) to
+  enumerate stored node ids.
+- **astraea-graph:** `Graph::save_vector_index()` (atomic snapshot) and
+  `Graph::load_or_rebuild_vector_index()` — persist the HNSW index and
+  load + delta-reconcile it on open, with a rebuild fallback, so restart
+  no longer rebuilds the whole index from scratch.
+- **astraea-cli:** `serve` loads the persisted HNSW snapshot on open and
+  saves it on graceful shutdown.
+
+### Fixed
+- **astraea-storage:** WAL writes after a restart no longer overwrite the
+  log from offset 0 (`WalWriter` now appends to EOF); a torn tail is
+  truncated on open instead of bricking the mount (resolves issue #27).
+- **astraea-storage:** oversized records are rejected before the WAL
+  append (no more replay-time brick), overflow-chain reads guard against
+  cyclic pointers, and the `overflow_page_id` u32 conversion is checked.
+- **astraea-vector:** HNSW snapshot loading is size-bounded so a corrupt
+  or oversized file degrades to a recoverable rebuild instead of an OOM.
+
 ## [0.1.10] - 2026-06-15
 
 ### Added

@@ -5,7 +5,7 @@ use astraea_core::error::{AstraeaError, Result};
 use astraea_core::traits::{StorageEngine, TransactionalEngine};
 use astraea_core::types::*;
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,12 +21,36 @@ use crate::wal::{WalReader, WalRecord, WalWriter};
 /// Default buffer pool size (number of page frames).
 const DEFAULT_POOL_SIZE: usize = 1024;
 
+/// Format tag for the v1 binary node-record body.
+///
+/// Byte 0 of the record body distinguishes the encoding:
+///   `0x01` → v1 binary container (see `serialize_node` for the full layout)
+///   any other byte → legacy `serde_json`-encoded `SerializedNode` (back-compat)
+///
+/// Legacy records always begin with `{` (0x7B, the JSON object opener), so
+/// `0x01` is unambiguously a v1 record and can never collide with any
+/// well-formed pre-Phase-1 data file.  Tags `0x02`–`0xFF` are reserved for
+/// future formats.
+const RECORD_TAG_V1: u8 = 0x01;
+
 /// Serialized node data stored in a page (properties + embedding + labels).
+/// Retained for the legacy JSON back-compat deserialization path; new writes
+/// use `SerializedNodeBody` + raw f32 bytes via the v1 binary container.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SerializedNode {
     labels: Vec<String>,
     properties: serde_json::Value,
     embedding: Option<Vec<f32>>,
+}
+
+/// JSON-encodable body of a v1 node record: labels and properties only.
+/// The embedding is stored separately as raw little-endian f32 bytes in the
+/// v1 binary container (see `serialize_node`), so it is excluded here to
+/// avoid JSON-encoding the embedding and doubling the per-record footprint.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerializedNodeBody {
+    labels: Vec<String>,
+    properties: serde_json::Value,
 }
 
 /// Serialized edge data stored in a page.
@@ -175,17 +199,62 @@ impl DiskStorageEngine {
     /// [`DiskStorageEngine::new`] with `max_node_id == max_edge_id == 0`.
     pub fn open<P: AsRef<Path>>(data_dir: P) -> Result<(Self, u64, u64)> {
         let path = data_dir.as_ref().to_path_buf();
-        let engine = Self::new(&path)?;
         let wal_path = path.join("astraea.wal");
 
-        // A brand-new data dir has no WAL yet; skip replay.
-        if !wal_path.exists() {
+        // Phase 1: read the WAL BEFORE constructing the WalWriter.
+        //
+        // Standard WAL semantics: the first record that fails to parse (bad
+        // length field or CRC mismatch) is the log tail; anything after it is
+        // a torn write from a crash and is unreplayable.  `read_from` returns
+        // the byte offset of the end of the last *good* record (`last_good_offset`)
+        // in addition to the parsed record list.
+        //
+        // We must read and potentially truncate BEFORE WalWriter::new() so
+        // the writer's initial `current_lsn` reflects the true end of the
+        // clean log.  If we open the writer first and then truncate later, the
+        // writer's LSN is stale, and subsequent appends silently land at the
+        // wrong offset — corrupting the file.
+        let (records, last_good_offset) = if wal_path.exists() {
+            let reader = WalReader::new(&wal_path);
+            reader.read_from(Lsn(0))?
+        } else {
+            (Vec::new(), 0u64)
+        };
+
+        // Phase 2: drop any torn tail before the WalWriter opens.
+        //
+        // Without this, the sequence (crash mid-write → reopen → successful
+        // put_node → reopen again) would bury the torn bytes in the middle of
+        // the file.  On the second reopen, the length guard that previously
+        // skipped the torn record would no longer trip (a valid record follows),
+        // so read_from would reach the torn bytes, hit a CRC mismatch, and
+        // fail the entire mount — bricking the data directory.
+        if wal_path.exists() {
+            let wal_file_len = std::fs::metadata(&wal_path)?.len();
+            if last_good_offset < wal_file_len {
+                tracing::warn!(
+                    "WAL: torn tail detected ({} bytes after last good record at offset {}); \
+                     truncating before mount — data after offset {} is lost \
+                     (WAL semantics: first bad record is end-of-log)",
+                    wal_file_len - last_good_offset,
+                    last_good_offset,
+                    last_good_offset,
+                );
+                let f = std::fs::OpenOptions::new().write(true).open(&wal_path)?;
+                f.set_len(last_good_offset)?;
+            }
+        }
+
+        // Phase 3: construct the engine (WalWriter::new reads file_len via
+        // metadata() and uses it as current_lsn — now correct after truncation).
+        let engine = Self::new(&path)?;
+
+        // A brand-new data dir or a WAL with no parseable records — nothing to replay.
+        if records.is_empty() {
             return Ok((engine, 0, 0));
         }
 
-        let reader = WalReader::new(&wal_path);
-        let records = reader.read_from(Lsn(0))?;
-
+        // Phase 4: replay the clean records to rebuild in-memory indexes.
         engine.replaying.store(true, Ordering::SeqCst);
         let mut max_node_id = 0u64;
         let mut max_edge_id = 0u64;
@@ -248,26 +317,127 @@ impl DiskStorageEngine {
         }
     }
 
-    /// Serialize a node into bytes for storage in a page.
+    /// Serialize a node into bytes for page storage using the v1 binary container.
+    ///
+    /// # v1 binary container layout (leading byte = `RECORD_TAG_V1` = `0x01`)
+    ///
+    /// ```text
+    /// [tag      : u8  = 0x01]
+    /// [json_len : u32 LE   ]  -- byte length of the JSON body that follows
+    /// [json body: bytes    ]  -- serde_json of SerializedNodeBody {labels, properties}
+    /// [dim      : u32 LE   ]  -- embedding dimension; 0 means no embedding
+    /// [f32 LE × dim        ]  -- raw little-endian f32 values; absent when dim == 0
+    /// ```
+    ///
+    /// Encoding a 768-dim embedding as 3,072 raw bytes vs. the ~6–9 KB produced
+    /// by JSON decimal-float encoding cuts the per-record footprint by roughly
+    /// half and keeps typical nodes well within the 8,159-byte single-page budget.
+    /// The f32 values round-trip bit-identically through `from_le_bytes` /
+    /// `to_le_bytes`.
     fn serialize_node(node: &Node) -> Result<Vec<u8>> {
-        let sn = SerializedNode {
+        let body = SerializedNodeBody {
             labels: node.labels.clone(),
             properties: node.properties.clone(),
-            embedding: node.embedding.clone(),
         };
-        serde_json::to_vec(&sn).map_err(|e| AstraeaError::Serialization(e.to_string()))
+        let json_bytes =
+            serde_json::to_vec(&body).map_err(|e| AstraeaError::Serialization(e.to_string()))?;
+
+        let dim = node.embedding.as_ref().map_or(0u32, |v| v.len() as u32);
+        let embedding_byte_len = dim as usize * 4;
+
+        // Total capacity: tag(1) + json_len(4) + json body + dim(4) + f32 bytes.
+        let mut out = Vec::with_capacity(1 + 4 + json_bytes.len() + 4 + embedding_byte_len);
+        out.push(RECORD_TAG_V1);
+        out.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+        out.extend_from_slice(&json_bytes);
+        out.extend_from_slice(&dim.to_le_bytes());
+        if let Some(emb) = &node.embedding {
+            for &f in emb {
+                out.extend_from_slice(&f.to_le_bytes());
+            }
+        }
+        Ok(out)
     }
 
-    /// Deserialize a node from bytes.
+    /// Deserialize a node from page bytes.
+    ///
+    /// Reads the leading byte to choose the decoding path:
+    /// - `RECORD_TAG_V1` (`0x01`) → v1 binary container (see `serialize_node`).
+    /// - any other byte → legacy `serde_json`-encoded `SerializedNode`, which
+    ///   always starts with `{` (`0x7B`).  This path handles every data file
+    ///   written before Phase 1 with no migration required.
     fn deserialize_node(id: NodeId, data: &[u8]) -> Result<Node> {
-        let sn: SerializedNode = serde_json::from_slice(data)
-            .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
-        Ok(Node {
-            id,
-            labels: sn.labels,
-            properties: sn.properties,
-            embedding: sn.embedding,
-        })
+        if data.is_empty() {
+            return Err(AstraeaError::Deserialization(
+                "node record is empty".to_string(),
+            ));
+        }
+
+        if data[0] == RECORD_TAG_V1 {
+            // --- v1 binary container ---
+            // Layout: [0x01][json_len:u32 LE][json body][dim:u32 LE][f32 LE…]
+            if data.len() < 5 {
+                return Err(AstraeaError::Deserialization(
+                    "v1 node record too short (missing json_len)".to_string(),
+                ));
+            }
+            let json_len = u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
+            let json_start = 5;
+            let json_end = json_start + json_len;
+            if data.len() < json_end + 4 {
+                return Err(AstraeaError::Deserialization(
+                    "v1 node record: JSON body truncated".to_string(),
+                ));
+            }
+            let body: SerializedNodeBody = serde_json::from_slice(&data[json_start..json_end])
+                .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
+
+            let dim_start = json_end;
+            let dim = u32::from_le_bytes([
+                data[dim_start],
+                data[dim_start + 1],
+                data[dim_start + 2],
+                data[dim_start + 3],
+            ]) as usize;
+
+            let embedding = if dim == 0 {
+                None
+            } else {
+                let emb_start = dim_start + 4;
+                let emb_end = emb_start + dim * 4;
+                if data.len() < emb_end {
+                    return Err(AstraeaError::Deserialization(
+                        "v1 node record: embedding bytes truncated".to_string(),
+                    ));
+                }
+                let floats: Vec<f32> = data[emb_start..emb_end]
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                Some(floats)
+            };
+
+            Ok(Node {
+                id,
+                labels: body.labels,
+                properties: body.properties,
+                embedding,
+            })
+        } else {
+            // --- Legacy JSON path (back-compat) ---
+            // Records written before v1 begin with `{` (0x7B).  Any
+            // unrecognized leading byte also routes here; serde_json will
+            // return a Deserialization error rather than silently producing
+            // corrupt data.
+            let sn: SerializedNode = serde_json::from_slice(data)
+                .map_err(|e| AstraeaError::Deserialization(e.to_string()))?;
+            Ok(Node {
+                id,
+                labels: sn.labels,
+                properties: sn.properties,
+                embedding: sn.embedding,
+            })
+        }
     }
 
     /// Serialize an edge into bytes for storage in a page.
@@ -298,13 +468,191 @@ impl DiskStorageEngine {
         })
     }
 
-    /// Write a record (node or edge) into a page. Reuses a previously freed
-    /// page if one is available, otherwise allocates a new one.
-    /// Returns the page ID where the record was written.
-    fn write_record(&self, record_id: u64, data: &[u8], page_type: PageType) -> Result<PageId> {
-        let total_size = NODE_RECORD_HEADER_SIZE + data.len();
+    /// Write a single overflow continuation page containing `chunk` of record data,
+    /// chaining to `next_encoded` ("+1 encoded" `PageId`, 0 = end of chain).
+    /// Returns the allocated page ID.
+    ///
+    /// # Overflow page layout (after `PageHeader`)
+    ///
+    /// ```text
+    /// [next_overflow_encoded : u64 LE, 8 bytes]   -- 0=end, n=PageId(n-1)
+    /// [chunk bytes           : up to OVERFLOW_PAGE_PAYLOAD bytes]
+    /// ```
+    ///
+    /// Called from `write_record` in reverse chunk order (last chunk first) so
+    /// each page can write its own "next" pointer before being finalized.
+    fn write_overflow_page(&self, chunk: &[u8], next_encoded: u64) -> Result<PageId> {
+        debug_assert!(
+            chunk.len() <= OVERFLOW_PAGE_PAYLOAD,
+            "overflow chunk too large"
+        );
 
-        // Prefer recycling a freed page; fall back to allocating a new one.
+        // Allocate or recycle a page for this overflow chunk.
+        let recycled = self.free_pages.lock().pop();
+        let (guard, page_id) = match recycled {
+            Some(pid) => {
+                let page_buf = init_page(pid, PageType::OverflowPage);
+                let g = self.buffer_pool.pin_recycled_page(pid, &page_buf)?;
+                (g, pid)
+            }
+            None => {
+                let page_buf = init_page(PageId(0), PageType::OverflowPage);
+                let g = self.buffer_pool.pin_new_page(&page_buf)?;
+                let pid = g.page_id();
+                (g, pid)
+            }
+        };
+
+        let mut buf = guard.data().0;
+
+        // Patch the real page_id into the header (pin_new_page uses PageId(0) as placeholder).
+        let mut header = PageHeader::read_from(&buf)?;
+        header.page_id = page_id;
+
+        // Write the continuation link immediately after the page header.
+        let link_offset = PAGE_HEADER_SIZE;
+        buf[link_offset..link_offset + OVERFLOW_LINK_SIZE]
+            .copy_from_slice(&next_encoded.to_le_bytes());
+
+        // Write the chunk payload.
+        let chunk_offset = link_offset + OVERFLOW_LINK_SIZE;
+        buf[chunk_offset..chunk_offset + chunk.len()].copy_from_slice(chunk);
+
+        // Update and rewrite the page header with a fresh checksum.
+        header.free_space_offset = (chunk_offset + chunk.len()) as u16;
+        header.checksum = 0;
+        header.write_to(&mut buf);
+        let checksum = compute_page_checksum(&buf);
+        header.checksum = checksum;
+        header.write_to(&mut buf);
+
+        guard.write_data(&buf);
+        self.buffer_pool.unpin_page(page_id, true)?;
+
+        Ok(page_id)
+    }
+
+    /// Follow the overflow chain rooted at `head_pid` and return every page in
+    /// the chain in order: `[head_pid, first_overflow, second_overflow, …]`.
+    ///
+    /// Callers use this to free a multi-page record atomically: they push all
+    /// returned page IDs to `self.free_pages` before the head page is reused.
+    fn collect_record_pages(&self, head_pid: PageId) -> Result<Vec<PageId>> {
+        let mut pages = vec![head_pid];
+        // Track every page we visit so a corrupt on-disk cycle (e.g. A→B→A)
+        // is detected immediately rather than looping until OOM.  Reachable
+        // during WAL replay (put_node / delete_node / put_edge / delete_edge),
+        // so a corrupt .db file must not hang or crash the server at startup.
+        let mut visited: HashSet<PageId> = HashSet::new();
+        visited.insert(head_pid);
+
+        // Read the head page to find the first overflow pointer.
+        let guard = self.buffer_pool.pin_page(head_pid)?;
+        let buf = guard.data();
+        let header = PageHeader::read_from(&buf)?;
+
+        let mut next_encoded: u64 = if header.record_count > 0 {
+            // The NodeRecordHeader starts right after the page header.
+            let rec = NodeRecordHeader::read_from(&buf, PAGE_HEADER_SIZE);
+            rec.overflow_page_id as u64
+        } else {
+            0
+        };
+        self.buffer_pool.unpin_page(head_pid, false)?;
+
+        // Walk the overflow chain.  "+1 encoded": n means PageId(n-1), 0 means done.
+        while next_encoded != 0 {
+            let ov_pid = PageId(next_encoded - 1);
+            if !visited.insert(ov_pid) {
+                // ov_pid is already in the chain — corrupt on-disk pointer forms a
+                // cycle.  Return a corruption error rather than looping forever.
+                return Err(AstraeaError::PageCorrupted(
+                    ov_pid,
+                    format!(
+                        "overflow chain cycle detected: page {:?} appears more than once \
+                         (chain started at {:?})",
+                        ov_pid, head_pid
+                    ),
+                ));
+            }
+            pages.push(ov_pid);
+
+            let ov_guard = self.buffer_pool.pin_page(ov_pid)?;
+            let ov_buf = ov_guard.data();
+            next_encoded = u64::from_le_bytes(
+                ov_buf[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + OVERFLOW_LINK_SIZE]
+                    .try_into()
+                    .expect("overflow link: slice len == 8"),
+            );
+            self.buffer_pool.unpin_page(ov_pid, false)?;
+        }
+
+        Ok(pages)
+    }
+
+    /// Write a record (node or edge) into one or more pages.
+    ///
+    /// If `data` fits within `HEAD_PAGE_CAPACITY` (8,159 bytes) the record
+    /// occupies a single page and no overflow pages are allocated — identical
+    /// to the pre-Phase-2 behaviour.  If `data` is larger, the remainder is
+    /// chained through `OverflowPage`s.
+    ///
+    /// # Single-page layout (unchanged)
+    ///
+    /// ```text
+    /// [PageHeader      : PAGE_HEADER_SIZE bytes]
+    /// [NodeRecordHeader: NODE_RECORD_HEADER_SIZE bytes, overflow_page_id=0]
+    /// [data bytes      : data.len() bytes]
+    /// ```
+    ///
+    /// # Multi-page layout
+    ///
+    /// ```text
+    /// HEAD page (NodePage / EdgePage):
+    ///   [PageHeader      : PAGE_HEADER_SIZE bytes]
+    ///   [NodeRecordHeader: NODE_RECORD_HEADER_SIZE bytes, overflow_page_id = first_ovf+1]
+    ///   [data[0..HEAD_PAGE_CAPACITY]]
+    ///
+    /// Each OverflowPage:
+    ///   [PageHeader              : PAGE_HEADER_SIZE bytes]
+    ///   [next_overflow_encoded   : u64 LE, 8 bytes]    -- 0=end, n=PageId(n-1)
+    ///   [data[chunk_start..chunk_end]]
+    /// ```
+    ///
+    /// `NodeRecordHeader.data_len` is always the **total** record byte count
+    /// across the entire chain.  The "+1 encoding" for overflow pointers ensures
+    /// `0` unambiguously means "no overflow / end of chain" even when
+    /// `PageId(0)` is a valid page (the first page in an empty file).
+    fn write_record(&self, record_id: u64, data: &[u8], page_type: PageType) -> Result<PageId> {
+        // --- Phase 1: build the overflow chain (back-to-front) if needed. ------
+        //
+        // We write the last chunk first so that each page can embed its "next"
+        // pointer before being finalised and unpinned.  This avoids holding
+        // multiple pages pinned simultaneously, keeping pool pressure low.
+        let first_overflow_encoded: u64 = if data.len() > HEAD_PAGE_CAPACITY {
+            let overflow_data = &data[HEAD_PAGE_CAPACITY..];
+            let mut next_encoded: u64 = 0; // end sentinel
+
+            // Collect chunk ranges then iterate in reverse.
+            let chunk_ranges: Vec<std::ops::Range<usize>> = overflow_data
+                .chunks(OVERFLOW_PAGE_PAYLOAD)
+                .scan(0usize, |start, chunk| {
+                    let range = *start..*start + chunk.len();
+                    *start += chunk.len();
+                    Some(range)
+                })
+                .collect();
+
+            for range in chunk_ranges.iter().rev() {
+                let pid = self.write_overflow_page(&overflow_data[range.clone()], next_encoded)?;
+                next_encoded = pid.0 + 1; // "+1 encoding"
+            }
+            next_encoded
+        } else {
+            0
+        };
+
+        // --- Phase 2: allocate / recycle the head page. -----------------------
         let recycled = self.free_pages.lock().pop();
         let (guard, page_id) = match recycled {
             Some(pid) => {
@@ -320,53 +668,51 @@ impl DiskStorageEngine {
             }
         };
 
-        // Read the current page data.
+        // --- Phase 3: write the head page record. -----------------------------
         let mut buf = guard.data().0;
-
-        // Update the page header with the correct page_id.
         let mut header = PageHeader::read_from(&buf)?;
         header.page_id = page_id;
 
-        // Check space.
-        let free = header.free_space();
-        if total_size > free {
-            self.buffer_pool.unpin_page(page_id, false)?;
-            return Err(AstraeaError::Serialization(format!(
-                "record too large for a single page: {} bytes, free: {}",
-                total_size, free
-            )));
-        }
-
-        // Write the record header.
+        let head_data = &data[..data.len().min(HEAD_PAGE_CAPACITY)];
         let offset = header.free_space_offset as usize;
+
+        // `overflow_page_id` is stored as a u32 (reusing the former
+        // `adjacency_offset` field).  Use try_from rather than `as u32` so a
+        // database with ≥ 2^32 pages (≥ 32 TiB at 8 KiB/page) fails cleanly
+        // instead of silently truncating the pointer and corrupting the chain.
+        let overflow_page_id = u32::try_from(first_overflow_encoded).map_err(|_| {
+            AstraeaError::Storage(
+                "database exceeds u32 page-id limit: cannot encode overflow page pointer"
+                    .to_string(),
+            )
+        })?;
+
         let rec_header = NodeRecordHeader {
             node_id: record_id,
             data_len: data.len() as u32,
-            adjacency_offset: 0, // No adjacency stored inline for now.
+            overflow_page_id,
         };
         rec_header.write_to(&mut buf, offset);
 
-        // Write the record data.
         let data_offset = offset + NODE_RECORD_HEADER_SIZE;
-        buf[data_offset..data_offset + data.len()].copy_from_slice(data);
+        buf[data_offset..data_offset + head_data.len()].copy_from_slice(head_data);
 
-        // Update header.
         header.record_count += 1;
-        header.free_space_offset = (data_offset + data.len()) as u16;
+        header.free_space_offset = (data_offset + head_data.len()) as u16;
         header.checksum = 0;
         header.write_to(&mut buf);
         let checksum = compute_page_checksum(&buf);
         header.checksum = checksum;
         header.write_to(&mut buf);
 
-        // Write back through the guard.
         guard.write_data(&buf);
         self.buffer_pool.unpin_page(page_id, true)?;
 
         Ok(page_id)
     }
 
-    /// Read a record from a specific page by its record ID.
+    /// Read a record from the page at `page_id`, reassembling the full data
+    /// across any overflow pages in the continuation chain.
     fn read_record(&self, page_id: PageId, record_id: u64) -> Result<Option<Vec<u8>>> {
         let guard = self.buffer_pool.pin_page(page_id)?;
         let buf = guard.data();
@@ -376,16 +722,50 @@ impl DiskStorageEngine {
 
         for _ in 0..header.record_count {
             let rec = NodeRecordHeader::read_from(&buf, offset);
+            let total_data_len = rec.data_len as usize;
             let data_offset = offset + NODE_RECORD_HEADER_SIZE;
-            let data_end = data_offset + rec.data_len as usize;
 
             if rec.node_id == record_id {
-                let data = buf[data_offset..data_end].to_vec();
+                // Copy the inline (head-page) portion.
+                let head_bytes = total_data_len.min(HEAD_PAGE_CAPACITY);
+                let mut data = buf[data_offset..data_offset + head_bytes].to_vec();
+                let first_overflow = rec.overflow_page_id as u64;
+
+                // Unpin the head page before touching overflow pages to keep
+                // buffer-pool pressure low (important for tiny pools).
                 self.buffer_pool.unpin_page(page_id, false)?;
+
+                // Follow the overflow chain until we have all data.
+                let mut next_encoded = first_overflow;
+                while next_encoded != 0 && data.len() < total_data_len {
+                    let ov_pid = PageId(next_encoded - 1);
+                    let ov_guard = self.buffer_pool.pin_page(ov_pid)?;
+                    let ov_buf = ov_guard.data();
+
+                    // Read the continuation pointer for the next iteration.
+                    next_encoded = u64::from_le_bytes(
+                        ov_buf[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + OVERFLOW_LINK_SIZE]
+                            .try_into()
+                            .expect("overflow link: slice len == 8"),
+                    );
+
+                    // Append the chunk payload.
+                    let chunk_offset = PAGE_HEADER_SIZE + OVERFLOW_LINK_SIZE;
+                    let remaining = total_data_len - data.len();
+                    let chunk_len = remaining.min(OVERFLOW_PAGE_PAYLOAD);
+                    data.extend_from_slice(&ov_buf[chunk_offset..chunk_offset + chunk_len]);
+
+                    self.buffer_pool.unpin_page(ov_pid, false)?;
+                }
+
                 return Ok(Some(data));
             }
 
-            offset = data_end;
+            // Advance to the next record in the page.  Each page holds exactly
+            // one record, but we honour the general header.record_count loop so
+            // future packing strategies need not change read_record.
+            // Only the head-page portion is stored inline; skip that many bytes.
+            offset = data_offset + total_data_len.min(HEAD_PAGE_CAPACITY);
         }
 
         self.buffer_pool.unpin_page(page_id, false)?;
@@ -395,27 +775,35 @@ impl DiskStorageEngine {
 
 impl StorageEngine for DiskStorageEngine {
     fn put_node(&self, node: &Node) -> Result<()> {
-        // Log to WAL first (unless we are replaying — see `open`).
+        // Serialize first.  In Phase 2 write_record handles any size via the
+        // overflow chain, so there is no per-size pre-flight rejection here.
+        // The WAL-poisoning guard (issue #26 §2a) is now satisfied structurally:
+        // write_record can no longer fail on size, so a WAL record that is
+        // successfully appended is always replayable.
+        let data = Self::serialize_node(node)?;
+
+        // Log to WAL (unless we are replaying — see `open`).
         self.wal_append(&WalRecord::InsertNode(node.clone()))?;
 
         // If this node already exists, remove its old labels from the index
-        // before inserting the new ones, and mark its previous page as free
-        // so future writes can reuse that slot.
+        // before inserting the new ones, and free EVERY page in the old
+        // record's chain (head + all overflow pages).
         if let Ok(Some(old_node)) = self.get_node(node.id) {
             let mut li = self.label_index.write();
             li.remove_node(node.id, &old_node.labels);
             drop(li);
             let old_page = self.node_index.read().get(&node.id).copied();
             if let Some(pid) = old_page {
-                self.free_pages.lock().push(pid);
+                let chain = self.collect_record_pages(pid)?;
+                let mut free = self.free_pages.lock();
+                for p in chain {
+                    free.push(p);
+                }
             }
         }
 
-        // Serialize.
-        let data = Self::serialize_node(node)?;
-
-        // Write to a recycled page if available, otherwise a freshly allocated
-        // one. `write_record` consults `self.free_pages` first.
+        // Write to recycled page(s) if available, otherwise freshly allocated.
+        // `write_record` pops from `self.free_pages` internally.
         let page_id = self.write_record(node.id.0, &data, PageType::NodePage)?;
 
         // Update the in-memory index.
@@ -458,18 +846,26 @@ impl StorageEngine for DiskStorageEngine {
         let removed_page = index.remove(&id);
         drop(index);
         if let Some(page_id) = removed_page {
-            // Incremental compaction: the page that held this node is now
-            // free for reuse by the next write.
-            self.free_pages.lock().push(page_id);
+            // Collect the full overflow chain BEFORE the head page can be
+            // recycled by another write, then push every page to free_pages.
+            let chain = self.collect_record_pages(page_id)?;
+            let mut free = self.free_pages.lock();
+            for p in chain {
+                free.push(p);
+            }
         }
         Ok(removed_page.is_some())
     }
 
     fn put_edge(&self, edge: &Edge) -> Result<()> {
+        // Serialize first.  write_record handles any size via overflow chain,
+        // so there is no size pre-flight rejection (issue #26 Phase 2).
+        let data = Self::serialize_edge(edge)?;
+
         // Log to WAL (unless replaying).
         self.wal_append(&WalRecord::InsertEdge(edge.clone()))?;
 
-        // Update path: if this edge already exists, free its previous page
+        // Update path: if this edge already exists, free its previous page(s)
         // and drop its old adjacency entries before re-inserting.
         let old_edge_page = self.edge_index.read().get(&edge.id).copied();
         if old_edge_page.is_some() {
@@ -479,12 +875,14 @@ impl StorageEngine for DiskStorageEngine {
                 adj.remove_edge(edge.id, old_edge.source, old_edge.target);
             }
             if let Some(pid) = old_edge_page {
-                self.free_pages.lock().push(pid);
+                // Free the full chain (head + any overflow pages).
+                let chain = self.collect_record_pages(pid)?;
+                let mut free = self.free_pages.lock();
+                for p in chain {
+                    free.push(p);
+                }
             }
         }
-
-        // Serialize.
-        let data = Self::serialize_edge(edge)?;
 
         let page_id = self.write_record(edge.id.0, &data, PageType::EdgePage)?;
 
@@ -528,8 +926,12 @@ impl StorageEngine for DiskStorageEngine {
             index.remove(&id)
         };
         if let Some(pid) = removed_page {
-            // Incremental compaction: the page is free for reuse.
-            self.free_pages.lock().push(pid);
+            // Free the full chain (head + any overflow pages).
+            let chain = self.collect_record_pages(pid)?;
+            let mut free = self.free_pages.lock();
+            for p in chain {
+                free.push(p);
+            }
         }
 
         if let Some(edge) = edge {
@@ -579,6 +981,10 @@ impl StorageEngine for DiskStorageEngine {
             }
         }
         Ok(result)
+    }
+
+    fn list_all_nodes(&self) -> Result<Vec<NodeId>> {
+        Ok(self.node_index.read().keys().copied().collect())
     }
 }
 
@@ -1091,5 +1497,592 @@ mod tests {
         assert_eq!(max_edge, 0);
         engine.put_node(&test_node(1)).unwrap();
         assert!(engine.get_node(NodeId(1)).unwrap().is_some());
+    }
+
+    /// Verify that a node with a 768-dim embedding round-trips through a
+    /// restart via WAL replay using the v1 binary encoding (issue #26 Phase 1).
+    ///
+    /// Capacity check: a node with ~2 KB of text properties + a 768-dim f32
+    /// embedding encodes to ~5.1 KB in v1 binary format (3,072 raw bytes for
+    /// the embedding + JSON body overhead).  The same node would have been
+    /// ~9 KB under the legacy JSON encoding (~6,912 bytes for the embedding as
+    /// a JSON float array + ~2 KB props) and would have failed `write_record`'s
+    /// 8,159-byte single-page budget with the old code.
+    #[test]
+    fn test_binary_embedding_round_trip_and_restart() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // Standard model dimension.
+        let embedding: Vec<f32> = (0..768u32)
+            .map(|i| i as f32 * 0.001_f32 + 0.5_f32)
+            .collect();
+
+        // ~2 KB of text ensures that the old JSON-encoded embedding (~6-9 KB)
+        // would overflow the 8,159-byte page budget while the v1 binary
+        // container (3,072 bytes for embedding + ~2 KB JSON body) fits.
+        let content = "A".repeat(2_000);
+        let node = Node {
+            id: NodeId(1),
+            labels: vec!["EmbeddedNote".to_string()],
+            properties: serde_json::json!({ "content": content }),
+            embedding: Some(embedding.clone()),
+        };
+
+        // Phase 1: write and drop without an explicit flush (simulates crash).
+        // Small pool forces page eviction, exercising the WAL replay path.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 8).unwrap();
+            engine.put_node(&node).unwrap();
+        }
+
+        // Phase 2: reopen via WAL replay.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir).unwrap();
+        assert_eq!(max_node_id, 1, "max_node_id must be recovered");
+
+        let recovered = engine
+            .get_node(NodeId(1))
+            .unwrap()
+            .expect("node must survive restart");
+
+        // Embedding must be present and bit-identical (f32 round-trips through
+        // to_le_bytes / from_le_bytes with no precision loss).
+        assert!(
+            recovered.embedding.is_some(),
+            "embedding must be present after restart"
+        );
+        let got_emb = recovered.embedding.unwrap();
+        assert_eq!(got_emb.len(), 768, "embedding dimension preserved");
+        for (i, (orig, got)) in embedding.iter().zip(got_emb.iter()).enumerate() {
+            assert_eq!(
+                orig.to_bits(),
+                got.to_bits(),
+                "embedding[{i}] must be bit-identical: {orig} != {got}"
+            );
+        }
+        assert_eq!(recovered.labels, vec!["EmbeddedNote".to_string()]);
+    }
+
+    /// Verify that a node larger than one page succeeds end-to-end and the WAL
+    /// is not poisoned (issue #26 Phase 2: overflow chain).
+    ///
+    /// In Phase 1 this node would have been rejected with `Err` and a
+    /// subsequent `open()` on the same directory would succeed with the
+    /// oversized node absent.  In Phase 2 the overflow chain absorbs the
+    /// extra data, the insert succeeds, and the node round-trips through a
+    /// restart via WAL replay.
+    #[test]
+    fn test_large_node_succeeds_and_survives_restart() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // ~9 KiB property — more than HEAD_PAGE_CAPACITY (8,159 B) — forces
+        // overflow even before any embedding bytes are added.
+        let big_content = "x".repeat(9_000);
+
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 64).unwrap();
+
+            // Write a normal node first so the WAL has at least one other record.
+            engine.put_node(&test_node(1)).unwrap();
+
+            let large = Node {
+                id: NodeId(2),
+                labels: vec!["LargeNode".to_string()],
+                properties: serde_json::json!({ "content": big_content }),
+                embedding: None,
+            };
+            // Must succeed — overflow chain handles the extra size.
+            engine
+                .put_node(&large)
+                .expect("large node must be accepted via overflow");
+            let got = engine.get_node(NodeId(2)).unwrap().unwrap();
+            assert_eq!(got.labels, vec!["LargeNode".to_string()]);
+        }
+
+        // Reopen via WAL replay — the large node must survive.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
+            .expect("open() must succeed after an overflow-chain insert");
+
+        assert_eq!(max_node_id, 2);
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node 1 must survive"
+        );
+        let got = engine
+            .get_node(NodeId(2))
+            .unwrap()
+            .expect("large node must survive restart");
+        assert_eq!(got.labels, vec!["LargeNode".to_string()]);
+        let recovered_content = got.properties["content"].as_str().unwrap();
+        assert_eq!(
+            recovered_content.len(),
+            9_000,
+            "full content must round-trip"
+        );
+    }
+
+    /// Issue #26 headline regression test (storage-level portion).
+    ///
+    /// A node with a 768-dim embedding AND ~8 KiB of properties has a v1
+    /// binary body of roughly:
+    ///   1 (tag) + 4 (json_len) + ~8,040 (JSON props) + 4 (dim) + 3,072 (f32 bytes)
+    ///   ≈ 11,121 bytes → spans at least 2 pages.
+    ///
+    /// Asserts:
+    ///   1. `put_node` succeeds.
+    ///   2. `get_node` returns the node with `embedding.is_some()` and bit-identical f32s.
+    ///   3. The node round-trips through a restart (WAL replay reconstructs the chain).
+    #[test]
+    fn test_large_embedding_plus_props_round_trip_and_restart() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        let embedding: Vec<f32> = (0..768u32).map(|i| i as f32 * 0.001 + 0.5).collect();
+        // ~8 KB of JSON text properties.
+        let large_prop = "A".repeat(8_000);
+        let node = Node {
+            id: NodeId(42),
+            labels: vec!["BigNode".to_string()],
+            properties: serde_json::json!({ "content": large_prop, "idx": 42 }),
+            embedding: Some(embedding.clone()),
+        };
+
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            engine
+                .put_node(&node)
+                .expect("large embedding+props node must succeed");
+
+            // Verify immediately after write.
+            let got = engine.get_node(NodeId(42)).unwrap().unwrap();
+            assert!(
+                got.embedding.is_some(),
+                "embedding must be present after write"
+            );
+            let emb = got.embedding.unwrap();
+            assert_eq!(emb.len(), 768);
+            for (i, (orig, got)) in embedding.iter().zip(emb.iter()).enumerate() {
+                assert_eq!(
+                    orig.to_bits(),
+                    got.to_bits(),
+                    "embedding[{i}] must be bit-identical after write"
+                );
+            }
+        }
+
+        // Restart and verify via WAL replay.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir).unwrap();
+        assert_eq!(max_node_id, 42);
+
+        let recovered = engine
+            .get_node(NodeId(42))
+            .unwrap()
+            .expect("node must survive restart");
+
+        assert!(
+            recovered.embedding.is_some(),
+            "embedding must survive restart"
+        );
+        let got_emb = recovered.embedding.unwrap();
+        assert_eq!(
+            got_emb.len(),
+            768,
+            "embedding dimension preserved after restart"
+        );
+        for (i, (orig, got)) in embedding.iter().zip(got_emb.iter()).enumerate() {
+            assert_eq!(
+                orig.to_bits(),
+                got.to_bits(),
+                "embedding[{i}] must be bit-identical after restart"
+            );
+        }
+        assert_eq!(recovered.labels, vec!["BigNode".to_string()]);
+        assert_eq!(
+            recovered.properties["content"].as_str().unwrap().len(),
+            8_000
+        );
+    }
+
+    /// Verify that a record spanning 3 or more pages writes and reads back
+    /// correctly.  A body of 3 × OVERFLOW_PAGE_PAYLOAD bytes forces the head
+    /// page plus at least 2 overflow pages.
+    #[test]
+    fn test_record_spanning_three_pages() {
+        let (engine, _tmp) = make_engine();
+
+        // Build a property string large enough to need 3 pages:
+        // HEAD_PAGE_CAPACITY (8159) + 2 × OVERFLOW_PAGE_PAYLOAD (8167) = 24,493 bytes
+        // We use ~25 KB to be safely beyond 2 pages.
+        let content = "Z".repeat(25_000);
+        let node = Node {
+            id: NodeId(7),
+            labels: vec!["ThreePage".to_string()],
+            properties: serde_json::json!({ "content": content }),
+            embedding: None,
+        };
+
+        engine.put_node(&node).expect("3-page node must be stored");
+        let got = engine.get_node(NodeId(7)).unwrap().unwrap();
+        assert_eq!(got.labels, vec!["ThreePage".to_string()]);
+        assert_eq!(got.properties["content"].as_str().unwrap().len(), 25_000);
+    }
+
+    /// Verify that deleting a chained (multi-page) node frees ALL its pages
+    /// (head + overflow) and those pages are reusable for subsequent writes.
+    #[test]
+    fn test_delete_chained_node_frees_all_pages() {
+        let (engine, _tmp) = make_engine();
+
+        // Insert a large (2-page) node.
+        let content = "M".repeat(10_000); // > HEAD_PAGE_CAPACITY → 2 pages
+        let large_node = Node {
+            id: NodeId(1),
+            labels: vec!["Large".to_string()],
+            properties: serde_json::json!({ "content": content }),
+            embedding: None,
+        };
+        engine.put_node(&large_node).unwrap();
+
+        let pages_after_insert = engine.file_manager.page_count().unwrap();
+        // 1 head + 1 overflow = 2 pages
+        assert_eq!(pages_after_insert, 2, "large node must allocate 2 pages");
+        assert_eq!(engine.free_page_count(), 0);
+
+        // Delete it — both pages must go to the free list.
+        assert!(engine.delete_node(NodeId(1)).unwrap());
+        assert_eq!(engine.free_page_count(), 2, "both pages must be freed");
+        assert!(engine.get_node(NodeId(1)).unwrap().is_none());
+
+        // Insert a new large node — must reuse the freed pages, not grow the file.
+        let content2 = "N".repeat(10_000);
+        let large_node2 = Node {
+            id: NodeId(2),
+            labels: vec!["Large2".to_string()],
+            properties: serde_json::json!({ "content": content2 }),
+            embedding: None,
+        };
+        engine.put_node(&large_node2).unwrap();
+        assert_eq!(
+            engine.free_page_count(),
+            0,
+            "freed pages should be consumed"
+        );
+        let pages_after_reuse = engine.file_manager.page_count().unwrap();
+        assert_eq!(
+            pages_after_reuse, pages_after_insert,
+            "file must not grow: freed pages were reused"
+        );
+
+        // The new node is readable and correct.
+        let got = engine.get_node(NodeId(2)).unwrap().unwrap();
+        assert_eq!(got.properties["content"].as_str().unwrap().len(), 10_000);
+    }
+
+    /// Verify that a restart after deleting a chained node produces a clean
+    /// mount (no WAL replay failure, no stale index entries).
+    #[test]
+    fn test_restart_after_chained_delete_is_clean() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+
+            // Insert two nodes: one large (overflow) and one small.
+            let large_content = "K".repeat(10_000);
+            let large = Node {
+                id: NodeId(10),
+                labels: vec!["Large".to_string()],
+                properties: serde_json::json!({ "content": large_content }),
+                embedding: None,
+            };
+            engine.put_node(&large).unwrap();
+            engine.put_node(&test_node(20)).unwrap();
+
+            // Delete the large node.
+            engine.delete_node(NodeId(10)).unwrap();
+        }
+
+        // Reopen — WAL replay must succeed cleanly.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
+            .expect("open() must succeed after chained-node delete");
+
+        assert_eq!(max_node_id, 20);
+        // Large node must be gone.
+        assert!(
+            engine.get_node(NodeId(10)).unwrap().is_none(),
+            "deleted large node must not exist"
+        );
+        // Small node must survive.
+        assert!(
+            engine.get_node(NodeId(20)).unwrap().is_some(),
+            "small node must survive"
+        );
+
+        // New writes after recovery must work.
+        engine.put_node(&test_node(30)).unwrap();
+        assert!(engine.get_node(NodeId(30)).unwrap().is_some());
+    }
+
+    /// Regression test for WAL cursor-at-zero data-corruption bug.
+    ///
+    /// Before the fix, `WalWriter::new` opened the file with `.write(true)`,
+    /// which left the OS cursor at offset 0. After `DiskStorageEngine::open`
+    /// replayed the WAL, the very first `put_node` call would write the new
+    /// record's WAL entry starting at byte 0, silently overwriting the existing
+    /// InsertNode(A) record, while `current_lsn` still reported the old (larger)
+    /// length. A subsequent restart would then replay a corrupted record for A
+    /// (wrong bytes / CRC mismatch) and lose the node.
+    ///
+    /// After the fix (`.append(true)` on the WAL file), every write is
+    /// atomically positioned at EOF by the kernel, so existing records survive
+    /// across multiple open/write/close cycles.
+    #[test]
+    fn test_wal_no_overwrite_on_reopen() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // Session 1: insert nodes A (id=1) and B (id=2), then drop.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 64).unwrap();
+            engine.put_node(&test_node(1)).unwrap();
+            engine.put_node(&test_node(2)).unwrap();
+            // Drop without explicit flush — simulates a clean process exit that
+            // did not call flush().  WAL records for A and B are on disk.
+        }
+
+        // Session 2: open (WAL replay sees A and B), insert node C (id=3), drop.
+        // This is where the bug struck: before the fix, the first put_node
+        // call wrote the InsertNode(C) WAL record starting at offset 0, which
+        // overwrote the InsertNode(A) record.
+        {
+            let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir).unwrap();
+            assert_eq!(
+                max_node_id, 2,
+                "session 2 must recover A and B (max_node_id=2)"
+            );
+            assert!(
+                engine.get_node(NodeId(1)).unwrap().is_some(),
+                "A must be visible after session-1 WAL replay"
+            );
+            assert!(
+                engine.get_node(NodeId(2)).unwrap().is_some(),
+                "B must be visible after session-1 WAL replay"
+            );
+            engine.put_node(&test_node(3)).unwrap();
+        }
+
+        // Session 3: final open. ALL THREE of A, B, C must be present.
+        // Before the fix this would fail: either a CRC error on A's corrupted
+        // record, or A simply missing from the index because the replay saw
+        // InsertNode(C) where InsertNode(A) used to be.
+        let (engine, max_node_id, _) =
+            DiskStorageEngine::open(data_dir).expect("third open must succeed without CRC errors");
+
+        assert_eq!(
+            max_node_id, 3,
+            "all three nodes written; max_node_id must be 3 (got {max_node_id})"
+        );
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node A (id=1) must survive two reopen cycles"
+        );
+        assert!(
+            engine.get_node(NodeId(2)).unwrap().is_some(),
+            "node B (id=2) must survive two reopen cycles"
+        );
+        assert!(
+            engine.get_node(NodeId(3)).unwrap().is_some(),
+            "node C (id=3, written in session 2) must survive the final reopen"
+        );
+    }
+
+    /// Regression test for H1: a corrupt on-disk overflow chain with a
+    /// back-pointer (A→B→A) must return `Err` immediately rather than looping
+    /// forever, growing `pages` until OOM.
+    ///
+    /// Reachable paths: `put_node`, `delete_node`, `put_edge`, `delete_edge` —
+    /// all called during WAL replay in `open()`, so a corrupt `.db` file
+    /// must not hang or OOM the server at startup before any auth is checked.
+    #[test]
+    fn test_collect_record_pages_detects_cycle() {
+        let (engine, _tmp) = make_engine();
+
+        // Insert a node large enough to span head + 1 overflow page.
+        let big_content = "C".repeat(10_000); // > HEAD_PAGE_CAPACITY (8 159 bytes)
+        let node = Node {
+            id: NodeId(101),
+            labels: vec!["CycleTest".to_string()],
+            properties: serde_json::json!({ "content": big_content }),
+            embedding: None,
+        };
+        engine.put_node(&node).unwrap();
+
+        // Locate head and overflow page IDs.
+        let head_pid = *engine.node_index.read().get(&NodeId(101)).unwrap();
+        let head_data = engine.buffer_pool.pin_page(head_pid).unwrap().data();
+        let rec = NodeRecordHeader::read_from(&head_data, PAGE_HEADER_SIZE);
+        let overflow_encoded = rec.overflow_page_id as u64;
+        assert!(
+            overflow_encoded != 0,
+            "test setup: node must span an overflow page"
+        );
+        let overflow_pid = PageId(overflow_encoded - 1);
+        engine.buffer_pool.unpin_page(head_pid, false).unwrap();
+
+        // Corrupt the overflow page's next-link to point back at head_pid,
+        // creating the cycle head_pid → overflow_pid → head_pid → … .
+        // The link is the 8 bytes at PAGE_HEADER_SIZE on an OverflowPage.
+        // "+1 encoding": n encodes PageId(n-1), so `head_pid.0 + 1` encodes
+        // head_pid, completing the cycle.
+        let ov_guard = engine.buffer_pool.pin_page(overflow_pid).unwrap();
+        let mut ov_buf = ov_guard.data().0;
+        let cycle_encoded: u64 = head_pid.0 + 1;
+        ov_buf[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + OVERFLOW_LINK_SIZE]
+            .copy_from_slice(&cycle_encoded.to_le_bytes());
+        ov_guard.write_data(&ov_buf);
+        engine.buffer_pool.unpin_page(overflow_pid, true).unwrap();
+
+        // Without the cycle guard this call loops forever.
+        // With the fix it must return Err immediately.
+        let result = engine.collect_record_pages(head_pid);
+        assert!(
+            result.is_err(),
+            "collect_record_pages must return Err on a cyclic overflow chain, not loop"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("cycle"),
+            "error message must indicate a cycle was detected: got {err_msg:?}"
+        );
+    }
+
+    /// Regression test for S1 (WAL torn-tail bricks the second restart).
+    ///
+    /// Scenario:
+    ///   1. Write good WAL records, then append a partial/garbage record
+    ///      (simulating a crash mid-write at the WAL tail).
+    ///   2. `open()` — must succeed; good records replayed, torn tail dropped.
+    ///   3. Write a new node (cleanly appended after the now-truncated tail).
+    ///   4. Drop and reopen — must STILL succeed; good records + new node present.
+    ///
+    /// Without the fix, step 4 fails: the torn bytes from step 1 are now buried
+    /// in the middle of the WAL (step 3 appended after them); the length guard
+    /// that previously skipped them no longer trips (the file is now large
+    /// enough), so `read_from` reaches the torn record, hits a CRC mismatch,
+    /// and returns `Err` — bricking the data directory.
+    #[test]
+    fn test_wal_torn_tail_recovers() {
+        use std::io::Write;
+
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // Step 1: write two good nodes, then simulate a crash by appending a
+        // torn (partial) WAL record directly to the file.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 64).unwrap();
+            engine.put_node(&test_node(1)).unwrap();
+            engine.put_node(&test_node(2)).unwrap();
+            // Engine dropped here — WAL records for 1 and 2 are on disk.
+        }
+        let wal_path = data_dir.join("astraea.wal");
+        {
+            // A torn record: length=10 (plausible, so the length guard will NOT
+            // trip after node 3 is appended in step 3), followed by 10 bytes of
+            // garbage payload and a deliberately wrong 4-byte CRC.  Total: 18
+            // bytes, which is exactly 4 + 10 + 4 — a "complete" record layout
+            // but with an invalid CRC.  This is the precise shape needed to
+            // reproduce the S1 bug: on first open() the length guard fires
+            // (file is too small), but after step 3 the file has grown and the
+            // guard no longer fires, so read_from reaches the CRC check.
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&wal_path)
+                .unwrap();
+            let mut blob = vec![10u8, 0, 0, 0]; // length = 10 LE
+            blob.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x01]);
+            blob.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]); // bad CRC
+            f.write_all(&blob).unwrap();
+        }
+
+        // Step 2: open must succeed despite the torn tail.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
+            .expect("open() must succeed even with a torn WAL tail");
+        assert_eq!(max_node_id, 2, "nodes 1 and 2 must be recovered");
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node 1 must survive"
+        );
+        assert!(
+            engine.get_node(NodeId(2)).unwrap().is_some(),
+            "node 2 must survive"
+        );
+
+        // Step 3: write a new node; with the fix the torn tail was truncated in
+        // step 2, so this append lands cleanly at the true EOF.
+        engine.put_node(&test_node(3)).unwrap();
+        assert!(engine.get_node(NodeId(3)).unwrap().is_some());
+        drop(engine);
+
+        // Step 4: reopen — must succeed.  Before the fix this would fail because
+        // the torn bytes (now buried after nodes 1 and 2) would cause a
+        // CRC-mismatch error that propagated up through open(), bricking the dir.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
+            .expect("second open() must succeed after torn-tail recovery");
+        assert_eq!(
+            max_node_id, 3,
+            "all three nodes must survive the second reopen"
+        );
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node 1 must survive second reopen"
+        );
+        assert!(
+            engine.get_node(NodeId(2)).unwrap().is_some(),
+            "node 2 must survive second reopen"
+        );
+        assert!(
+            engine.get_node(NodeId(3)).unwrap().is_some(),
+            "node 3 (written post-recovery) must survive"
+        );
+    }
+
+    /// Verify that updating a chained node frees its old chain and the file
+    /// does not grow unboundedly.
+    #[test]
+    fn test_update_chained_node_frees_old_chain() {
+        let (engine, _tmp) = make_engine();
+
+        let content = "U".repeat(10_000);
+        let node = Node {
+            id: NodeId(1),
+            labels: vec!["UpdateMe".to_string()],
+            properties: serde_json::json!({ "content": content }),
+            embedding: None,
+        };
+        engine.put_node(&node).unwrap();
+        let pages_after_first = engine.file_manager.page_count().unwrap();
+        assert_eq!(pages_after_first, 2); // head + 1 overflow
+
+        // Overwrite with another large node.
+        let content2 = "V".repeat(10_000);
+        let node2 = Node {
+            id: NodeId(1),
+            labels: vec!["Updated".to_string()],
+            properties: serde_json::json!({ "content": content2 }),
+            embedding: None,
+        };
+        engine.put_node(&node2).unwrap();
+
+        let pages_after_update = engine.file_manager.page_count().unwrap();
+        assert_eq!(
+            pages_after_update, pages_after_first,
+            "update must reuse old chain pages, not grow the file"
+        );
+        let got = engine.get_node(NodeId(1)).unwrap().unwrap();
+        assert_eq!(got.labels, vec!["Updated".to_string()]);
+        assert_eq!(got.properties["content"].as_str().unwrap().len(), 10_000);
     }
 }

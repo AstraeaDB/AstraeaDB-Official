@@ -933,11 +933,6 @@ async fn main() {
                 "Vector index: {} dimensions, metric={}",
                 cfg.vector.dimension, cfg.vector.metric
             );
-            let vector_index = std::sync::Arc::new(astraea_vector::HnswVectorIndex::new(
-                cfg.vector.dimension,
-                metric,
-            ));
-
             // Open the disk storage engine at the configured data dir. This
             // replays the WAL to rebuild in-memory indexes and returns the
             // highest node/edge ids so id allocation resumes correctly.
@@ -957,8 +952,38 @@ async fn main() {
                 max_node_id + 1,
                 max_edge_id + 1,
             );
-            graph_inner.set_vector_index(std::sync::Arc::clone(&vector_index)
-                as std::sync::Arc<dyn astraea_core::traits::VectorIndex>);
+
+            // Load the persisted HNSW snapshot (or rebuild from storage when
+            // the file is missing, corrupt, or has a dimension mismatch) and
+            // attach it to the graph.  Delta-reconcile corrects any nodes
+            // that were WAL-durable but not yet snapshotted, so vector search
+            // is always consistent with storage after open.
+            let hnsw_path = cfg.storage.data_dir.join("astraea.hnsw");
+            match graph_inner.load_or_rebuild_vector_index(&hnsw_path, cfg.vector.dimension, metric)
+            {
+                Ok(astraea_graph::graph::VectorIndexInit::Loaded { inserted, removed }) => {
+                    println!(
+                        "Vector index loaded from snapshot: +{inserted} reconciled, \
+                         -{removed} pruned"
+                    );
+                }
+                Ok(astraea_graph::graph::VectorIndexInit::Rebuilt { count }) => {
+                    println!("Vector index rebuilt from storage: {count} embeddings indexed");
+                }
+                Err(e) => {
+                    eprintln!("Failed to initialize vector index: {e}");
+                    std::process::exit(1);
+                }
+            }
+
+            // Extract the attached index Arc for use in request handlers and
+            // the shutdown snapshot.  load_or_rebuild_vector_index guarantees
+            // the index is attached on Ok(_).
+            let vector_index = graph_inner
+                .vector_index()
+                .expect("vector index must be attached after load_or_rebuild_vector_index")
+                .clone();
+
             let graph: std::sync::Arc<dyn astraea_core::traits::GraphOps> =
                 std::sync::Arc::new(graph_inner);
 
@@ -967,8 +992,7 @@ async fn main() {
             // Arc internally), so we construct a separate one for TCP. The
             // gRPC server takes Arc<RequestHandler> directly.
             let vi: Option<std::sync::Arc<dyn astraea_core::traits::VectorIndex>> =
-                Some(std::sync::Arc::clone(&vector_index)
-                    as std::sync::Arc<dyn astraea_core::traits::VectorIndex>);
+                Some(std::sync::Arc::clone(&vector_index));
             let tcp_handler =
                 astraea_server::RequestHandler::new(std::sync::Arc::clone(&graph), vi.clone());
             let grpc_handler = std::sync::Arc::new(astraea_server::RequestHandler::new(
@@ -987,10 +1011,12 @@ async fn main() {
 
             let grpc_bind = cfg.server.bind_address.clone();
 
-            // Capture shared handles for the shutdown task.  Both are Arc-
-            // counted so cloning is O(1) and doesn't touch the heap.
+            // Capture shared handles for the shutdown task.  Arc clones are
+            // O(1) and don't touch the heap; PathBuf clone is a small alloc.
             let conn_mgr_for_shutdown = tcp_server.connection_manager().clone();
             let graph_for_shutdown = std::sync::Arc::clone(&graph);
+            let vi_for_shutdown = std::sync::Arc::clone(&vector_index);
+            let hnsw_path_for_shutdown = hnsw_path.clone();
 
             // Background task: wait for SIGTERM or SIGINT (Ctrl-C), flush
             // dirty buffer-pool pages to disk, then tell the TCP accept loop
@@ -1036,6 +1062,35 @@ async fn main() {
                     eprintln!("Storage flush failed during shutdown: {e}");
                 } else {
                     eprintln!("Storage flushed successfully.");
+                }
+
+                // Persist the HNSW vector index snapshot so the next start
+                // is a fast load + small delta-reconcile rather than a full
+                // O(n·log n) rebuild.  This is best-effort: if it fails, the
+                // WAL is the durability source of truth and the index will be
+                // rebuilt from storage on the next open.  Write to a tmp file
+                // first and rename atomically so a crash mid-save never leaves
+                // a torn snapshot on disk.
+                {
+                    let mut tmp_name = hnsw_path_for_shutdown
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_os_string();
+                    tmp_name.push(".tmp");
+                    let tmp_path = hnsw_path_for_shutdown.with_file_name(tmp_name);
+                    if let Err(e) = vi_for_shutdown.save_to_path(&tmp_path) {
+                        eprintln!(
+                            "Warning: vector index snapshot write failed: {e} \
+                             (WAL is the source of truth; index will rebuild on next start)"
+                        );
+                    } else if let Err(e) = std::fs::rename(&tmp_path, &hnsw_path_for_shutdown) {
+                        eprintln!(
+                            "Warning: vector index snapshot rename failed: {e} \
+                             (WAL is the source of truth; index will rebuild on next start)"
+                        );
+                    } else {
+                        eprintln!("Vector index snapshot saved.");
+                    }
                 }
 
                 // Signal the TCP accept loop to stop and drain in-flight
