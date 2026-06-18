@@ -23,7 +23,9 @@ pub enum VectorIndexInit {
     /// for nodes that were deleted after the last snapshot.
     Loaded { inserted: usize, removed: usize },
 
-    /// The snapshot was missing, corrupt, or had a dimension mismatch.
+    /// The snapshot was missing, corrupt, had a dimension mismatch, or had a
+    /// metric mismatch (e.g. the operator changed the configured metric since
+    /// the last snapshot was saved).
     ///
     /// A fresh index was constructed and the full O(n) scan-and-reinsert
     /// fallback ran.  `count` is the number of embeddings inserted.
@@ -211,6 +213,13 @@ impl Graph {
                     got: loaded.dimension(),
                 });
             }
+            if loaded.metric() != metric {
+                return Err(AstraeaError::Config(format!(
+                    "metric mismatch: expected {:?}, got {:?}",
+                    metric,
+                    loaded.metric(),
+                )));
+            }
             Ok(loaded)
         })();
 
@@ -232,14 +241,25 @@ impl Graph {
                 let extra: Vec<NodeId> =
                     index_ids.difference(&storage_ids).copied().collect();
 
+                // LIMITATION: this reconcile only covers *existence* deltas —
+                // nodes written to the WAL after the snapshot (missing from the
+                // index) and nodes deleted after the snapshot (extra in the
+                // index).  A node present in BOTH sets whose embedding was
+                // *updated* in storage after the snapshot was saved will keep
+                // the stale vector from the snapshot until the next full
+                // rebuild.  Correcting this would require per-node
+                // versioning/generation tracking so the reconcile can detect
+                // changed content, not just changed membership.
+                // Tracked as a follow-up.
+
                 // Post-snapshot inserts: WAL-replayed but not yet snapshotted.
                 let mut inserted = 0usize;
                 for id in missing {
-                    if let Some(node) = self.storage.get_node(id)? {
-                        if let Some(ref emb) = node.embedding {
-                            vi.insert(id, emb)?;
-                            inserted += 1;
-                        }
+                    if let Some(node) = self.storage.get_node(id)?
+                        && let Some(ref emb) = node.embedding
+                    {
+                        vi.insert(id, emb)?;
+                        inserted += 1;
                     }
                 }
 
@@ -1764,6 +1784,71 @@ mod disk_restart_tests {
                 "A1 must be absent from the index after reconcile"
             );
         }
+    }
+
+    /// N1 regression: a persisted index loaded with a *different* metric than
+    /// it was built with must trigger `Rebuilt`, not silently serve stale
+    /// ranked results.
+    ///
+    /// Sequence:
+    ///   1. Build and save a snapshot with `DistanceMetric::Cosine`.
+    ///   2. Call `load_or_rebuild_vector_index` requesting `DistanceMetric::Euclidean`.
+    ///   3. Assert the result is `Rebuilt` (not `Loaded`).
+    ///   4. Assert vector search still returns the correct node (rebuild was full).
+    #[test]
+    fn test_hnsw_metric_mismatch_triggers_rebuild() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let hnsw_path = data_dir.join("astraea.hnsw");
+        const DIM: usize = 4;
+        let embedding = make_small_embedding(1.0);
+        let node_id;
+
+        // ─── Phase 1: write with Cosine, save snapshot ────────────────────────
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let vi = Arc::new(HnswVectorIndex::new(DIM, DistanceMetric::Cosine));
+            let graph = Graph::with_vector_index(Box::new(engine), vi);
+
+            node_id = graph
+                .create_node(
+                    vec![],
+                    serde_json::json!({}),
+                    Some(embedding.clone()),
+                )
+                .expect("create_node must succeed");
+
+            graph
+                .save_vector_index(&hnsw_path)
+                .expect("save_vector_index must succeed");
+            graph.flush().unwrap();
+        }
+
+        // ─── Phase 2: reopen requesting Euclidean (mismatch) ─────────────────
+        let (engine2, max_node_id, max_edge_id) =
+            DiskStorageEngine::open(data_dir).expect("reopen must succeed");
+        let mut graph2 =
+            Graph::with_start_ids(Box::new(engine2), max_node_id + 1, max_edge_id + 1);
+
+        let init = graph2
+            .load_or_rebuild_vector_index(&hnsw_path, DIM, DistanceMetric::Euclidean)
+            .expect("load_or_rebuild must not error on metric mismatch");
+
+        // Metric mismatch must fall through to the rebuild path.
+        assert!(
+            matches!(init, VectorIndexInit::Rebuilt { count: 1 }),
+            "expected Rebuilt{{count:1}} on metric mismatch, got {:?}",
+            init
+        );
+
+        // The rebuilt index (now Euclidean) must still find the node.
+        let results = graph2
+            .vector_index()
+            .unwrap()
+            .search(&embedding, 1)
+            .unwrap();
+        assert!(!results.is_empty(), "search must return a result after metric-mismatch rebuild");
+        assert_eq!(results[0].node_id, node_id, "top result must be the node");
     }
 
     /// Fallback (a): no `.hnsw` file present → must report `Rebuilt`, leave

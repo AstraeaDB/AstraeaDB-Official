@@ -5,7 +5,7 @@ use astraea_core::error::{AstraeaError, Result};
 use astraea_core::traits::{StorageEngine, TransactionalEngine};
 use astraea_core::types::*;
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -199,17 +199,62 @@ impl DiskStorageEngine {
     /// [`DiskStorageEngine::new`] with `max_node_id == max_edge_id == 0`.
     pub fn open<P: AsRef<Path>>(data_dir: P) -> Result<(Self, u64, u64)> {
         let path = data_dir.as_ref().to_path_buf();
-        let engine = Self::new(&path)?;
         let wal_path = path.join("astraea.wal");
 
-        // A brand-new data dir has no WAL yet; skip replay.
-        if !wal_path.exists() {
+        // Phase 1: read the WAL BEFORE constructing the WalWriter.
+        //
+        // Standard WAL semantics: the first record that fails to parse (bad
+        // length field or CRC mismatch) is the log tail; anything after it is
+        // a torn write from a crash and is unreplayable.  `read_from` returns
+        // the byte offset of the end of the last *good* record (`last_good_offset`)
+        // in addition to the parsed record list.
+        //
+        // We must read and potentially truncate BEFORE WalWriter::new() so
+        // the writer's initial `current_lsn` reflects the true end of the
+        // clean log.  If we open the writer first and then truncate later, the
+        // writer's LSN is stale, and subsequent appends silently land at the
+        // wrong offset — corrupting the file.
+        let (records, last_good_offset) = if wal_path.exists() {
+            let reader = WalReader::new(&wal_path);
+            reader.read_from(Lsn(0))?
+        } else {
+            (Vec::new(), 0u64)
+        };
+
+        // Phase 2: drop any torn tail before the WalWriter opens.
+        //
+        // Without this, the sequence (crash mid-write → reopen → successful
+        // put_node → reopen again) would bury the torn bytes in the middle of
+        // the file.  On the second reopen, the length guard that previously
+        // skipped the torn record would no longer trip (a valid record follows),
+        // so read_from would reach the torn bytes, hit a CRC mismatch, and
+        // fail the entire mount — bricking the data directory.
+        if wal_path.exists() {
+            let wal_file_len = std::fs::metadata(&wal_path)?.len();
+            if last_good_offset < wal_file_len {
+                tracing::warn!(
+                    "WAL: torn tail detected ({} bytes after last good record at offset {}); \
+                     truncating before mount — data after offset {} is lost \
+                     (WAL semantics: first bad record is end-of-log)",
+                    wal_file_len - last_good_offset,
+                    last_good_offset,
+                    last_good_offset,
+                );
+                let f = std::fs::OpenOptions::new().write(true).open(&wal_path)?;
+                f.set_len(last_good_offset)?;
+            }
+        }
+
+        // Phase 3: construct the engine (WalWriter::new reads file_len via
+        // metadata() and uses it as current_lsn — now correct after truncation).
+        let engine = Self::new(&path)?;
+
+        // A brand-new data dir or a WAL with no parseable records — nothing to replay.
+        if records.is_empty() {
             return Ok((engine, 0, 0));
         }
 
-        let reader = WalReader::new(&wal_path);
-        let records = reader.read_from(Lsn(0))?;
-
+        // Phase 4: replay the clean records to rebuild in-memory indexes.
         engine.replaying.store(true, Ordering::SeqCst);
         let mut max_node_id = 0u64;
         let mut max_edge_id = 0u64;
@@ -493,6 +538,12 @@ impl DiskStorageEngine {
     /// returned page IDs to `self.free_pages` before the head page is reused.
     fn collect_record_pages(&self, head_pid: PageId) -> Result<Vec<PageId>> {
         let mut pages = vec![head_pid];
+        // Track every page we visit so a corrupt on-disk cycle (e.g. A→B→A)
+        // is detected immediately rather than looping until OOM.  Reachable
+        // during WAL replay (put_node / delete_node / put_edge / delete_edge),
+        // so a corrupt .db file must not hang or crash the server at startup.
+        let mut visited: HashSet<PageId> = HashSet::new();
+        visited.insert(head_pid);
 
         // Read the head page to find the first overflow pointer.
         let guard = self.buffer_pool.pin_page(head_pid)?;
@@ -511,6 +562,18 @@ impl DiskStorageEngine {
         // Walk the overflow chain.  "+1 encoded": n means PageId(n-1), 0 means done.
         while next_encoded != 0 {
             let ov_pid = PageId(next_encoded - 1);
+            if !visited.insert(ov_pid) {
+                // ov_pid is already in the chain — corrupt on-disk pointer forms a
+                // cycle.  Return a corruption error rather than looping forever.
+                return Err(AstraeaError::PageCorrupted(
+                    ov_pid,
+                    format!(
+                        "overflow chain cycle detected: page {:?} appears more than once \
+                         (chain started at {:?})",
+                        ov_pid, head_pid
+                    ),
+                ));
+            }
             pages.push(ov_pid);
 
             let ov_guard = self.buffer_pool.pin_page(ov_pid)?;
@@ -613,11 +676,15 @@ impl DiskStorageEngine {
         let offset = header.free_space_offset as usize;
 
         // `overflow_page_id` is stored as a u32 (reusing the former
-        // `adjacency_offset` field); the "+1 encoding" is safe here because
-        // `first_overflow_encoded` was produced by the loop above using
-        // `pid.0 + 1`, so its value always fits in u32 when the total number
-        // of pages is below 2^32 − 1 (~4 billion pages = ~32 TiB at 8 KiB/page).
-        let overflow_page_id = first_overflow_encoded as u32;
+        // `adjacency_offset` field).  Use try_from rather than `as u32` so a
+        // database with ≥ 2^32 pages (≥ 32 TiB at 8 KiB/page) fails cleanly
+        // instead of silently truncating the pointer and corrupting the chain.
+        let overflow_page_id = u32::try_from(first_overflow_encoded).map_err(|_| {
+            AstraeaError::Storage(
+                "database exceeds u32 page-id limit: cannot encode overflow page pointer"
+                    .to_string(),
+            )
+        })?;
 
         let rec_header = NodeRecordHeader {
             node_id: record_id,
@@ -1789,6 +1856,145 @@ mod tests {
         assert!(
             engine.get_node(NodeId(3)).unwrap().is_some(),
             "node C (id=3, written in session 2) must survive the final reopen"
+        );
+    }
+
+    /// Regression test for H1: a corrupt on-disk overflow chain with a
+    /// back-pointer (A→B→A) must return `Err` immediately rather than looping
+    /// forever, growing `pages` until OOM.
+    ///
+    /// Reachable paths: `put_node`, `delete_node`, `put_edge`, `delete_edge` —
+    /// all called during WAL replay in `open()`, so a corrupt `.db` file
+    /// must not hang or OOM the server at startup before any auth is checked.
+    #[test]
+    fn test_collect_record_pages_detects_cycle() {
+        let (engine, _tmp) = make_engine();
+
+        // Insert a node large enough to span head + 1 overflow page.
+        let big_content = "C".repeat(10_000); // > HEAD_PAGE_CAPACITY (8 159 bytes)
+        let node = Node {
+            id: NodeId(101),
+            labels: vec!["CycleTest".to_string()],
+            properties: serde_json::json!({ "content": big_content }),
+            embedding: None,
+        };
+        engine.put_node(&node).unwrap();
+
+        // Locate head and overflow page IDs.
+        let head_pid = *engine.node_index.read().get(&NodeId(101)).unwrap();
+        let head_data = engine.buffer_pool.pin_page(head_pid).unwrap().data();
+        let rec = NodeRecordHeader::read_from(&head_data, PAGE_HEADER_SIZE);
+        let overflow_encoded = rec.overflow_page_id as u64;
+        assert!(overflow_encoded != 0, "test setup: node must span an overflow page");
+        let overflow_pid = PageId(overflow_encoded - 1);
+        engine.buffer_pool.unpin_page(head_pid, false).unwrap();
+
+        // Corrupt the overflow page's next-link to point back at head_pid,
+        // creating the cycle head_pid → overflow_pid → head_pid → … .
+        // The link is the 8 bytes at PAGE_HEADER_SIZE on an OverflowPage.
+        // "+1 encoding": n encodes PageId(n-1), so `head_pid.0 + 1` encodes
+        // head_pid, completing the cycle.
+        let ov_guard = engine.buffer_pool.pin_page(overflow_pid).unwrap();
+        let mut ov_buf = ov_guard.data().0;
+        let cycle_encoded: u64 = head_pid.0 + 1;
+        ov_buf[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + OVERFLOW_LINK_SIZE]
+            .copy_from_slice(&cycle_encoded.to_le_bytes());
+        ov_guard.write_data(&ov_buf);
+        engine.buffer_pool.unpin_page(overflow_pid, true).unwrap();
+
+        // Without the cycle guard this call loops forever.
+        // With the fix it must return Err immediately.
+        let result = engine.collect_record_pages(head_pid);
+        assert!(
+            result.is_err(),
+            "collect_record_pages must return Err on a cyclic overflow chain, not loop"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("cycle"),
+            "error message must indicate a cycle was detected: got {err_msg:?}"
+        );
+    }
+
+    /// Regression test for S1 (WAL torn-tail bricks the second restart).
+    ///
+    /// Scenario:
+    ///   1. Write good WAL records, then append a partial/garbage record
+    ///      (simulating a crash mid-write at the WAL tail).
+    ///   2. `open()` — must succeed; good records replayed, torn tail dropped.
+    ///   3. Write a new node (cleanly appended after the now-truncated tail).
+    ///   4. Drop and reopen — must STILL succeed; good records + new node present.
+    ///
+    /// Without the fix, step 4 fails: the torn bytes from step 1 are now buried
+    /// in the middle of the WAL (step 3 appended after them); the length guard
+    /// that previously skipped them no longer trips (the file is now large
+    /// enough), so `read_from` reaches the torn record, hits a CRC mismatch,
+    /// and returns `Err` — bricking the data directory.
+    #[test]
+    fn test_wal_torn_tail_recovers() {
+        use std::io::Write;
+
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+
+        // Step 1: write two good nodes, then simulate a crash by appending a
+        // torn (partial) WAL record directly to the file.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 64).unwrap();
+            engine.put_node(&test_node(1)).unwrap();
+            engine.put_node(&test_node(2)).unwrap();
+            // Engine dropped here — WAL records for 1 and 2 are on disk.
+        }
+        let wal_path = data_dir.join("astraea.wal");
+        {
+            // A torn record: length=10 (plausible, so the length guard will NOT
+            // trip after node 3 is appended in step 3), followed by 10 bytes of
+            // garbage payload and a deliberately wrong 4-byte CRC.  Total: 18
+            // bytes, which is exactly 4 + 10 + 4 — a "complete" record layout
+            // but with an invalid CRC.  This is the precise shape needed to
+            // reproduce the S1 bug: on first open() the length guard fires
+            // (file is too small), but after step 3 the file has grown and the
+            // guard no longer fires, so read_from reaches the CRC check.
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&wal_path)
+                .unwrap();
+            let mut blob = vec![10u8, 0, 0, 0]; // length = 10 LE
+            blob.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x01]);
+            blob.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]); // bad CRC
+            f.write_all(&blob).unwrap();
+        }
+
+        // Step 2: open must succeed despite the torn tail.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
+            .expect("open() must succeed even with a torn WAL tail");
+        assert_eq!(max_node_id, 2, "nodes 1 and 2 must be recovered");
+        assert!(engine.get_node(NodeId(1)).unwrap().is_some(), "node 1 must survive");
+        assert!(engine.get_node(NodeId(2)).unwrap().is_some(), "node 2 must survive");
+
+        // Step 3: write a new node; with the fix the torn tail was truncated in
+        // step 2, so this append lands cleanly at the true EOF.
+        engine.put_node(&test_node(3)).unwrap();
+        assert!(engine.get_node(NodeId(3)).unwrap().is_some());
+        drop(engine);
+
+        // Step 4: reopen — must succeed.  Before the fix this would fail because
+        // the torn bytes (now buried after nodes 1 and 2) would cause a
+        // CRC-mismatch error that propagated up through open(), bricking the dir.
+        let (engine, max_node_id, _) = DiskStorageEngine::open(data_dir)
+            .expect("second open() must succeed after torn-tail recovery");
+        assert_eq!(max_node_id, 3, "all three nodes must survive the second reopen");
+        assert!(
+            engine.get_node(NodeId(1)).unwrap().is_some(),
+            "node 1 must survive second reopen"
+        );
+        assert!(
+            engine.get_node(NodeId(2)).unwrap().is_some(),
+            "node 2 must survive second reopen"
+        );
+        assert!(
+            engine.get_node(NodeId(3)).unwrap().is_some(),
+            "node 3 (written post-recovery) must survive"
         );
     }
 
