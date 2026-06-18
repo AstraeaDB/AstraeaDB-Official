@@ -62,13 +62,20 @@ pub struct WalWriter {
 
 impl WalWriter {
     /// Open or create a WAL file at the given path.
+    ///
+    /// Opens with `O_APPEND` so every write atomically positions to EOF before
+    /// being committed by the kernel. This is the canonical fix for the
+    /// cursor-at-zero bug: without `O_APPEND`, reopening an existing WAL left
+    /// the OS write cursor at offset 0, so the first `append` call after a
+    /// `DiskStorageEngine::open` would overwrite records from the beginning of
+    /// the file while `current_lsn` still reported the old (larger) length.
+    /// `WalReader` uses its own `File::open` handle for all reads, so
+    /// `.read(true)` is not needed on the writer's file descriptor.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let file = OpenOptions::new()
-            .read(true)
-            .write(true)
+            .append(true)
             .create(true)
-            .truncate(false)
             .open(&path)?;
 
         let file_len = file.metadata()?.len();
