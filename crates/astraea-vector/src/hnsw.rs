@@ -285,17 +285,20 @@ impl HnswIndex {
 
             let candidates = self.search_layer(vector, &[current_ep], ef, l)?;
 
-            // Select neighbors: take the top `max_conn` closest.
-            let neighbors: Vec<NodeId> = candidates
-                .into_iter()
-                .take(max_conn)
-                .map(|(_, id)| id)
-                .collect();
-
-            // Update the current entry point for the next (lower) layer.
-            if let Some(first) = neighbors.first() {
-                current_ep = *first;
+            // Update the current entry point for the next (lower) layer to the
+            // closest node found here (candidates are sorted ascending). This is
+            // independent of which neighbours the heuristic ends up keeping.
+            if let Some(&(_, nearest)) = candidates.first() {
+                current_ep = nearest;
             }
+
+            // Select neighbours with the SELECT-NEIGHBORS-HEURISTIC (Algorithm 4)
+            // rather than a naive top-`max_conn`. Plain top-M yields clustered,
+            // poorly-navigable neighbourhoods whose recall collapses past a few
+            // thousand vectors (astraeadb-issues.md #25); the heuristic keeps a
+            // candidate only if it is closer to the new node than to any
+            // already-selected neighbour, producing diverse, well-connected links.
+            let neighbors = self.select_neighbors_heuristic(vector, &candidates, max_conn)?;
 
             // Add bidirectional connections.
             for &neighbor in &neighbors {
@@ -542,8 +545,68 @@ impl HnswIndex {
         Ok(result_vec)
     }
 
-    /// Shrink a node's connection list to at most `max_conn` by keeping
-    /// the closest neighbors.
+    /// SELECT-NEIGHBORS-HEURISTIC — Algorithm 4 of Malkov & Yashunin (2016),
+    /// basic variant (no `extendCandidates` / `keepPrunedConnections`).
+    ///
+    /// Given `base_vec` (the node we are connecting) and `candidates` already
+    /// sorted by ascending distance to `base_vec` as `(distance, node_id)`,
+    /// greedily keep a candidate only if it is closer to `base_vec` than to
+    /// every neighbour already selected. This favours edges that span different
+    /// directions around the node rather than a tight cluster, which is what
+    /// gives HNSW its navigability (and fixes the recall collapse in #25).
+    ///
+    /// Returns at most `m` node IDs. May return fewer than `m` — that is the
+    /// intended behaviour of the heuristic and is required for good graph
+    /// quality; callers must not pad the result back up to `m`.
+    fn select_neighbors_heuristic(
+        &self,
+        base_vec: &[f32],
+        candidates: &[(f32, NodeId)],
+        m: usize,
+    ) -> Result<Vec<NodeId>> {
+        let mut selected: Vec<NodeId> = Vec::with_capacity(m);
+
+        for &(_, cand_id) in candidates {
+            if selected.len() >= m {
+                break;
+            }
+            let cand_vec = match self.vectors.get(&cand_id) {
+                Some(v) => v,
+                None => continue,
+            };
+            // Distance from this candidate to the node being connected. Computed
+            // from `base_vec` directly so the heuristic does not depend on the
+            // caller's candidate distances being in the same metric.
+            let dist_to_base = compute_distance(self.metric, base_vec, cand_vec)?;
+
+            // Keep `cand` only if it is no farther from `base_vec` than it is
+            // from any already-selected neighbour. If some selected neighbour is
+            // strictly closer to `cand` than `base_vec` is, `cand` is redundant
+            // (that neighbour already covers this direction) — discard it.
+            let mut keep = true;
+            for &sel_id in &selected {
+                if let Some(sel_vec) = self.vectors.get(&sel_id) {
+                    let d = compute_distance(self.metric, cand_vec, sel_vec)?;
+                    if d < dist_to_base {
+                        keep = false;
+                        break;
+                    }
+                }
+            }
+            if keep {
+                selected.push(cand_id);
+            }
+        }
+
+        Ok(selected)
+    }
+
+    /// Shrink a node's connection list to at most `max_conn`.
+    ///
+    /// Re-selects which links to keep with [`Self::select_neighbors_heuristic`]
+    /// rather than naive closest-`max_conn` truncation, so that a node whose
+    /// list overflows after a back-link keeps a diverse, navigable neighbourhood
+    /// (astraeadb-issues.md #25).
     fn shrink_connections(&mut self, node_id: NodeId, layer: usize, max_conn: usize) -> Result<()> {
         let neighbors = match self.layers[layer].get(&node_id) {
             Some(n) => n.clone(),
@@ -559,18 +622,17 @@ impl HnswIndex {
             None => return Ok(()),
         };
 
-        // Score each neighbor by distance.
-        let mut scored: Vec<(OrderedFloat<f32>, NodeId)> = Vec::with_capacity(neighbors.len());
+        // Score each neighbor by distance, sorted ascending for the heuristic.
+        let mut scored: Vec<(f32, NodeId)> = Vec::with_capacity(neighbors.len());
         for &n in &neighbors {
             if let Some(nv) = self.vectors.get(&n) {
                 let d = compute_distance(self.metric, &node_vec, nv)?;
-                scored.push((OrderedFloat(d), n));
+                scored.push((d, n));
             }
         }
-        scored.sort_by_key(|a| a.0);
-        scored.truncate(max_conn);
+        scored.sort_by_key(|a| OrderedFloat(a.0));
 
-        let new_neighbors: Vec<NodeId> = scored.into_iter().map(|(_, id)| id).collect();
+        let new_neighbors = self.select_neighbors_heuristic(&node_vec, &scored, max_conn)?;
         if let Some(adj) = self.layers[layer].get_mut(&node_id) {
             *adj = new_neighbors;
         }
@@ -946,5 +1008,140 @@ mod tests {
             "removed node must not be contained"
         );
         assert!(idx.contains(NodeId(3)));
+    }
+
+    // --- Issue #25: recall@k regression guard for graph construction quality ---
+
+    /// Generate `n` clustered vectors at dimension `dim`: pick `n_clusters`
+    /// random centres, then draw each vector as a centre plus per-component
+    /// Gaussian noise. Clustered data is the regime where the old naive
+    /// top-`M` neighbour selection collapsed (recall ~0.6 at scale); the
+    /// SELECT-NEIGHBORS-HEURISTIC must hold recall@10 >= 0.95 here.
+    ///
+    /// Fully seeded (Box–Muller over a seeded `StdRng`) so the test is
+    /// deterministic run-to-run (astraeadb-issues.md #18).
+    fn make_clustered_vectors(n: usize, dim: usize, n_clusters: usize, seed: u64) -> Vec<Vec<f32>> {
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // Standard normal sample via Box–Muller.
+        let gauss = |rng: &mut StdRng| -> f32 {
+            let u1: f32 = rng.r#gen::<f32>().max(1e-9);
+            let u2: f32 = rng.r#gen::<f32>();
+            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
+        };
+
+        // Cluster centres, spread out over the unit cube.
+        let centres: Vec<Vec<f32>> = (0..n_clusters)
+            .map(|_| (0..dim).map(|_| rng.r#gen::<f32>()).collect())
+            .collect();
+
+        (0..n)
+            .map(|i| {
+                let c = &centres[i % n_clusters];
+                (0..dim).map(|d| c[d] + 0.55 * gauss(&mut rng)).collect()
+            })
+            .collect()
+    }
+
+    /// Build a seeded index over `vectors`, then measure mean recall@k for a
+    /// sample of queries against a brute-force cosine ground truth over the
+    /// retained copies. Returns (mean_recall, build_secs, mean_query_micros).
+    fn measure_recall(
+        vectors: &[Vec<f32>],
+        dim: usize,
+        k: usize,
+        ef_search: usize,
+        n_queries: usize,
+    ) -> (f64, f64, f64) {
+        use std::time::Instant;
+
+        let mut idx = HnswIndex::with_seed(dim, DistanceMetric::Cosine, 16, 200, 0xC0FFEE);
+
+        let build_start = Instant::now();
+        for (i, v) in vectors.iter().enumerate() {
+            idx.insert(NodeId(i as u64), v).unwrap();
+        }
+        let build_secs = build_start.elapsed().as_secs_f64();
+
+        // Use the first `n_queries` stored vectors as queries (they exist in
+        // the index, so the nearest neighbour is the vector itself — recall@k
+        // then measures whether the other k-1 true neighbours are found too).
+        let mut total_recall = 0.0f64;
+        let mut total_query_micros = 0.0f64;
+        for q in 0..n_queries {
+            let query = &vectors[q];
+
+            // Brute-force cosine ground truth.
+            let mut bf: Vec<(NodeId, f32)> = vectors
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    (
+                        NodeId(i as u64),
+                        crate::distance::cosine_distance(query, v).unwrap(),
+                    )
+                })
+                .collect();
+            bf.sort_by_key(|a| OrderedFloat(a.1));
+            let truth: HashSet<NodeId> = bf.iter().take(k).map(|(id, _)| *id).collect();
+
+            let qstart = Instant::now();
+            let results = idx.search(query, k, ef_search).unwrap();
+            total_query_micros += qstart.elapsed().as_secs_f64() * 1e6;
+
+            let hit = results.iter().filter(|(id, _)| truth.contains(id)).count();
+            total_recall += hit as f64 / k as f64;
+        }
+
+        (
+            total_recall / n_queries as f64,
+            build_secs,
+            total_query_micros / n_queries as f64,
+        )
+    }
+
+    /// Always-on guard: clustered set large enough to expose the construction
+    /// bug (the old top-M selection already sat well below 0.95 here) but small
+    /// enough to run in debug `cargo test`. Pins the recall floor so graph
+    /// quality cannot silently regress.
+    #[test]
+    fn test_recall_clustered_guard_dim128() {
+        let dim = 128;
+        let vectors = make_clustered_vectors(3_000, dim, 100, 1);
+        let (recall, _build, _q) = measure_recall(&vectors, dim, 10, 64, 100);
+        assert!(
+            recall >= 0.95,
+            "recall@10 on clustered dim-128 set must stay >= 0.95, got {recall:.3}"
+        );
+    }
+
+    /// Full-scale acceptance guard for #25 at N=10k, dim 128. Heavy in debug;
+    /// run with `cargo test --release -- --ignored` (this is the CI guard).
+    #[test]
+    #[ignore = "heavy: N=10k build; run in release via `cargo test --release -- --ignored`"]
+    fn test_recall_clustered_10k_dim128() {
+        let dim = 128;
+        let vectors = make_clustered_vectors(10_000, dim, 100, 2);
+        let (recall, build, q) = measure_recall(&vectors, dim, 10, 64, 200);
+        eprintln!("dim128 N=10k recall@10={recall:.3} build={build:.1}s query={q:.1}us");
+        assert!(
+            recall >= 0.95,
+            "recall@10 at N=10k dim 128 must be >= 0.95, got {recall:.3}"
+        );
+    }
+
+    /// Full-scale acceptance guard for #25 at N=10k, dim 768 (the a-llama
+    /// regime). Heavy in debug; run with `cargo test --release -- --ignored`.
+    #[test]
+    #[ignore = "heavy: N=10k x dim768 build; run in release via `cargo test --release -- --ignored`"]
+    fn test_recall_clustered_10k_dim768() {
+        let dim = 768;
+        let vectors = make_clustered_vectors(10_000, dim, 100, 3);
+        let (recall, build, q) = measure_recall(&vectors, dim, 10, 64, 200);
+        eprintln!("dim768 N=10k recall@10={recall:.3} build={build:.1}s query={q:.1}us");
+        assert!(
+            recall >= 0.95,
+            "recall@10 at N=10k dim 768 must be >= 0.95, got {recall:.3}"
+        );
     }
 }

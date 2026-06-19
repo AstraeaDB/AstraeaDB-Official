@@ -28,6 +28,19 @@ readers; the gate does not validate bullet content.
 - (next release notes go here — keep this section as the working
   draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
 
+## [0.1.12] - 2026-06-19
+
+### Fixed
+- **astraea-vector:** HNSW graph construction now uses the
+  SELECT-NEIGHBORS-HEURISTIC (Malkov & Yashunin 2016, Algorithm 4)
+  instead of naive top-`M` neighbour selection, both when connecting a
+  new node and when re-pruning an overflowing neighbour list. Plain
+  top-`M` produced clustered, poorly-navigable neighbourhoods whose
+  recall collapsed past a few thousand vectors; recall@10 at N=10k went
+  from ~0.32 to ~1.00 at dim 768 and from ~0.98 to ~0.99 at dim 128
+  (ef_search=64, Cosine). Adds a seeded clustered `recall@k` regression
+  guard pinning recall@10 >= 0.95. Resolves issue #25.
+
 ## [0.1.11] - 2026-06-18
 
 ### Added
