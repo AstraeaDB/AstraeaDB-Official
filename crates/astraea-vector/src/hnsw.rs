@@ -1024,7 +1024,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(seed);
 
         // Standard normal sample via Box–Muller.
-        let mut gauss = |rng: &mut StdRng| -> f32 {
+        let gauss = |rng: &mut StdRng| -> f32 {
             let u1: f32 = rng.r#gen::<f32>().max(1e-9);
             let u2: f32 = rng.r#gen::<f32>();
             (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
