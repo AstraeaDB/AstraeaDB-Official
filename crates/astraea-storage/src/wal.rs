@@ -53,7 +53,15 @@ impl WalRecord {
 
 /// Append-only WAL writer.
 pub struct WalWriter {
-    writer: Mutex<BufWriter<File>>,
+    /// `None` means the writer is **poisoned**: a prior [`Self::truncate`]
+    /// committed the on-disk rename but then failed to reopen its handle on
+    /// the new file (finding #2183). At that point the writer no longer
+    /// knows a safe fd to write through — silently keeping the old one would
+    /// mean every subsequent `append` vanishes into the unlinked pre-rename
+    /// inode. Making that state `None` instead of a stale `BufWriter` turns
+    /// it into a fast, explicit `Err` from `append`/`truncate` rather than a
+    /// silent data-loss bug.
+    writer: Mutex<Option<BufWriter<File>>>,
     /// Current LSN (byte offset of the next record to be written).
     current_lsn: Mutex<u64>,
     #[allow(dead_code)]
@@ -79,7 +87,7 @@ impl WalWriter {
         let writer = BufWriter::new(file);
 
         Ok(Self {
-            writer: Mutex::new(writer),
+            writer: Mutex::new(Some(writer)),
             current_lsn: Mutex::new(file_len),
             path,
         })
@@ -88,6 +96,10 @@ impl WalWriter {
     /// Append a record to the WAL. Returns the LSN of the written record.
     ///
     /// Format: [length: u32][record_type: u8][payload bytes][crc32: u32]
+    ///
+    /// Returns `Err(AstraeaError::Storage(..))` without touching disk if the
+    /// writer is poisoned (see the `writer` field doc) — callers must open a
+    /// fresh `WalWriter` at that point.
     pub fn append(&self, record: &WalRecord) -> Result<Lsn> {
         let payload =
             serde_json::to_vec(record).map_err(|e| AstraeaError::Serialization(e.to_string()))?;
@@ -103,8 +115,10 @@ impl WalWriter {
         hasher.update(&payload);
         let crc = hasher.finalize();
 
-        let mut writer = self.writer.lock();
+        let mut writer_slot = self.writer.lock();
         let mut lsn = self.current_lsn.lock();
+
+        let writer = writer_slot.as_mut().ok_or_else(poisoned_error)?;
 
         let record_lsn = Lsn(*lsn);
 
@@ -158,9 +172,22 @@ impl WalWriter {
     /// `current_lsn` to the length of the retained tail — LSNs in this log
     /// are byte offsets within the *current* WAL file, not a global
     /// monotonic counter, so truncation legitimately renumbers them from 0.
+    ///
+    /// **Poisoning (finding #2183):** the on-disk rename is only committed
+    /// once `commit_rename` returns `Ok`; if the *reopen* that follows it
+    /// fails, the truncation already happened on disk but this writer no
+    /// longer has any fd it can safely use (its old one points at the
+    /// now-unlinked pre-truncate inode). Rather than keep writing through
+    /// that stale handle — which would silently discard every future
+    /// `append` — this method poisons the writer (`writer` slot set to
+    /// `None`) so all subsequent `append`/`truncate` calls fail fast with a
+    /// clear error instead of losing data silently. Callers must open a
+    /// fresh `WalWriter` at `path` to recover.
     pub fn truncate(&self, lsn: Lsn) -> Result<()> {
-        let mut writer = self.writer.lock();
+        let mut writer_slot = self.writer.lock();
         let mut current = self.current_lsn.lock();
+
+        let writer = writer_slot.as_mut().ok_or_else(poisoned_error)?;
 
         // Flush buffered-but-unwritten bytes first so `read_tail` (which
         // opens a fresh handle on `path`) sees everything appended so far.
@@ -172,16 +199,44 @@ impl WalWriter {
 
         // Reopen at `path` so subsequent appends target the new inode that
         // the rename just installed, not the stale one this fd still points
-        // at.
+        // at. The rename above has already committed on disk, so a failure
+        // here cannot be rolled back — poison the writer instead of leaving
+        // it pointing at the orphaned old inode.
         let file = OpenOptions::new()
             .append(true)
             .create(true)
             .open(&self.path)
-            .map_err(AstraeaError::StorageIo)?;
-        *writer = BufWriter::new(file);
+            .map_err(|e| {
+                *writer_slot = None;
+                AstraeaError::StorageIo(e)
+            })?;
+        *writer_slot = Some(BufWriter::new(file));
         *current = tail.len() as u64;
 
         Ok(())
+    }
+}
+
+/// Build the error returned by `append`/`truncate` when the writer has been
+/// poisoned by a prior failed post-truncate reopen (finding #2183).
+fn poisoned_error() -> AstraeaError {
+    AstraeaError::Storage(
+        "WalWriter is poisoned: a prior truncate committed on disk but failed to reopen its \
+         file handle; open a fresh WalWriter at the same path to recover"
+            .to_string(),
+    )
+}
+
+#[cfg(test)]
+impl WalWriter {
+    /// Test-only hook that forces the writer into the same poisoned state
+    /// `truncate` would leave it in if the post-rename reopen failed. Real
+    /// reopen failures require an OS-level fault (e.g. the directory losing
+    /// permissions between the rename and the reopen) that is awkward to
+    /// engineer portably in a unit test; this lets us assert the fail-fast
+    /// contract (finding #2183) directly instead.
+    fn poison_for_test(&self) {
+        *self.writer.lock() = None;
     }
 }
 
@@ -361,9 +416,31 @@ fn stage_tail(path: &Path, tail: &[u8]) -> Result<()> {
 /// Atomically rename the staged `<path>.new` over `path` — the commit point
 /// for a truncate. A crash before this call leaves the original file
 /// untouched; a crash after it leaves the fully-staged replacement.
+///
+/// The rename alone is not enough to survive a crash immediately after it
+/// returns: on POSIX, a directory entry change is only guaranteed durable
+/// once the *containing directory* has been fsynced — the classic gap where
+/// `rename(2)` can return success but the kernel has not yet persisted the
+/// updated directory entry, so a crash a moment later can lose the rename on
+/// reboot. Fsync the parent directory to close that gap (finding #2182).
 fn commit_rename(path: &Path) -> Result<()> {
     let tmp_path = sibling_tmp(path);
     std::fs::rename(&tmp_path, path)?;
+    fsync_parent_dir(path)?;
+    Ok(())
+}
+
+/// Fsync the parent directory of `path` so a preceding `rename`/`create_new`
+/// into that directory is durable across a crash, not just visible to this
+/// process. If `path` has no parent (e.g. it is `/` or a bare relative file
+/// name with an empty parent), there is no directory entry to sync against —
+/// treat that as a no-op rather than an error.
+fn fsync_parent_dir(path: &Path) -> Result<()> {
+    let parent = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => return Ok(()),
+    };
+    File::open(parent)?.sync_all()?;
     Ok(())
 }
 
@@ -792,5 +869,80 @@ mod tests {
                 "run {run}: all 20 post-barrier appends must survive regardless of interleaving"
             );
         }
+    }
+
+    /// Issue #19 / finding #2183: once a `WalWriter` is poisoned (as it would
+    /// be if `truncate`'s post-rename reopen failed), every subsequent
+    /// `append` and `truncate` must fail fast with a clear error rather than
+    /// silently writing into (or attempting to truncate through) a stale,
+    /// orphaned file handle.
+    #[test]
+    fn test_wal_writer_poisoned_after_failed_reopen_fails_fast() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+
+        let writer = WalWriter::new(&path).unwrap();
+        writer
+            .append(&WalRecord::InsertNode(make_test_node(1)))
+            .unwrap();
+        let good_len = std::fs::metadata(&path).unwrap().len();
+
+        // Force the same state a failed post-truncate reopen would leave.
+        writer.poison_for_test();
+
+        let append_err = writer
+            .append(&WalRecord::InsertNode(make_test_node(2)))
+            .unwrap_err();
+        assert!(
+            matches!(append_err, AstraeaError::Storage(ref msg) if msg.contains("poisoned")),
+            "append on a poisoned writer must fail fast with a clear error, got {append_err:?}"
+        );
+
+        let truncate_err = writer.truncate(Lsn(0)).unwrap_err();
+        assert!(
+            matches!(truncate_err, AstraeaError::Storage(ref msg) if msg.contains("poisoned")),
+            "truncate on a poisoned writer must fail fast with a clear error, got {truncate_err:?}"
+        );
+
+        // Neither failed call must have touched the on-disk file.
+        let file_len_after = std::fs::metadata(&path).unwrap().len();
+        assert_eq!(
+            file_len_after, good_len,
+            "a poisoned writer must never mutate the on-disk WAL"
+        );
+        let reader = WalReader::new(&path);
+        let (records, _) = reader.read_from(Lsn(0)).unwrap();
+        assert_eq!(records.len(), 1, "the original good record must be intact");
+    }
+
+    /// Finding #2182: `commit_rename` must fsync the parent directory after
+    /// the rename so the rename itself is durable across a crash, not just
+    /// atomic from the perspective of this process. We can't directly assert
+    /// an fsync happened, but we can assert `commit_rename` (and therefore
+    /// `truncate_wal`/`WalWriter::truncate`) succeeds and leaves a fully
+    /// consistent file — regressions in the fsync step (e.g. a typo'd path)
+    /// would show up as an `Err` here since `fsync_parent_dir` is fallible.
+    #[test]
+    fn test_wal_truncate_fsyncs_parent_dir_without_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wal.log");
+
+        let writer = WalWriter::new(&path).unwrap();
+        writer
+            .append(&WalRecord::InsertNode(make_test_node(1)))
+            .unwrap();
+        let lsn1 = writer
+            .append(&WalRecord::InsertNode(make_test_node(2)))
+            .unwrap();
+
+        // This exercises commit_rename -> fsync_parent_dir end to end; any
+        // failure to open/sync the parent directory surfaces as an Err.
+        writer.truncate(lsn1).unwrap();
+
+        let reader = WalReader::new(&path);
+        let (records, last_good) = reader.read_from(Lsn(0)).unwrap();
+        assert_eq!(records.len(), 1);
+        let file_len = std::fs::metadata(&path).unwrap().len();
+        assert_eq!(last_good, file_len);
     }
 }
