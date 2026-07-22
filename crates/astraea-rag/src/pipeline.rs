@@ -391,4 +391,75 @@ mod tests {
         assert!(!user.contains(context_text));
         assert!(ctx.contains(context_text));
     }
+
+    /// Minimal `LlmProvider` test double that records the exact `(prompt,
+    /// context)` pair it received, so tests can inspect what actually
+    /// reaches a provider's `complete()` call — not just what the internal
+    /// builder helpers produce in isolation.
+    #[derive(Default)]
+    struct RecordingProvider {
+        last_call: std::sync::Mutex<Option<(String, String)>>,
+    }
+
+    impl RecordingProvider {
+        fn last_call(&self) -> (String, String) {
+            self.last_call
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("complete() was never called")
+        }
+    }
+
+    impl LlmProvider for RecordingProvider {
+        fn complete(&self, prompt: &str, context: &str) -> Result<String> {
+            *self.last_call.lock().unwrap() = Some((prompt.to_string(), context.to_string()));
+            Ok(format!("recorded: {prompt}"))
+        }
+
+        fn max_output_tokens(&self) -> usize {
+            8000
+        }
+
+        fn name(&self) -> &str {
+            "recording"
+        }
+    }
+
+    #[test]
+    fn test_no_duplicate_context_end_to_end() {
+        // #16 regression guard (end-to-end): run the real pipeline through a
+        // recording provider and inspect exactly what reaches `complete()`.
+        // The graph context (which mentions "Alice", the anchor node's name)
+        // must appear in the `context` argument only, never in `prompt`.
+        let (graph, _vi) = build_test_graph();
+        let recorder = RecordingProvider::default();
+        let config = GraphRagConfig {
+            system_prompt: Some("You are a helpful assistant.".into()),
+            ..GraphRagConfig::default()
+        };
+
+        // Deliberately avoid mentioning "Alice" in the question itself so the
+        // marker can only have come from the linearized graph context.
+        graph_rag_query_anchored(
+            &graph,
+            &recorder,
+            "Summarize this node's local neighborhood.",
+            NodeId(1),
+            &config,
+        )
+        .unwrap();
+
+        let (prompt, context) = recorder.last_call();
+        assert!(
+            !prompt.contains("Alice"),
+            "graph context leaked into the user prompt: {prompt}"
+        );
+        assert!(
+            context.contains("Alice"),
+            "graph context missing from the context argument: {context}"
+        );
+        // The context argument itself must not contain the marker twice.
+        assert_eq!(context.matches("Alice").count(), 1);
+    }
 }
