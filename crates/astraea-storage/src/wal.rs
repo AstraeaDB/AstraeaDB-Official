@@ -173,16 +173,18 @@ impl WalWriter {
     /// are byte offsets within the *current* WAL file, not a global
     /// monotonic counter, so truncation legitimately renumbers them from 0.
     ///
-    /// **Poisoning (finding #2183):** the on-disk rename is only committed
-    /// once `commit_rename` returns `Ok`; if the *reopen* that follows it
-    /// fails, the truncation already happened on disk but this writer no
-    /// longer has any fd it can safely use (its old one points at the
-    /// now-unlinked pre-truncate inode). Rather than keep writing through
-    /// that stale handle — which would silently discard every future
-    /// `append` — this method poisons the writer (`writer` slot set to
-    /// `None`) so all subsequent `append`/`truncate` calls fail fast with a
-    /// clear error instead of losing data silently. Callers must open a
-    /// fresh `WalWriter` at `path` to recover.
+    /// **Poisoning (findings #2183, #2184):** `rename_staged` is the point of
+    /// no return — a failure at or before it leaves the original WAL and this
+    /// writer's fd untouched, so it propagates without poisoning. Once it
+    /// succeeds the truncation has committed on disk and this writer's old fd
+    /// points at the now-unlinked pre-truncate inode, so *every* fallible step
+    /// after it — the parent-directory fsync that makes the rename durable, and
+    /// the reopen that repoints the fd — poisons the writer (`writer` slot set
+    /// to `None`) on failure. Rather than keep writing through the stale handle
+    /// — which would silently discard every future `append` — all subsequent
+    /// `append`/`truncate` calls then fail fast with a clear error instead of
+    /// losing data silently. Callers must open a fresh `WalWriter` at `path` to
+    /// recover.
     pub fn truncate(&self, lsn: Lsn) -> Result<()> {
         let mut writer_slot = self.writer.lock();
         let mut current = self.current_lsn.lock();
@@ -195,20 +197,27 @@ impl WalWriter {
 
         let tail = read_tail(&self.path, lsn)?;
         stage_tail(&self.path, &tail)?;
-        commit_rename(&self.path)?;
 
-        // Reopen at `path` so subsequent appends target the new inode that
-        // the rename just installed, not the stale one this fd still points
-        // at. The rename above has already committed on disk, so a failure
-        // here cannot be rolled back — poison the writer instead of leaving
-        // it pointing at the orphaned old inode.
-        let file = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(&self.path)
-            .map_err(|e| {
+        // The rename is the point of no return. A failure *before* it commits
+        // is safe — the original WAL and this writer's fd are untouched — so we
+        // propagate without poisoning. Once it succeeds, the on-disk truncation
+        // has committed and this writer's fd points at the now-unlinked old
+        // inode, so EVERY subsequent fallible step must poison the writer on
+        // failure rather than leave it silently appending into the orphaned
+        // inode: the parent-dir fsync that makes the rename durable (#2184) and
+        // the reopen that repoints the fd at the new inode (#2183).
+        rename_staged(&self.path)?;
+
+        let file = fsync_parent_dir(&self.path)
+            .and_then(|()| {
+                OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(&self.path)
+                    .map_err(AstraeaError::StorageIo)
+            })
+            .inspect_err(|_| {
                 *writer_slot = None;
-                AstraeaError::StorageIo(e)
             })?;
         *writer_slot = Some(BufWriter::new(file));
         *current = tail.len() as u64;
@@ -424,9 +433,20 @@ fn stage_tail(path: &Path, tail: &[u8]) -> Result<()> {
 /// updated directory entry, so a crash a moment later can lose the rename on
 /// reboot. Fsync the parent directory to close that gap (finding #2182).
 fn commit_rename(path: &Path) -> Result<()> {
+    rename_staged(path)?;
+    fsync_parent_dir(path)?;
+    Ok(())
+}
+
+/// The atomic rename alone — the truncate commit point and point of no return,
+/// split out from [`commit_rename`] so [`WalWriter::truncate`] can treat every
+/// fallible step *after* the rename (the parent-dir fsync and the fd reopen) as
+/// its poison boundary (findings #2183 and #2184). A crash or error *before*
+/// this returns leaves the original file untouched; after it, the staged
+/// replacement is installed but not durable until the parent dir is fsynced.
+fn rename_staged(path: &Path) -> Result<()> {
     let tmp_path = sibling_tmp(path);
     std::fs::rename(&tmp_path, path)?;
-    fsync_parent_dir(path)?;
     Ok(())
 }
 
