@@ -805,7 +805,9 @@ mod tests {
             // renamed file, proving the writer's fd was correctly swapped
             // rather than silently writing into the unlinked old inode. ---
             writer
-                .append(&WalRecord::InsertNode(make_test_node(iter as u64 * 1000 + 999)))
+                .append(&WalRecord::InsertNode(make_test_node(
+                    iter as u64 * 1000 + 999,
+                )))
                 .unwrap();
             let reader = WalReader::new(&path);
             let (records_after_append, _) = reader.read_from(Lsn(0)).unwrap();

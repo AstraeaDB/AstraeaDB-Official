@@ -24,6 +24,8 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-07-23
+
 ### Added
 - **astraea-storage:** `WalWriter::truncate(&self, lsn)` — an atomic,
   writer-serialized WAL truncation primitive. It takes the same locks
