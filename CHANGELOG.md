@@ -25,8 +25,21 @@ readers; the gate does not validate bullet content.
 ## [Unreleased]
 
 ### Added
-- (next release notes go here — keep this section as the working
-  draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
+- **astraea-storage:** `WalWriter::truncate(&self, lsn)` — an atomic,
+  writer-serialized WAL truncation primitive. It takes the same locks
+  as `append`, stages the retained tail to a sibling file, fsyncs,
+  atomically renames, fsyncs the parent directory, and reopens the
+  writer's fd, so a truncate can run safely against a live writer.
+
+### Fixed
+- **astraea-storage:** WAL truncation is now crash-atomic and durable.
+  The previous in-place read-modify-write left a window where a crash
+  mid-truncate corrupted the tail, and a rename over a live writer's
+  path could silently orphan its open fd. Truncation now stages to a
+  sibling file, fsyncs, atomically renames, and fsyncs the parent
+  directory; a failure at any post-rename step poisons the writer so
+  later appends fail fast rather than vanishing into the unlinked
+  inode. (astraeadb-issues #19; hardening #2182/#2183/#2184.)
 
 ## [0.1.12] - 2026-06-19
 
