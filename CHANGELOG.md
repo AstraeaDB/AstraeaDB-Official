@@ -24,9 +24,15 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
-### Added
-- (next release notes go here — keep this section as the working
-  draft, then rename to `## [X.Y.Z] - YYYY-MM-DD` at release time.)
+## [0.1.13] - 2026-07-23
+
+### Changed
+- **astraea-rag:** added an end-to-end regression test
+  (`test_no_duplicate_context_end_to_end`) that drives the real
+  `graph_rag_query_anchored` pipeline through a recording provider and
+  asserts retrieved graph context reaches the LLM exactly once. Test-only
+  guard for the context-duplication fix that shipped in 0.1.12
+  (astraeadb-issues #16); no behavioral change.
 
 ## [0.1.12] - 2026-06-19
 
