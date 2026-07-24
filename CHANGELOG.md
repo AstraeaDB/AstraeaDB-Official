@@ -24,6 +24,18 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-07-24
+
+### Added
+- **astraea-storage:** `DiskStorageEngine::compact()` reclaims page space — it
+  reads the live records, invalidates buffer-pool frames, truncates the data
+  file, and re-packs the live records into fresh pages, returning
+  `CompactionStats`. It runs under the engine's global write lock; a
+  mid-compaction failure poisons the engine so it fails fast (reopen to recover
+  via WAL replay) rather than misreporting live data as missing. Explicit
+  library call — not yet wired to RPC/CLI. Also adds `BufferPool::invalidate_all()`
+  and `FileManager::truncate_to()`. (astraeadb-issues #15.)
+
 ## [0.1.14] - 2026-07-24
 
 ### Added
