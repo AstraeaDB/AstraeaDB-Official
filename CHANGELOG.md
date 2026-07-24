@@ -36,6 +36,18 @@ readers; the gate does not validate bullet content.
   library call — not yet wired to RPC/CLI. Also adds `BufferPool::invalidate_all()`
   and `FileManager::truncate_to()`. (astraeadb-issues #15.)
 
+## [0.1.14] - 2026-07-24
+
+### Added
+- **astraea-flight:** end-to-end regression test
+  `test_flight_roundtrip_preserves_edges` covering the `do_get → do_put`
+  export/import roundtrip — it drives the real Flight encode/decode and asserts
+  client node ids and every edge's `source`/`target` survive a lossless
+  roundtrip (by property match). This is the acceptance criterion for
+  astraeadb-issues #14; the id-honoring implementation itself was already
+  present via `GraphOps::create_node_with_id` (which advances the id allocator
+  past imported ids). No production change.
+
 ## [0.1.13] - 2026-07-23
 
 ### Added
