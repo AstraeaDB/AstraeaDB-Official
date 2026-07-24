@@ -24,6 +24,21 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-24
+
+### Changed
+- **astraea-encrypt-demo (was `astraea-crypto`):** renamed the crate to make its
+  demonstration-only status unmistakable. It is *searchable-encryption demo*
+  code (XOR ciphers, non-HMAC deterministic tag) and must **not** be used for
+  security; use `rustls` via `astraea-server` for real transport security. The
+  crate already carried a `//!` demo warning; this change fixes the misleading
+  name. (astraeadb-issues #13.)
+
+### Removed
+- **BREAKING:** the crate name `astraea-crypto` and module path `astraea_crypto`
+  are removed. Update `use astraea_crypto::…` → `use astraea_encrypt_demo::…`
+  and the dependency key `astraea-crypto` → `astraea-encrypt-demo`.
+
 ## [0.1.13] - 2026-07-23
 
 ### Added
