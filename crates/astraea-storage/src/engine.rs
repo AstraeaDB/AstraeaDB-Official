@@ -21,6 +21,12 @@ use crate::wal::{WalReader, WalRecord, WalWriter};
 /// Default buffer pool size (number of page frames).
 const DEFAULT_POOL_SIZE: usize = 1024;
 
+/// [`DiskStorageEngine::compact`] logs a `WARN` once the live-record bytes it
+/// is about to buffer in memory (all at once — see the cost note on
+/// `compact`) exceed this threshold. Observability only; `compact()` does
+/// not refuse to run above it (finding #2191).
+const COMPACTION_BUFFER_WARN_BYTES: u64 = 256 * 1024 * 1024; // 256 MiB
+
 /// Format tag for the v1 binary node-record body.
 ///
 /// Byte 0 of the record body distinguishes the encoding:
@@ -171,6 +177,32 @@ pub struct DiskStorageEngine {
     /// `commit_transaction`) touches pages, and that step already takes the
     /// read guard like any other mutation.
     compaction_lock: RwLock<()>,
+
+    /// Set once a `compact()` call fails *after* it has already truncated the
+    /// data file to zero pages but *before* it finishes rebuilding
+    /// `node_index`/`edge_index` (finding #2190).
+    ///
+    /// In that window `node_index`/`edge_index` still hold pre-truncation
+    /// `PageId`s that no longer refer to the data they used to — the file has
+    /// been physically rewritten underneath them (either truncated to
+    /// nothing, or partially repacked with a *different* record at that same
+    /// page id). Continuing to serve `get_node`/`get_edge`/etc. through that
+    /// stale mapping would silently return `None`, a deserialization error,
+    /// or — worse — some other live record's bytes, for data that is still
+    /// logically present. Once this flag is set, every page-IO entry point
+    /// fails fast with `poisoned_error()` instead. Recovery is to reopen the
+    /// data directory via [`Self::open`], which rebuilds both indexes purely
+    /// from WAL replay and never trusts the on-disk `.db` file's layout.
+    poisoned: AtomicBool,
+
+    /// Test-only hook for finding #2190's regression test: when not
+    /// `usize::MAX`, `write_record` decrements this counter and, once it
+    /// reaches zero, returns a synthetic I/O-style error instead of touching
+    /// disk. This lets a test deterministically simulate an ENOSPC/EIO
+    /// failure partway through `compact()`'s post-truncate repack loop
+    /// without depending on real disk-quota exhaustion.
+    #[cfg(test)]
+    test_fail_write_after: std::sync::atomic::AtomicUsize,
 }
 
 /// Summary of a single [`DiskStorageEngine::compact`] run.
@@ -184,6 +216,22 @@ pub struct CompactionStats {
     pub live_nodes: usize,
     /// Number of live edge records repacked.
     pub live_edges: usize,
+}
+
+/// Build the error returned by every page-IO entry point once a prior
+/// `compact()` call has poisoned the engine (finding #2190): it truncated
+/// the data file to zero pages but then failed while repacking records back
+/// into it, so `node_index`/`edge_index` no longer match on-disk page
+/// positions. See the `poisoned` field doc and the "Failure after the point
+/// of no return" section of `DiskStorageEngine::compact`'s doc comment.
+fn poisoned_error() -> AstraeaError {
+    AstraeaError::Storage(
+        "DiskStorageEngine is poisoned: a prior compact() truncated the data file but failed \
+         while repacking records into it, so the in-memory node/edge indexes no longer match \
+         on-disk page positions; reopen this data directory (DiskStorageEngine::open) to \
+         recover via WAL replay"
+            .to_string(),
+    )
 }
 
 impl DiskStorageEngine {
@@ -217,7 +265,20 @@ impl DiskStorageEngine {
             replaying: AtomicBool::new(false),
             free_pages: Mutex::new(Vec::new()),
             compaction_lock: RwLock::new(()),
+            poisoned: AtomicBool::new(false),
+            #[cfg(test)]
+            test_fail_write_after: std::sync::atomic::AtomicUsize::new(usize::MAX),
         })
+    }
+
+    /// Test-only: arm the write-failure injector so the `n`-th subsequent
+    /// [`Self::write_record`] call returns a synthetic error instead of
+    /// performing real I/O. `n = 0` fails on the very next call. See the
+    /// `test_fail_write_after` field doc.
+    #[cfg(test)]
+    fn set_test_write_failure_after(&self, n: usize) {
+        self.test_fail_write_after
+            .store(n, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// How many previously-allocated pages are currently available for reuse
@@ -270,8 +331,67 @@ impl DiskStorageEngine {
     /// stale dirty frame could either resurrect old content at a page id
     /// compaction is about to repurpose, or silently re-extend the file
     /// after it has been truncated to zero.
+    ///
+    /// # Failure after the point of no return (finding #2190)
+    ///
+    /// [`FileManager::truncate_to`] succeeding is the point of no return: the
+    /// old page layout is gone, but `node_index`/`edge_index` are not
+    /// updated until every live record has been rewritten. If any write in
+    /// that window fails (ENOSPC, EIO, quota — the realistic failure mode,
+    /// since compaction tends to run precisely when disk space is under
+    /// pressure), this method does **not** return with the indexes silently
+    /// pointing at stale/dangling page ids. Instead it sets the `poisoned`
+    /// flag and every subsequent page-IO call (`put_node`, `get_node`,
+    /// `delete_node`, `put_edge`, `get_edge`, `delete_edge`, `flush`, and a
+    /// re-entrant `compact()` itself) fails fast with a clear error rather
+    /// than risk returning `None` or another record's bytes for data that is
+    /// still logically live. Recovery is to reopen the data directory via
+    /// [`Self::open`], which rebuilds everything from the WAL and never
+    /// trusts the `.db` file's on-disk layout.
+    ///
+    /// A sibling-file-plus-atomic-rename design (write the repacked file at
+    /// `<db>.compact`, fsync, rename over `<db>`, then swap in both the
+    /// `FileManager` handle and the freshly built indexes together) would
+    /// avoid ever poisoning the engine, mirroring the WAL-truncate design
+    /// (issue #19: stage → fsync → atomic rename → swap). It was not chosen
+    /// here because `file_manager`/`buffer_pool` are plain (non-swappable)
+    /// fields referenced directly by every other method in this `impl`
+    /// block; making them hot-swappable is a materially larger, higher-risk
+    /// change than the scope of this fix. The poison flag is the documented
+    /// fallback for that case and gives the same guarantee that matters most
+    /// — no silent misreporting — at the cost of requiring a reopen to
+    /// recover instead of `compact()` transparently failing no-op.
+    ///
+    /// # Cost (finding #2191): unbounded buffering + full-duration lock
+    ///
+    /// This is a stop-the-world, whole-file compaction, not a streaming or
+    /// incremental one:
+    ///   - **Peak memory** is O(total live-record bytes) — every live node's
+    ///     and edge's full serialized bytes are buffered in memory
+    ///     simultaneously (`live_nodes`/`live_edges` below) before anything
+    ///     is written back out. For a database whose live data approaches
+    ///     available RAM, this can OOM the process.
+    ///   - **Latency**: `compaction_lock` is held in write mode for the
+    ///     entire call, so every `put_node`/`get_node`/`delete_node`/
+    ///     `put_edge`/`get_edge`/`delete_edge`/`flush` on this engine blocks
+    ///     for the full duration — proportional to total live data size, not
+    ///     to how much space is actually being reclaimed.
+    ///
+    /// As a cheap, non-blocking early-warning signal (not a hard limit),
+    /// this method logs at `WARN` once buffered live-record bytes exceed
+    /// [`COMPACTION_BUFFER_WARN_BYTES`]; it does not refuse to run above that
+    /// threshold. TODO(follow-up to astraeadb-issues.md #15 / finding #2191):
+    /// the real fix is a streaming/chunked compaction that repacks records in
+    /// bounded-size batches (bounded peak memory) and periodically releases
+    /// `compaction_lock` between batches (bounded per-acquisition latency for
+    /// other callers) instead of buffering everything and holding one lock
+    /// for the whole run.
     pub fn compact(&self) -> Result<CompactionStats> {
         let _guard = self.compaction_lock.write();
+
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(poisoned_error());
+        }
 
         let pages_before = self.file_manager.page_count()?;
 
@@ -292,7 +412,11 @@ impl DiskStorageEngine {
             .collect();
 
         // Read every live record's full bytes now, before any page is freed,
-        // reused, or truncated away.
+        // reused, or truncated away. Nothing has been mutated on disk yet, so
+        // any error in this loop propagates as a plain `Err` — no poisoning
+        // needed (see the doc comment above: the point of no return is
+        // `truncate_to` succeeding, below).
+        let mut live_bytes: u64 = 0;
         let mut live_nodes = Vec::with_capacity(node_entries.len());
         for (id, pid) in node_entries {
             let data = self.read_record(pid, id.0)?.ok_or_else(|| {
@@ -301,6 +425,7 @@ impl DiskStorageEngine {
                     id, pid
                 ))
             })?;
+            live_bytes += data.len() as u64;
             live_nodes.push((id, data));
         }
         let mut live_edges = Vec::with_capacity(edge_entries.len());
@@ -311,7 +436,17 @@ impl DiskStorageEngine {
                     id, pid
                 ))
             })?;
+            live_bytes += data.len() as u64;
             live_edges.push((id, data));
+        }
+
+        if live_bytes > COMPACTION_BUFFER_WARN_BYTES {
+            tracing::warn!(
+                "compact(): buffering ~{live_bytes} bytes of live record data in memory (all of \
+                 it, at once) while holding DiskStorageEngine's write lock for the whole run — \
+                 see the cost note on DiskStorageEngine::compact for why this is a known \
+                 limitation, not a bug",
+            );
         }
 
         // Nothing below this point needs any *existing* page's content —
@@ -321,21 +456,41 @@ impl DiskStorageEngine {
         self.free_pages.lock().clear();
         self.file_manager.truncate_to(0)?;
 
-        // Re-append every live record from scratch. write_record naturally
-        // packs each one into fresh pages starting at PageId(0) (allocating
-        // via FileManager, whose allocation cursor is derived from the
-        // now-zero file length) and transparently rebuilds any overflow
-        // chain an oversized record needs.
-        let mut new_node_index = HashMap::with_capacity(live_nodes.len());
-        for (id, data) in &live_nodes {
-            let pid = self.write_record(id.0, data, PageType::NodePage)?;
-            new_node_index.insert(*id, pid);
-        }
-        let mut new_edge_index = HashMap::with_capacity(live_edges.len());
-        for (id, data) in &live_edges {
-            let pid = self.write_record(id.0, data, PageType::EdgePage)?;
-            new_edge_index.insert(*id, pid);
-        }
+        // --- Point of no return. ------------------------------------------
+        // The old page layout is gone. `node_index`/`edge_index` still
+        // describe it (they are not touched until the very end), so ANY
+        // failure from here until they are overwritten must poison the
+        // engine (finding #2190) rather than return with them stale.
+        let repack = (|| -> Result<(HashMap<NodeId, PageId>, HashMap<EdgeId, PageId>)> {
+            // Re-append every live record from scratch. write_record
+            // naturally packs each one into fresh pages starting at
+            // PageId(0) (allocating via FileManager, whose allocation cursor
+            // is derived from the now-zero file length) and transparently
+            // rebuilds any overflow chain an oversized record needs.
+            let mut new_node_index = HashMap::with_capacity(live_nodes.len());
+            for (id, data) in &live_nodes {
+                let pid = self.write_record(id.0, data, PageType::NodePage)?;
+                new_node_index.insert(*id, pid);
+            }
+            let mut new_edge_index = HashMap::with_capacity(live_edges.len());
+            for (id, data) in &live_edges {
+                let pid = self.write_record(id.0, data, PageType::EdgePage)?;
+                new_edge_index.insert(*id, pid);
+            }
+            Ok((new_node_index, new_edge_index))
+        })();
+
+        let (new_node_index, new_edge_index) = match repack {
+            Ok(pair) => pair,
+            Err(e) => {
+                self.poisoned.store(true, Ordering::SeqCst);
+                return Err(AstraeaError::Storage(format!(
+                    "compact: failed while repacking records after the data file was already \
+                     truncated to zero pages ({e}); DiskStorageEngine is now poisoned — reopen \
+                     this data directory via DiskStorageEngine::open to recover via WAL replay"
+                )));
+            }
+        };
 
         *self.node_index.write() = new_node_index;
         *self.edge_index.write() = new_edge_index;
@@ -786,6 +941,25 @@ impl DiskStorageEngine {
     /// `0` unambiguously means "no overflow / end of chain" even when
     /// `PageId(0)` is a valid page (the first page in an empty file).
     fn write_record(&self, record_id: u64, data: &[u8], page_type: PageType) -> Result<PageId> {
+        // Test-only failure injection (finding #2190's regression test): lets
+        // a test simulate an ENOSPC/EIO failure at a specific point in
+        // compact()'s repack loop without depending on real disk exhaustion.
+        // See the `test_fail_write_after` field doc.
+        #[cfg(test)]
+        {
+            use std::sync::atomic::Ordering;
+            let remaining = self.test_fail_write_after.load(Ordering::SeqCst);
+            if remaining != usize::MAX {
+                if remaining == 0 {
+                    return Err(AstraeaError::Storage(
+                        "injected write_record failure (test)".to_string(),
+                    ));
+                }
+                self.test_fail_write_after
+                    .store(remaining - 1, Ordering::SeqCst);
+            }
+        }
+
         // --- Phase 1: build the overflow chain (back-to-front) if needed. ------
         //
         // We write the last chunk first so that each page can embed its "next"
@@ -980,6 +1154,9 @@ impl StorageEngine for DiskStorageEngine {
         // Excludes concurrent compact() for this call's whole duration; see
         // the `compaction_lock` field doc.
         let _lock = self.compaction_lock.read();
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(poisoned_error());
+        }
 
         // Serialize first.  In Phase 2 write_record handles any size via the
         // overflow chain, so there is no per-size pre-flight rejection here.
@@ -1025,11 +1202,17 @@ impl StorageEngine for DiskStorageEngine {
 
     fn get_node(&self, id: NodeId) -> Result<Option<Node>> {
         let _lock = self.compaction_lock.read();
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(poisoned_error());
+        }
         self.get_node_inner(id)
     }
 
     fn delete_node(&self, id: NodeId) -> Result<bool> {
         let _lock = self.compaction_lock.read();
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(poisoned_error());
+        }
 
         // Get labels before deleting so we can clean up the label index.
         if let Ok(Some(node)) = self.get_node_inner(id) {
@@ -1057,6 +1240,9 @@ impl StorageEngine for DiskStorageEngine {
 
     fn put_edge(&self, edge: &Edge) -> Result<()> {
         let _lock = self.compaction_lock.read();
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(poisoned_error());
+        }
 
         // Serialize first.  write_record handles any size via overflow chain,
         // so there is no size pre-flight rejection (issue #26 Phase 2).
@@ -1101,11 +1287,17 @@ impl StorageEngine for DiskStorageEngine {
 
     fn get_edge(&self, id: EdgeId) -> Result<Option<Edge>> {
         let _lock = self.compaction_lock.read();
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(poisoned_error());
+        }
         self.get_edge_inner(id)
     }
 
     fn delete_edge(&self, id: EdgeId) -> Result<bool> {
         let _lock = self.compaction_lock.read();
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(poisoned_error());
+        }
 
         // We need the edge data to update adjacency.
         let edge = self.get_edge_inner(id)?;
@@ -1150,6 +1342,9 @@ impl StorageEngine for DiskStorageEngine {
 
     fn flush(&self) -> Result<()> {
         let _lock = self.compaction_lock.read();
+        if self.poisoned.load(Ordering::SeqCst) {
+            return Err(poisoned_error());
+        }
         self.buffer_pool.flush_all()?;
         // Log a checkpoint.
         let lsn = self.wal.current_lsn();
@@ -1730,6 +1925,77 @@ mod tests {
         let stats2 = engine.compact().unwrap();
         assert_eq!(stats2.pages_before, stats2.pages_after);
         assert_eq!(stats2.live_nodes as u64, N - N / 2);
+    }
+
+    /// Regression test for finding #2190 (HIGH): a `write_record` failure
+    /// during `compact()`'s post-truncate repack loop must NOT leave
+    /// `node_index`/`edge_index` silently pointing at stale/dangling page
+    /// ids. Injects a failure on the 2nd `write_record` call (so the file
+    /// has already been truncated to zero AND one record has already been
+    /// successfully repacked to a fresh page before the failure hits —
+    /// exactly the partial-repack scenario the finding describes) and
+    /// asserts every page-IO entry point fails fast with the poison error
+    /// afterward instead of returning `None` or wrong data for records that
+    /// are still logically live.
+    #[test]
+    fn test_compact_write_failure_poisons_engine_instead_of_misreporting() {
+        let (engine, _tmp) = make_engine();
+
+        for i in 1..=3u64 {
+            engine.put_node(&test_node(i)).unwrap();
+        }
+
+        // Fail the 2nd write_record call compact() makes during its repack
+        // loop (0-indexed countdown: 1 successful call, then fail).
+        engine.set_test_write_failure_after(1);
+
+        let result = engine.compact();
+        assert!(
+            result.is_err(),
+            "compact() must surface the injected mid-repack failure"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("poisoned") && err_msg.contains("compact"),
+            "compact()'s error must explain the engine is now poisoned, got: {err_msg:?}"
+        );
+
+        // Every page-IO entry point must now fail fast with the poison
+        // error — NOT silently report the still-logically-live nodes as
+        // missing, and NOT attempt to deserialize whatever garbage now sits
+        // at their stale page ids.
+        for i in 1..=3u64 {
+            let r = engine.get_node(NodeId(i));
+            assert!(
+                r.is_err(),
+                "node {i} must fail fast once poisoned, not silently report absent or wrong data"
+            );
+            assert!(r.unwrap_err().to_string().contains("poisoned"));
+        }
+
+        let put_result = engine.put_node(&test_node(99));
+        assert!(
+            put_result.is_err(),
+            "writes must also refuse while poisoned"
+        );
+        assert!(put_result.unwrap_err().to_string().contains("poisoned"));
+
+        assert!(
+            engine.delete_node(NodeId(1)).is_err(),
+            "deletes must also refuse while poisoned"
+        );
+        assert!(
+            engine.flush().is_err(),
+            "flush must also refuse while poisoned"
+        );
+
+        // A re-entrant compact() must refuse too: node_index still holds the
+        // pre-failure (now stale) page mapping, so reading through it again
+        // would repack garbage.
+        assert!(
+            engine.compact().is_err(),
+            "compact() must refuse to run again while the engine is poisoned"
+        );
     }
 
     /// Verify compact() correctly repacks multi-page (overflow-chained)
