@@ -451,6 +451,36 @@ impl BufferPool {
         })
     }
 
+    /// Discard every currently cached page — dirty or clean — and reset the
+    /// pool to its initial empty state, WITHOUT flushing anything to disk.
+    ///
+    /// This exists for [`DiskStorageEngine::compact`](crate::engine::DiskStorageEngine::compact):
+    /// once compaction has already read every live record's bytes into
+    /// memory and is about to truncate and rewrite the underlying file from
+    /// scratch, any dirty frame still holding pre-compaction content must
+    /// NOT be flushed — flushing here would either resurrect stale bytes at
+    /// a page id compaction has already repurposed for different content, or
+    /// silently re-extend a file that was just truncated (since
+    /// `FileManager::write_page` seeks-and-writes at an absolute offset,
+    /// which grows the file if that offset is now past EOF).
+    ///
+    /// Callers must guarantee nothing needs the cached content anymore
+    /// before calling this — the buffer pool cannot tell "safe to discard"
+    /// apart from "would lose data" on its own.
+    pub fn invalidate_all(&self) {
+        {
+            let mut frames = self.inner.frames.write();
+            for frame in frames.iter_mut() {
+                *frame = Frame::new();
+            }
+        }
+        self.inner.page_table.write().clear();
+        self.inner.hot_pages.write().clear();
+        let mut lru = self.inner.lru.write();
+        lru.clear();
+        lru.extend(0..self.inner.capacity);
+    }
+
     /// Find a free frame or evict the least recently used unpinned frame.
     ///
     /// `requested_page_id` is the page we ultimately want to load into the
@@ -873,6 +903,42 @@ mod tests {
 
         // Unswizzle p1.
         pool.unswizzle(p1).unwrap();
+        assert_eq!(pool.hot_page_count(), 0);
+    }
+
+    #[test]
+    fn test_invalidate_all_drops_dirty_frames_without_flushing() {
+        let (pool, fm) = make_pool(4);
+
+        // Load and dirty a page in the pool without unpinning-with-flush.
+        let page_buf = init_page(PageId(0), PageType::NodePage);
+        let guard = pool.pin_new_page(&page_buf).unwrap();
+        let page_id = guard.page_id();
+        let mut modified = page_buf;
+        modified[100] = 0xFF;
+        guard.write_data(&modified);
+        pool.unpin_page(page_id, true).unwrap();
+
+        // Truncate the underlying file out from under the pool (simulating
+        // what DiskStorageEngine::compact does: read what it needs, then
+        // shrink the file).
+        fm.truncate_to(0).unwrap();
+
+        // invalidate_all must NOT write the dirty frame back — doing so
+        // would silently re-extend the just-truncated file.
+        pool.invalidate_all();
+        assert_eq!(
+            fm.page_count().unwrap(),
+            0,
+            "invalidate_all must not flush and therefore must not re-grow the file"
+        );
+
+        // Pool must be back to a clean, empty state — pinning a fresh page
+        // now allocates PageId(0) again, exactly like a new pool.
+        let page_buf2 = init_page(PageId(0), PageType::NodePage);
+        let guard2 = pool.pin_new_page(&page_buf2).unwrap();
+        assert_eq!(guard2.page_id(), PageId(0));
+        pool.unpin_page(guard2.page_id(), false).unwrap();
         assert_eq!(pool.hot_page_count(), 0);
     }
 

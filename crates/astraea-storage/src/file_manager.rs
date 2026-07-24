@@ -94,6 +94,22 @@ impl FileManager {
         let file_len = file.seek(SeekFrom::End(0))?;
         Ok(file_len / PAGE_SIZE as u64)
     }
+
+    /// Truncate the database file down to exactly `page_count` pages,
+    /// discarding everything after that boundary.
+    ///
+    /// Used by [`DiskStorageEngine::compact`](crate::engine::DiskStorageEngine::compact)
+    /// to reclaim disk space once live records have been repacked into a
+    /// contiguous prefix of the file. Because [`allocate_page`](Self::allocate_page)
+    /// derives the next page id from the *current* file length rather than a
+    /// separately tracked counter, truncating here also resets the implicit
+    /// allocation cursor: the next `allocate_page()` call reuses the space
+    /// that used to hold the discarded pages.
+    pub fn truncate_to(&self, page_count: u64) -> Result<()> {
+        let file = self.file.lock();
+        file.set_len(page_count * PAGE_SIZE as u64)?;
+        Ok(())
+    }
 }
 
 /// Implement the [`PageIO`] trait for `FileManager`.
@@ -149,6 +165,32 @@ mod tests {
         // Reading a page that doesn't exist should fail.
         let result = fm.read_page(PageId(999));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_truncate_to() {
+        let tmp = NamedTempFile::new().unwrap();
+        let fm = FileManager::new(tmp.path()).unwrap();
+
+        for marker in [0x11u8, 0x22, 0x33, 0x44] {
+            let pid = fm.allocate_page().unwrap();
+            let mut data = [0u8; PAGE_SIZE];
+            data[0] = marker;
+            fm.write_page(pid, &data).unwrap();
+        }
+        assert_eq!(fm.page_count().unwrap(), 4);
+
+        // Shrink to 2 pages.
+        fm.truncate_to(2).unwrap();
+        assert_eq!(fm.page_count().unwrap(), 2);
+        assert_eq!(fm.read_page(PageId(0)).unwrap()[0], 0x11);
+        assert_eq!(fm.read_page(PageId(1)).unwrap()[0], 0x22);
+        assert!(fm.read_page(PageId(2)).is_err(), "page 2 must be gone");
+
+        // allocate_page must resume from the new (smaller) boundary.
+        let reused = fm.allocate_page().unwrap();
+        assert_eq!(reused, PageId(2));
+        assert_eq!(fm.page_count().unwrap(), 3);
     }
 
     #[test]

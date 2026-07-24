@@ -157,6 +157,8 @@ A three-tier storage architecture:
 
 **Write-Ahead Log (WAL):** Every mutation is logged before being applied. Records use a `[length][type][JSON payload][CRC32]` frame format. Supports `BeginTransaction`, `CommitTransaction`, and `AbortTransaction` records. The WAL supports checkpoint and truncation for recovery.
 
+**Compaction:** `DiskStorageEngine::compact()` reclaims page space by rewriting all live node and edge records into a fresh, contiguous run of pages and truncating the file to size. It's an explicit library call — not yet auto-triggered or exposed via RPC/CLI.
+
 **Page Format:**
 ```
 ┌─────────────────────────────────┐

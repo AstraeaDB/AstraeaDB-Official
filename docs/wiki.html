@@ -451,6 +451,9 @@ cargo build --features io-uring</pre>
 <h3>Label Index</h3>
 <p>A hash-based index (<code>HashMap&lt;String, HashSet&lt;NodeId&gt;&gt;</code>) for O(1) constant-time label-based lookups, automatically maintained when nodes are created or deleted.</p>
 
+<h3>Compaction</h3>
+<p><code>DiskStorageEngine::compact()</code> reclaims page space by rewriting all live node and edge records into a fresh, contiguous run of pages and truncating the file to size. It is an explicit library call &mdash; not yet auto-triggered or exposed via RPC/CLI.</p>
+
 <!-- ============================================================ -->
 <h2 id="graph-operations">Graph Operations</h2>
 

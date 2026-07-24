@@ -927,4 +927,237 @@ mod tests {
         assert_eq!(e.validity.valid_from, Some(1000));
         assert_eq!(e.validity.valid_to, Some(2000));
     }
+
+    // -- Flight export -> import roundtrip (astraeadb-issues.md #14) -----
+    //
+    // Uses a real `astraea_graph::Graph` (over `InMemoryStorage`) rather
+    // than the hand-rolled `TestGraph` above, because `TestGraph` does not
+    // override `GraphOps::create_node_with_id` and therefore falls back to
+    // the trait's default (which drops the supplied id). A real `Graph` is
+    // required to exercise the actual id-preservation + allocator-advance
+    // behavior that `import_nodes` depends on.
+
+    /// Run `gql` through `do_get` and decode the resulting FlightData
+    /// stream back into RecordBatches, exactly as a real Flight client
+    /// would. Mirrors the decode side of `do_put` (lines ~147-154 above).
+    async fn export_via_do_get(service: &AstraeaFlightService, gql: &str) -> Vec<RecordBatch> {
+        let ticket = Ticket {
+            ticket: gql.as_bytes().to_vec().into(),
+        };
+        let response = service
+            .do_get(Request::new(ticket))
+            .await
+            .expect("do_get failed");
+
+        let stream = response.into_inner();
+        let flight_stream = FlightRecordBatchStream::new_from_flight_data(
+            stream.map(|r| r.map_err(|e| FlightError::Tonic(Box::new(e)))),
+        );
+        tokio::pin!(flight_stream);
+
+        let mut batches = Vec::new();
+        while let Some(batch) = flight_stream.next().await {
+            batches.push(batch.expect("decode error"));
+        }
+        batches
+    }
+
+    /// Reassemble a `do_get`-shaped query-result batch (all columns
+    /// stringified Utf8, per `schemas::query_result_schema`) with columns
+    /// `id`, `labels`, `properties` into a proper `schemas::node_schema()`
+    /// batch, the way a real client library would before re-importing via
+    /// `do_put`.
+    fn rebuild_node_import_batch(qr: &RecordBatch) -> RecordBatch {
+        let col = |name: &str| -> &StringArray {
+            qr.column_by_name(name)
+                .unwrap_or_else(|| panic!("missing '{name}' column in query result"))
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap_or_else(|| panic!("'{name}' column must be Utf8"))
+        };
+        let id_col = col("id");
+        let labels_col = col("labels");
+        let props_col = col("properties");
+
+        let n = qr.num_rows();
+        let ids: Vec<u64> = (0..n)
+            .map(|i| id_col.value(i).parse::<u64>().expect("id must be u64"))
+            .collect();
+        let labels: Vec<String> = (0..n).map(|i| labels_col.value(i).to_string()).collect();
+        let props: Vec<String> = (0..n).map(|i| props_col.value(i).to_string()).collect();
+        let has_embedding: Vec<bool> = vec![false; n];
+
+        RecordBatch::try_new(
+            Arc::new(schemas::node_schema()),
+            vec![
+                Arc::new(UInt64Array::from(ids)) as ArrayRef,
+                Arc::new(StringArray::from(labels)) as ArrayRef,
+                Arc::new(StringArray::from(props)) as ArrayRef,
+                Arc::new(BooleanArray::from(has_embedding)) as ArrayRef,
+            ],
+        )
+        .unwrap()
+    }
+
+    /// Same as [`rebuild_node_import_batch`] but for edges: reassembles a
+    /// query-result batch with `source`, `target`, `edge_type`,
+    /// `properties`, `weight` columns into a `schemas::edge_schema()`
+    /// batch. `id` is left as 0 (unset) since edge ids are not part of
+    /// issue #14's scope; `valid_from`/`valid_to` are left null.
+    fn rebuild_edge_import_batch(qr: &RecordBatch) -> RecordBatch {
+        let str_col = |name: &str| -> &StringArray {
+            qr.column_by_name(name)
+                .unwrap_or_else(|| panic!("missing '{name}' column in query result"))
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap_or_else(|| panic!("'{name}' column must be Utf8"))
+        };
+        let source_col = str_col("source");
+        let target_col = str_col("target");
+        let edge_type_col = str_col("edge_type");
+        let props_col = str_col("properties");
+        let weight_col = str_col("weight");
+
+        let n = qr.num_rows();
+        let sources: Vec<u64> = (0..n)
+            .map(|i| source_col.value(i).parse::<u64>().expect("source is u64"))
+            .collect();
+        let targets: Vec<u64> = (0..n)
+            .map(|i| target_col.value(i).parse::<u64>().expect("target is u64"))
+            .collect();
+        let edge_types: Vec<String> = (0..n).map(|i| edge_type_col.value(i).to_string()).collect();
+        let props: Vec<String> = (0..n).map(|i| props_col.value(i).to_string()).collect();
+        let weights: Vec<f64> = (0..n)
+            .map(|i| weight_col.value(i).parse::<f64>().expect("weight is f64"))
+            .collect();
+
+        RecordBatch::try_new(
+            Arc::new(schemas::edge_schema()),
+            vec![
+                Arc::new(UInt64Array::from(vec![0u64; n])) as ArrayRef,
+                Arc::new(UInt64Array::from(sources)) as ArrayRef,
+                Arc::new(UInt64Array::from(targets)) as ArrayRef,
+                Arc::new(StringArray::from(edge_types)) as ArrayRef,
+                Arc::new(StringArray::from(props)) as ArrayRef,
+                Arc::new(Float64Array::from(weights)) as ArrayRef,
+                Arc::new(Int64Array::from(vec![None::<i64>; n])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![None::<i64>; n])) as ArrayRef,
+            ],
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_flight_roundtrip_preserves_edges() {
+        use astraea_graph::Graph;
+        use astraea_graph::test_utils::InMemoryStorage;
+
+        const N: usize = 5;
+
+        // -- Source graph: N nodes with distinguishing "name" properties,
+        // chained by N-1 "NEXT" edges carrying a "seq" property. -------
+        let src_graph: Arc<dyn GraphOps> = Arc::new(Graph::new(Box::new(InMemoryStorage::new())));
+        let src_service = AstraeaFlightService::new(Arc::clone(&src_graph));
+
+        let mut node_ids = Vec::with_capacity(N);
+        for i in 0..N {
+            let id = src_graph
+                .create_node(
+                    vec!["Person".into()],
+                    serde_json::json!({"name": format!("node-{i}")}),
+                    None,
+                )
+                .unwrap();
+            node_ids.push(id);
+        }
+        for i in 0..N - 1 {
+            src_graph
+                .create_edge(
+                    node_ids[i],
+                    node_ids[i + 1],
+                    "NEXT".into(),
+                    serde_json::json!({"seq": i}),
+                    1.0,
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+
+        // -- Export via do_get (the real public API), decoding actual
+        // Arrow Flight wire data. ---------------------------------------
+        let node_result_batches = export_via_do_get(
+            &src_service,
+            "MATCH (n:Person) RETURN n.id AS id, n.labels AS labels, n.properties AS properties",
+        )
+        .await;
+        let edge_result_batches = export_via_do_get(
+            &src_service,
+            "MATCH (a:Person)-[r:NEXT]->(b:Person) RETURN r.source AS source, r.target AS target, \
+             r.edge_type AS edge_type, r.properties AS properties, r.weight AS weight",
+        )
+        .await;
+        assert_eq!(node_result_batches.len(), 1);
+        assert_eq!(edge_result_batches.len(), 1);
+        assert_eq!(node_result_batches[0].num_rows(), N);
+        assert_eq!(edge_result_batches[0].num_rows(), N - 1);
+
+        let node_import_batch = rebuild_node_import_batch(&node_result_batches[0]);
+        let edge_import_batch = rebuild_edge_import_batch(&edge_result_batches[0]);
+
+        // -- Reimport into a FRESH graph/service via the do_put path
+        // (`import_nodes`/`import_edges`, which is exactly what `do_put`
+        // dispatches to per-batch). --------------------------------------
+        let dst_graph: Arc<dyn GraphOps> = Arc::new(Graph::new(Box::new(InMemoryStorage::new())));
+        let dst_service = AstraeaFlightService::new(Arc::clone(&dst_graph));
+
+        let nodes_created = dst_service.import_nodes(&node_import_batch).unwrap();
+        assert_eq!(nodes_created, N as u64);
+        let edges_created = dst_service.import_edges(&edge_import_batch).unwrap();
+        assert_eq!(edges_created, (N - 1) as u64);
+
+        // -- Verify every edge still connects the correct nodes, by
+        // property match (not by trusting that ids happened to line up).
+        let mut edges_found = 0usize;
+        for dst_id in dst_graph.find_by_label("Person").unwrap() {
+            for (edge_id, neighbor_id) in dst_graph
+                .neighbors_filtered(dst_id, Direction::Outgoing, "NEXT")
+                .unwrap()
+            {
+                let edge = dst_graph.get_edge(edge_id).unwrap().unwrap();
+                let seq = edge.properties["seq"].as_u64().unwrap();
+
+                let src_node = dst_graph.get_node(dst_id).unwrap().unwrap();
+                let tgt_node = dst_graph.get_node(neighbor_id).unwrap().unwrap();
+
+                assert_eq!(
+                    src_node.properties["name"],
+                    serde_json::json!(format!("node-{seq}")),
+                    "edge seq={seq} source node has wrong 'name' property"
+                );
+                assert_eq!(
+                    tgt_node.properties["name"],
+                    serde_json::json!(format!("node-{}", seq + 1)),
+                    "edge seq={seq} target node has wrong 'name' property"
+                );
+                edges_found += 1;
+            }
+        }
+        assert_eq!(
+            edges_found,
+            N - 1,
+            "expected every imported edge to be discoverable and correctly wired"
+        );
+
+        // -- Bonus: confirm the id allocator in the fresh graph advanced
+        // past the imported ids, so a subsequent auto-assigned create_node
+        // doesn't collide with an imported node. astraeadb-issues.md #14.
+        let extra_id = dst_graph
+            .create_node(vec!["Extra".into()], serde_json::json!({}), None)
+            .unwrap();
+        assert!(
+            extra_id.0 > node_ids.iter().map(|n| n.0).max().unwrap(),
+            "post-import auto-assigned id {extra_id} must exceed every imported id"
+        );
+    }
 }

@@ -38,6 +38,29 @@ readers; the gate does not validate bullet content.
 - **BREAKING:** the crate name `astraea-crypto` and module path `astraea_crypto`
   are removed. Update `use astraea_crypto::…` → `use astraea_encrypt_demo::…`
   and the dependency key `astraea-crypto` → `astraea-encrypt-demo`.
+## [0.1.15] - 2026-07-24
+
+### Added
+- **astraea-storage:** `DiskStorageEngine::compact()` reclaims page space — it
+  reads the live records, invalidates buffer-pool frames, truncates the data
+  file, and re-packs the live records into fresh pages, returning
+  `CompactionStats`. It runs under the engine's global write lock; a
+  mid-compaction failure poisons the engine so it fails fast (reopen to recover
+  via WAL replay) rather than misreporting live data as missing. Explicit
+  library call — not yet wired to RPC/CLI. Also adds `BufferPool::invalidate_all()`
+  and `FileManager::truncate_to()`. (astraeadb-issues #15.)
+
+## [0.1.14] - 2026-07-24
+
+### Added
+- **astraea-flight:** end-to-end regression test
+  `test_flight_roundtrip_preserves_edges` covering the `do_get → do_put`
+  export/import roundtrip — it drives the real Flight encode/decode and asserts
+  client node ids and every edge's `source`/`target` survive a lossless
+  roundtrip (by property match). This is the acceptance criterion for
+  astraeadb-issues #14; the id-honoring implementation itself was already
+  present via `GraphOps::create_node_with_id` (which advances the id allocator
+  past imported ids). No production change.
 
 ## [0.1.13] - 2026-07-23
 
