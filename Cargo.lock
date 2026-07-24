@@ -454,7 +454,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "astraea-crypto"
+name = "astraea-encrypt-demo"
 version = "0.1.13"
 dependencies = [
  "astraea-core",
