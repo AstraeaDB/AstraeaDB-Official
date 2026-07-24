@@ -93,7 +93,7 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `astraea-server` | Async TCP server (tokio) with JSON/gRPC transport; auth (RBAC + mTLS), metrics (Prometheus), connection management, GQL execution, vector/hybrid/semantic/RAG operations | 68 |
 | `astraea-flight` | Apache Arrow Flight server for zero-copy data exchange: `do_get` (query → Arrow), `do_put` (Arrow → bulk import) | 11 |
 | `astraea-algorithms` | Graph algorithms: PageRank (power iteration), connected/strongly-connected components (Tarjan's), degree/betweenness centrality (Brandes'), Louvain community detection | 20 |
-| `astraea-crypto` | Homomorphic encryption foundation: key generation, encrypted labels/values/nodes, server-side encrypted label matching | 31 |
+| `astraea-encrypt-demo` | Demo-only searchable-encryption shape (NOT for production): key generation, encrypted labels/values/nodes, server-side encrypted label matching | 31 |
 | `astraea-gpu` | GPU acceleration framework: CSR matrix representation, GpuBackend trait, CPU fallback (PageRank, BFS, SSSP) | 16 |
 | `astraea-cluster` | Distributed processing foundation: hash/range partitioning, shard management, cluster coordinator trait | 19 |
 | `astraea-mcp` | Model Context Protocol (MCP) server: JSON-RPC 2.0, stdio/SSE transports, 29 tools, 4 resource templates, 6 prompt templates. Proxy mode (TCP to running server) or embedded mode | 23 |
@@ -1378,7 +1378,7 @@ All Phase 4 items have been implemented.
 |---|---|---|
 | **Temporal Queries** | Done | `neighbors_at()`, `bfs_at()`, `shortest_path_at()` filter edges by `ValidityInterval` at a given timestamp. `NeighborsAt`, `BfsAt`, `ShortestPathAt` server requests. 11 tests. |
 | **Graph Algorithms** | Done | `astraea-algorithms` crate: PageRank (power iteration), connected/strongly-connected components (Tarjan's), degree/betweenness centrality (Brandes'), Louvain community detection. 20 tests. |
-| **Homomorphic Encryption** | Done | `astraea-crypto` crate: key generation, encrypted labels (deterministic tags), encrypted values (randomized), `EncryptedQueryEngine` for server-side label matching. 31 tests. |
+| **Homomorphic Encryption** | Done (demo-only, not secure) | `astraea-encrypt-demo` crate: key generation, encrypted labels (deterministic tags), encrypted values (randomized), `EncryptedQueryEngine` for server-side label matching. 31 tests. |
 | **GPU Acceleration** | Done | `astraea-gpu` crate: CSR matrix with SpMV/transpose, `GpuBackend` trait, `CpuBackend` (PageRank, BFS, SSSP with Bellman-Ford). 16 tests. |
 | **Sharding / MPP** | Done | `astraea-cluster` crate: hash/range partitioning, shard map, `ClusterCoordinator` trait with `LocalCoordinator`. 19 tests. |
 
@@ -1492,7 +1492,7 @@ astraeadb/
 │   │       ├── components.rs  # Connected + strongly-connected components (Tarjan's)
 │   │       ├── centrality.rs  # Degree + betweenness centrality (Brandes')
 │   │       └── community.rs   # Louvain community detection
-│   ├── astraea-crypto/        # Homomorphic encryption
+│   ├── astraea-encrypt-demo/  # Demo-only searchable encryption (NOT for production)
 │   │   └── src/
 │   │       ├── keys.rs        # SecretKey, PublicKey, KeyPair
 │   │       ├── encrypted.rs   # EncryptedValue, EncryptedLabel, EncryptedNode

@@ -283,7 +283,7 @@ astraea&gt; .quit</pre>
     |             |                |
 +---v--------+ +--v-----------+ +--v--------------+
 | astraea-   | | astraea-gpu  | | astraea-cluster |
-|  crypto    | | CSR Matrix,  | | Partitioning,   |
+|encrypt-demo| | CSR Matrix,  | | Partitioning,   |
 | Encrypted  | | CPU Backend  | | Sharding,       |
 | Labels,FHE | | PageRank/BFS | | Coordination    |
 +------------+ +--------------+ +-----------------+</div>
@@ -301,7 +301,7 @@ astraea&gt; .quit</pre>
 <tr><td><code>astraea-server</code></td><td>TCP/gRPC server, auth (RBAC + mTLS), metrics (Prometheus), connection management</td><td>68</td></tr>
 <tr><td><code>astraea-flight</code></td><td>Arrow Flight: <code>do_get</code> (query &rarr; Arrow), <code>do_put</code> (Arrow &rarr; import)</td><td>11</td></tr>
 <tr><td><code>astraea-algorithms</code></td><td>PageRank, connected/strongly-connected components, centrality, Louvain</td><td>20</td></tr>
-<tr><td><code>astraea-crypto</code></td><td>Encrypted labels/values/nodes, server-side encrypted label matching</td><td>31</td></tr>
+<tr><td><code>astraea-encrypt-demo</code></td><td>Demo-only (not secure) encrypted labels/values/nodes, server-side encrypted label matching</td><td>31</td></tr>
 <tr><td><code>astraea-gpu</code></td><td>CSR matrix, GpuBackend trait, CpuBackend (PageRank, BFS, SSSP)</td><td>16</td></tr>
 <tr><td><code>astraea-cluster</code></td><td>Hash/range partitioning, shard management, cluster coordinator</td><td>19</td></tr>
 <tr><td><code>astraea-mcp</code></td><td>MCP server: JSON-RPC 2.0, stdio transport, 29 tools, 4 resource templates, 6 prompt templates</td><td>23</td></tr>
@@ -965,12 +965,12 @@ auth.<span class="fn">revoke_key</span>(<span class="str">"compromised-key"</spa
 <!-- ============================================================ -->
 <h2 id="encryption">Encryption</h2>
 
-<p>The <code>astraea-crypto</code> crate provides a foundation for encrypted queries, allowing clients to query the graph without the server seeing unencrypted data. This is essential for privacy-sensitive applications in banking, healthcare, and other regulated industries.</p>
+<p>The <code>astraea-encrypt-demo</code> crate demonstrates the shape of a searchable-encryption API over the graph, allowing clients to query without the server seeing unencrypted data. <strong>It is demo-only and not cryptographically secure</strong> (XOR ciphers, a hand-rolled deterministic tag instead of a real MAC) &mdash; do not use it for privacy-sensitive applications in banking, healthcare, or other regulated industries. Real transport security is provided by <code>astraea-server</code> via <code>rustls</code>.</p>
 
 <div class="info"><strong>How it works:</strong> Labels are encrypted with deterministic tags (same label always produces the same tag), so the server can check equality without decrypting. Property values use randomized encryption for stronger security.</div>
 
 <h3>Key Management</h3>
-<pre><span class="kw">use</span> astraea_crypto::{<span class="ty">KeyPair</span>, <span class="ty">EncryptedNode</span>, <span class="ty">EncryptedQueryEngine</span>};
+<pre><span class="kw">use</span> astraea_encrypt_demo::{<span class="ty">KeyPair</span>, <span class="ty">EncryptedNode</span>, <span class="ty">EncryptedQueryEngine</span>};
 
 <span class="cm">// Client generates a key pair</span>
 <span class="kw">let</span> keys = <span class="ty">KeyPair</span>::<span class="fn">generate</span>();

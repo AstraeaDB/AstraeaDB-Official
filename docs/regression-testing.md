@@ -227,7 +227,7 @@ crates:
 
 ```
 astraea-algorithms, astraea-cli, astraea-cluster, astraea-core,
-astraea-crypto, astraea-flight, astraea-gnn, astraea-gpu,
+astraea-encrypt-demo, astraea-flight, astraea-gnn, astraea-gpu,
 astraea-graph, astraea-mcp, astraea-query, astraea-rag,
 astraea-server, astraea-storage, astraea-vector
 ```
@@ -255,7 +255,7 @@ closure is identical to Input A — every crate in the workspace:
 
 ```
 astraea-algorithms, astraea-cli, astraea-cluster, astraea-core,
-astraea-crypto, astraea-flight, astraea-gnn, astraea-gpu,
+astraea-encrypt-demo, astraea-flight, astraea-gnn, astraea-gpu,
 astraea-graph, astraea-mcp, astraea-query, astraea-rag,
 astraea-server, astraea-storage, astraea-vector
 ```
@@ -265,5 +265,5 @@ the matrix in their head: identify the lowest crate in the changed
 set, and the impacted matrix is "that crate and everything above it."
 For changes confined to leaf crates (`astraea-cli`, `astraea-mcp`,
 `astraea-flight`, `astraea-rag`, `astraea-gnn`, `astraea-cluster`,
-`astraea-gpu`, `astraea-algorithms`, `astraea-crypto`), the matrix is
+`astraea-gpu`, `astraea-algorithms`, `astraea-encrypt-demo`), the matrix is
 usually just the changed crate.

@@ -1,5 +1,5 @@
 [package]
-name = "astraea-crypto"
+name = "astraea-encrypt-demo"
 version.workspace = true
 edition.workspace = true
 

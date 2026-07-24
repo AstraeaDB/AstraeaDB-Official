@@ -13,13 +13,13 @@ members = [
     "crates/astraea-cluster",
     "crates/astraea-gpu",
     "crates/astraea-algorithms",
-    "crates/astraea-crypto",
+    "crates/astraea-encrypt-demo",
     "crates/astraea-mcp",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.15"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 
@@ -36,7 +36,7 @@ astraea-rag = { path = "crates/astraea-rag" }
 astraea-cluster = { path = "crates/astraea-cluster" }
 astraea-gpu = { path = "crates/astraea-gpu" }
 astraea-algorithms = { path = "crates/astraea-algorithms" }
-astraea-crypto = { path = "crates/astraea-crypto" }
+astraea-encrypt-demo = { path = "crates/astraea-encrypt-demo" }
 astraea-mcp = { path = "crates/astraea-mcp" }
 
 # Serialization
