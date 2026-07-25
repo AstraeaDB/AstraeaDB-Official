@@ -182,6 +182,27 @@ pub trait GraphOps: Send + Sync {
     /// Find all nodes matching a label.
     fn find_by_label(&self, label: &str) -> Result<Vec<NodeId>>;
 
+    /// List every node ID in the graph, regardless of label.
+    ///
+    /// This is the dedicated "full scan" primitive for callers that need
+    /// every node -- most notably query engines seeding the candidate set
+    /// for an unlabeled node pattern (e.g. `astraea-query`'s MATCH executor,
+    /// which needs this for the leading/anchor node of a pattern: unlike
+    /// later nodes in a chain, the anchor has no incoming edge to filter
+    /// through, so an empty label list must mean "every node," not "no
+    /// nodes"). Do not try to emulate this via `find_by_label("")` --
+    /// backends are not required to (and in practice do not) index the
+    /// empty string as a label meaning "all nodes."
+    ///
+    /// The default implementation returns an error; backends that can
+    /// enumerate their nodes (typically by delegating to
+    /// [`StorageEngine::list_all_nodes`]) should override this.
+    fn list_all_nodes(&self) -> Result<Vec<NodeId>> {
+        Err(crate::error::AstraeaError::QueryExecution(
+            "listing all nodes not supported by this implementation".into(),
+        ))
+    }
+
     /// Find all edges whose `edge_type` matches the given string.
     ///
     /// Returns `(EdgeId, source NodeId, target NodeId)` triples.

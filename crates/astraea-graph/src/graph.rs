@@ -527,6 +527,10 @@ impl GraphOps for Graph {
         self.storage.find_nodes_by_label(label)
     }
 
+    fn list_all_nodes(&self) -> Result<Vec<NodeId>> {
+        self.storage.list_all_nodes()
+    }
+
     fn find_edges_by_type(&self, edge_type: &str) -> Result<Vec<(EdgeId, NodeId, NodeId)>> {
         self.storage.find_edges_by_type(edge_type)
     }
