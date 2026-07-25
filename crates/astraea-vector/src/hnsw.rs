@@ -820,6 +820,49 @@ mod tests {
     }
 
     #[test]
+    fn test_hnsw_reproducible() {
+        // astraeadb-issues.md #18 acceptance test: two indexes built with the
+        // same seed and the same insert sequence must produce byte-identical
+        // graph structure -- not just matching per-node levels (already
+        // covered by `test_seeded_random_level_is_deterministic` above), but
+        // the entry point, max level, and every layer's adjacency lists.
+        let build = |seed: u64| {
+            let mut idx = HnswIndex::with_seed(8, DistanceMetric::Euclidean, 8, 100, seed);
+            for i in 1..=60u64 {
+                let v: Vec<f32> = (0..8).map(|d| ((i * 7 + d as u64) as f32).sin()).collect();
+                idx.insert(NodeId(i), &v).unwrap();
+            }
+            idx
+        };
+
+        let a = build(1234);
+        let b = build(1234);
+
+        assert_eq!(a.entry_point, b.entry_point, "entry point must match");
+        assert_eq!(a.max_level, b.max_level, "max level must match");
+        assert_eq!(a.node_levels, b.node_levels, "per-node levels must match");
+        assert_eq!(a.layers.len(), b.layers.len(), "layer count must match");
+        for l in 0..a.layers.len() {
+            assert_eq!(
+                a.layers[l], b.layers[l],
+                "layer {l} adjacency lists must be identical for the same seed"
+            );
+        }
+
+        // Different seeds are not guaranteed to differ in general, but for
+        // this insert sequence they should -- otherwise `random_level` could
+        // have silently regressed to ignoring the seed entirely (e.g. always
+        // falling back to `thread_rng`) while still passing the identical-
+        // seed checks above by coincidence.
+        let c = build(9999);
+        let differs = a.node_levels != c.node_levels || a.layers != c.layers;
+        assert!(
+            differs,
+            "different seeds should be able to produce different graph structure"
+        );
+    }
+
+    #[test]
     fn test_unseeded_index_still_builds() {
         // Back-compat: unseeded indexes still work via thread_rng.
         let mut idx = make_index(3);
