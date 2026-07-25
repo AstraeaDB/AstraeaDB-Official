@@ -965,4 +965,66 @@ mod tests {
         pool.unpin_page(p0, false).unwrap();
         assert!(pool.is_swizzled(p0));
     }
+
+    #[test]
+    fn test_buffer_pool_full_reports_requested_page_id() {
+        // Regression test for astraeadb-issues #24: BufferPoolFull used to
+        // hardcode PageId(0) instead of naming the page that couldn't be
+        // brought in.
+        //
+        // Pool of capacity 1. Pin page A and hold the guard so the sole
+        // frame stays pinned (never returns to the LRU) — the pool is now
+        // "full" with no evictable frame. Requesting a distinct page B must
+        // fail, and the error must name B (not A, and not a placeholder
+        // PageId(0), since B != PageId(0)).
+        let (pool, fm) = make_pool(1);
+
+        let page_a = fm.allocate_page().unwrap();
+        let mut buf_a = [0u8; PAGE_SIZE];
+        buf_a[0] = 0xAA;
+        fm.write_page(page_a, &buf_a).unwrap();
+        assert_eq!(page_a, PageId(0));
+
+        let page_b = fm.allocate_page().unwrap();
+        let mut buf_b = [0u8; PAGE_SIZE];
+        buf_b[0] = 0xBB;
+        fm.write_page(page_b, &buf_b).unwrap();
+        assert_ne!(
+            page_b,
+            PageId(0),
+            "page_b must differ from the old placeholder"
+        );
+
+        // Pin page A and keep the guard alive so its frame can't be evicted.
+        let _guard_a = pool.pin_page(page_a).unwrap();
+
+        // No free or evictable frame remains — requesting page B must fail.
+        // (`PageGuard` doesn't implement `Debug`, so `unwrap_err` isn't
+        // available — match instead.)
+        let err = match pool.pin_page(page_b) {
+            Err(e) => e,
+            Ok(_) => panic!("expected pin_page to fail with BufferPoolFull"),
+        };
+        let message = err.to_string();
+
+        match err {
+            AstraeaError::BufferPoolFull(reported_page_id) => {
+                assert_eq!(
+                    reported_page_id, page_b,
+                    "BufferPoolFull must report the page that was actually requested"
+                );
+            }
+            other => panic!("expected BufferPoolFull, got {other:?}"),
+        }
+
+        // The Display impl must also surface the real id, not a placeholder.
+        assert!(
+            message.contains(&page_b.to_string()),
+            "error message {message:?} should mention the requested page {page_b}"
+        );
+        assert!(
+            !message.contains(&PageId(0).to_string()),
+            "error message {message:?} should not fall back to the PageId(0) placeholder"
+        );
+    }
 }
