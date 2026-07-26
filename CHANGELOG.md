@@ -24,6 +24,19 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-25
+
+### Added
+- **astraea-vector:** `test_hnsw_reproducible` — asserts two HNSW indexes built
+  with the same seed (via the existing additive `with_seed` constructor) produce
+  byte-identical graph structure (entry point + every layer's adjacency), and
+  that a different seed can diverge. Acceptance coverage for astraeadb-issues #18
+  (the seedable-RNG plumbing itself already shipped in 0.2.0).
+- **astraea-storage:** `test_buffer_pool_full_reports_requested_page_id` —
+  asserts a `BufferPoolFull` error carries and prints the real requested
+  `PageId`, not a `PageId(0)` placeholder. Acceptance coverage for
+  astraeadb-issues #24 (the real-id plumbing already shipped in 0.2.0).
+
 ## [0.2.0] - 2026-07-24
 
 ### Changed
