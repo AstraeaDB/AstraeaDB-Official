@@ -541,6 +541,7 @@ name = "astraea-query"
 version = "0.2.2"
 dependencies = [
  "astraea-core",
+ "astraea-graph",
  "parking_lot",
  "proptest",
  "serde",

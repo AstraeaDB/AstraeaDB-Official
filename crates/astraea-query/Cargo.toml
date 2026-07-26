@@ -13,3 +13,8 @@ tracing = { workspace = true }
 [dev-dependencies]
 parking_lot = { workspace = true }
 proptest = { workspace = true }
+# Real (non-mock) GraphOps backend, used only by tests/ that must exercise
+# production candidate-seeding behavior rather than a hand-rolled test
+# double (see GQL #2189 -- the bug was masked by a mock that special-cased
+# find_by_label("") in a way the real storage engine never did).
+astraea-graph = { workspace = true, features = ["test-utils"] }

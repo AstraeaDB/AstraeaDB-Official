@@ -36,6 +36,20 @@ readers; the gate does not validate bullet content.
   asserts a `BufferPoolFull` error carries and prints the real requested
   `PageId`, not a `PageId(0)` placeholder. Acceptance coverage for
   astraeadb-issues #24 (the real-id plumbing already shipped in 0.2.0).
+## [0.2.1] - 2026-07-25
+
+### Fixed
+- **astraea-query:** a GQL `MATCH (a)-[r:T]->(b)` no longer returns 0 rows when
+  the leading node `(a)` is unlabeled. The executor was seeding the anchor
+  candidate set via `find_by_label("")` — an "empty label = all nodes"
+  convention only the in-memory test mocks honored, so real backends returned
+  nothing. It now uses a new `GraphOps::list_all_nodes` full scan for an
+  unlabeled anchor. (KG Issue 2189, discovered via #14.)
+
+### Added
+- **astraea-core / astraea-graph:** `GraphOps::list_all_nodes(&self)` — additive
+  trait method (default impl errors "unsupported"; `Graph` overrides it by
+  delegating to `StorageEngine::list_all_nodes`).
 
 ## [0.2.0] - 2026-07-24
 
