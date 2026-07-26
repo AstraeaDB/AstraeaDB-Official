@@ -328,13 +328,18 @@ impl Executor {
 
             ids
         } else {
-            // No labels specified -- need to get all nodes.
-            // Try find_by_label("") as a convention, or handle the error
-            // by returning an empty set with a descriptive error.
-            // Since the GraphOps trait doesn't have an all_nodes method,
-            // we rely on find_by_label returning all nodes when given an empty
-            // string, or we propagate the error.
-            self.graph.find_by_label("")?
+            // No labels specified -- this node pattern (most importantly the
+            // leading/anchor node of a MATCH chain, but also a standalone
+            // `MATCH (n)`) must match every node in the graph.
+            //
+            // GQL #2189: this used to call `find_by_label("")` on the
+            // undocumented convention that an empty label means "all
+            // nodes." Real storage backends never index the empty string
+            // as a label, so that always returned zero candidates for an
+            // unlabeled leading node -- a silent-wrong-results bug, not a
+            // crash. `GraphOps::list_all_nodes` is the dedicated primitive
+            // for a full scan; use that instead.
+            self.graph.list_all_nodes()?
         };
 
         let mut results = Vec::new();
@@ -1052,9 +1057,12 @@ mod tests {
 
     // ── In-memory GraphOps for testing ──────────────────────────────────
     //
-    // We create a dedicated test implementation that supports find_by_label
-    // (including the "" convention for all nodes) because the production
-    // Graph::find_by_label is unimplemented.
+    // We create a dedicated test implementation of GraphOps. Deliberately
+    // does NOT special-case find_by_label("") as "all nodes" -- production
+    // storage backends don't honor that convention either (GQL #2189), so
+    // mirroring that here means these unit tests actually exercise the
+    // same candidate-seeding path (`GraphOps::list_all_nodes`) that real
+    // backends use, rather than papering over it.
 
     struct TestGraph {
         nodes: RwLock<HashMap<NodeId, Node>>,
@@ -1254,16 +1262,15 @@ mod tests {
 
         fn find_by_label(&self, label: &str) -> Result<Vec<NodeId>> {
             let nodes = self.nodes.read();
-            if label.is_empty() {
-                // Convention: empty label returns all node IDs.
-                Ok(nodes.keys().copied().collect())
-            } else {
-                Ok(nodes
-                    .values()
-                    .filter(|n| n.labels.contains(&label.to_string()))
-                    .map(|n| n.id)
-                    .collect())
-            }
+            Ok(nodes
+                .values()
+                .filter(|n| n.labels.contains(&label.to_string()))
+                .map(|n| n.id)
+                .collect())
+        }
+
+        fn list_all_nodes(&self) -> Result<Vec<NodeId>> {
+            Ok(self.nodes.read().keys().copied().collect())
         }
     }
 
