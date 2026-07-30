@@ -49,6 +49,7 @@ use astraea_core::error::{AstraeaError, Result};
 use bytes::Bytes;
 use futures::StreamExt;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use std::io::Error as IoError;
