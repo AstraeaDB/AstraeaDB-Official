@@ -488,4 +488,114 @@ mod tests {
         };
         assert_eq!(request_type_name(&req), "ShortestPathAt");
     }
+
+    // -----------------------------------------------------------------
+    // astraeadb-issues.md #6 (VectorSearch `distance` vs proto `score`):
+    // end-to-end regression covering BOTH transports against a single
+    // shared handler/graph, driving the real wire-framing code
+    // (`handle_connection`, over an in-memory `tokio::io::duplex` pipe
+    // standing in for a TCP socket) and the real gRPC service impl.
+    // -----------------------------------------------------------------
+    #[tokio::test]
+    async fn tcp_and_grpc_vector_search_return_matching_distance() {
+        use astraea_core::traits::VectorIndex;
+        use astraea_core::types::{DistanceMetric, NodeId};
+        use astraea_graph::Graph;
+        use astraea_graph::test_utils::InMemoryStorage;
+        use astraea_vector::HnswVectorIndex;
+        use tokio::io::AsyncWriteExt;
+
+        use crate::grpc::AstraeaGrpcService;
+        use crate::grpc::proto::VectorSearchRequest;
+        use crate::grpc::proto::astraea_service_server::AstraeaService as _;
+
+        // One handler, one graph, one vector index -- shared by both
+        // transports so a divergence would only be explainable by the
+        // transport-specific mapping code, not by different data.
+        let storage = InMemoryStorage::new();
+        let vector_index: Arc<dyn VectorIndex> =
+            Arc::new(HnswVectorIndex::new(3, DistanceMetric::Cosine));
+        let graph = Graph::with_vector_index(Box::new(storage), Arc::clone(&vector_index));
+        vector_index.insert(NodeId(1), &[1.0, 0.0, 0.0]).unwrap();
+        vector_index.insert(NodeId(2), &[0.0, 1.0, 0.0]).unwrap();
+        let handler = Arc::new(RequestHandler::new(Arc::new(graph), Some(vector_index)));
+
+        // -- TCP surface: real newline-delimited JSON framing over an
+        // in-memory duplex pipe (stands in for a TCP socket; `handle_connection`
+        // is generic over `AsyncRead + AsyncWrite` so this exercises the
+        // exact same code the real TCP listener uses).
+        let (client, server_side) = tokio::io::duplex(4096);
+        let tcp_handler = Arc::clone(&handler);
+        let server_task = tokio::spawn(async move {
+            handle_connection(
+                server_side,
+                tcp_handler,
+                Arc::new(AuthManager::disabled()),
+                Arc::new(ServerMetrics::new()),
+                std::time::Duration::from_secs(5),
+                std::time::Duration::from_secs(5),
+                None,
+            )
+            .await
+        });
+
+        let (read_half, mut write_half) = tokio::io::split(client);
+        let query = r#"{"type":"VectorSearch","query":[1.0,0.0,0.0],"k":2}"#;
+        write_half
+            .write_all(format!("{query}\n").as_bytes())
+            .await
+            .unwrap();
+
+        let mut reader = BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+
+        // Close the write side so `handle_connection`'s read loop sees EOF
+        // and returns; then reap the spawned task.
+        drop(write_half);
+        server_task.await.unwrap().unwrap();
+
+        let tcp_resp: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(tcp_resp["status"], "ok", "TCP response: {tcp_resp}");
+        let tcp_results = tcp_resp["data"]["results"].as_array().unwrap();
+        assert_eq!(tcp_results.len(), 2);
+        assert_eq!(tcp_results[0]["node_id"].as_u64().unwrap(), 1);
+        // Canonical field name on the wire is `distance`.
+        let tcp_distance = tcp_results[0]["distance"]
+            .as_f64()
+            .expect("TCP JSON result must carry a `distance` field");
+        assert!(
+            tcp_distance.abs() < 1e-5,
+            "expected ~0 distance for an exact match, got {tcp_distance}"
+        );
+
+        // -- gRPC surface: drive the real tonic service impl directly
+        // (same handler/graph/vector index as above).
+        let svc = AstraeaGrpcService::new(Arc::clone(&handler));
+        let grpc_resp = svc
+            .vector_search(tonic::Request::new(VectorSearchRequest {
+                query: vec![1.0, 0.0, 0.0],
+                k: 2,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(
+            grpc_resp.error.is_empty(),
+            "gRPC error: {}",
+            grpc_resp.error
+        );
+        assert_eq!(grpc_resp.results.len(), 2);
+        assert_eq!(grpc_resp.results[0].node_id, 1);
+        // `.distance` is the renamed proto field (astraeadb-issues.md #6);
+        // this line would not compile against the old `score` field name.
+        let grpc_distance = grpc_resp.results[0].distance as f64;
+
+        // Both transports must agree on the value under the shared
+        // `distance` name.
+        assert!(
+            (tcp_distance - grpc_distance).abs() < 1e-4,
+            "TCP distance {tcp_distance} != gRPC distance {grpc_distance}"
+        );
+    }
 }

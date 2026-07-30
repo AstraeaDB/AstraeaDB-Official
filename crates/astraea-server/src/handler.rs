@@ -247,13 +247,21 @@ impl RequestHandler {
                 match &self.vector_index {
                     Some(vi) => match vi.search(&query, k) {
                         Ok(results) => {
-                            // astraeadb-issues.md #6: the TCP path emitted
-                            // `distance`, the proto declared `score`, and
-                            // the gRPC bridge silently defaulted to 0.0
-                            // when it couldn't find `score`. Emit BOTH
-                            // keys with the same value (lower = more
-                            // similar) so every client sees real numbers,
-                            // regardless of which name it expects.
+                            // astraeadb-issues.md #6: `distance` is the
+                            // canonical field name on both transports now
+                            // (the gRPC proto's `VectorSearchResult.score`
+                            // was renamed to `distance` to match). The TCP
+                            // JSON wire format has always used `distance`;
+                            // it also carries a redundant legacy `score`
+                            // key (same value) so existing go/java/python
+                            // JSON clients — which still parse `score` from
+                            // this transport (see e.g.
+                            // go/astraeadb/json_client_test.go,
+                            // python/tests/test_json_client.py,
+                            // java JsonClient.java) — keep working
+                            // unmigrated. New/internal consumers should
+                            // read `distance`; `score` may be dropped once
+                            // those bindings move to `distance` too.
                             let items: Vec<serde_json::Value> = results
                                 .into_iter()
                                 .map(|r| {
