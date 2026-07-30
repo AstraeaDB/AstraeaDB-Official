@@ -24,6 +24,20 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-30
+
+### Added
+- **astraea-gnn:** `train_temporal_with_rng` and `train_node_classification_with_rng`
+  — seedable variants of the trainers (the existing `train_temporal` /
+  `train_node_classification` still default to `thread_rng()`, unchanged).
+
+### Fixed
+- **astraea-gnn (tests):** seed the RNG in the training/temporal loss tests so
+  the loss-decrease assertions are deterministic — fixes intermittent CI flakes
+  in `test_temporal_training_loss_decreases`, `test_training_v2_loss_decreases`,
+  and `test_training_v2_predictions` (100/100 runs pass). Production randomness
+  is unchanged. (KG Issue 2196.)
+
 ## [0.2.2] - 2026-07-25
 
 ### Added
