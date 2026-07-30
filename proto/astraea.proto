@@ -217,9 +217,11 @@ message VectorSearchResult {
     // couldn't find a field named `score`. `distance` is now the single
     // canonical name on both transports.
     //
-    // BREAKING: this is a wire-format rename. Cross-language client
-    // bindings (go/, java/, python/) that read `.score` / `getScore()`
-    // still target the old field name until they are migrated separately.
+    // BREAKING: this is a source-breaking rename (field number/type
+    // unchanged, so the binary wire is compatible; clients must
+    // regenerate stubs). Cross-language client bindings (go/, java/,
+    // python/) that read `.score` / `getScore()` still target the old
+    // field name until they are migrated separately.
     float distance = 2;
 }
 

@@ -24,6 +24,20 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-30
+
+### Changed
+- **BREAKING (astraea-server / proto):** `VectorSearchResult` gRPC field renamed
+  `score` → `distance` (field number 2 and type `float` unchanged, so the binary
+  wire is compatible; gRPC clients must regenerate stubs against the new
+  `.proto`). gRPC now populates `distance` directly. The TCP-JSON path still
+  emits both `distance` and `score` (the `score` key is kept as an alias for the
+  existing go/java/python JSON clients). (astraeadb-issues #6.)
+
+### Added
+- **astraea-server:** end-to-end test asserting TCP and gRPC vector search return
+  the same `distance` value.
+
 ## [0.2.2] - 2026-07-25
 
 ### Added
