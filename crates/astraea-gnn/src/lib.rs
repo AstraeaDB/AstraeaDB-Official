@@ -34,6 +34,10 @@ pub use sampling::{SampledSubgraph, SamplingConfig, sample_subgraph};
 pub use sparse::{CSRAdjacency, FeatureMatrix, message_passing_spmm};
 pub use temporal::{
     GRUCell, TemporalGNNModel, TemporalTrainingConfig, TemporalTrainingResult, train_temporal,
+    train_temporal_with_rng,
 };
 pub use tensor::{Matrix, Tensor};
-pub use training::{TrainingConfig, TrainingData, TrainingResult, train_node_classification};
+pub use training::{
+    TrainingConfig, TrainingData, TrainingResult, train_node_classification,
+    train_node_classification_with_rng,
+};
