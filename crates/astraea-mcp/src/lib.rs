@@ -2,7 +2,7 @@
 //!
 //! `McpServer` is a JSON-RPC 2.0 server speaking MCP protocol version
 //! `2025-03-26` over a `Transport` (currently only `StdioTransport`).
-//! `ToolRegistry` exposes 28 compile-time tools across `crud`,
+//! `ToolRegistry` exposes 29 compile-time tools across `crud`,
 //! `traversal`, `search`, `algorithms`, `temporal`, `rag`, and `admin`,
 //! all dispatched through a `ProxyClient` that opens a fresh TCP
 //! connection per call to an `astraea-server` instance — this crate
