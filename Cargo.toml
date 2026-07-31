@@ -19,7 +19,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 license = "MIT"
 
@@ -96,7 +96,7 @@ ordered-float = "4"
 rand = "0.8"
 
 # Object storage
-object_store = { version = "0.11", features = ["aws", "gcp", "azure"] }
+object_store = { version = "0.14", features = ["aws", "gcp", "azure"] }
 
 # TLS
 tokio-rustls = "0.26"
