@@ -210,7 +210,19 @@ message VectorSearchRequest {
 
 message VectorSearchResult {
     uint64 node_id = 1;
-    float score = 2;
+    // Distance from the query vector (lower = more similar). Renamed from
+    // `score` for astraeadb-issues.md #6: the TCP JSON wire format has
+    // always called this `distance`, and the two names disagreeing across
+    // transports caused the gRPC bridge to silently read 0.0 when it
+    // couldn't find a field named `score`. `distance` is now the single
+    // canonical name on both transports.
+    //
+    // BREAKING: this is a source-breaking rename (field number/type
+    // unchanged, so the binary wire is compatible; clients must
+    // regenerate stubs). Cross-language client bindings (go/, java/,
+    // python/) that read `.score` / `getScore()` still target the old
+    // field name until they are migrated separately.
+    float distance = 2;
 }
 
 message VectorSearchResponse {
