@@ -102,8 +102,8 @@ fn init_node_features(
     graph: &dyn GraphOps,
     node_ids: &[NodeId],
     feature_dim: usize,
+    rng: &mut impl Rng,
 ) -> Result<HashMap<NodeId, Tensor>> {
-    let mut rng = rand::thread_rng();
     let mut features = HashMap::new();
 
     for &node_id in node_ids {
@@ -379,11 +379,19 @@ fn detect_input_dim(graph: &dyn GraphOps, node_ids: &[NodeId]) -> Result<usize> 
 /// - Computes exact gradients via backpropagation (not finite differences)
 ///
 /// Expected speedup: 1000x+ over the legacy finite-difference approach.
+///
+/// `rng` drives Xavier weight initialization (and any fallback random feature
+/// init in [`init_node_features`]). Production callers go through
+/// [`train_node_classification`], which seeds this with `thread_rng()`; tests
+/// that assert on loss trajectories should go through
+/// [`train_node_classification_with_rng`] with a fixed seed instead, since an
+/// unlucky random init can otherwise make a "loss decreases" assertion flaky.
 fn train_with_backprop(
     graph: &dyn GraphOps,
     training_data: &TrainingData,
     config: &TrainingConfig,
     hidden_dim: usize,
+    rng: &mut impl Rng,
 ) -> Result<TrainingResult> {
     let node_ids = collect_node_ids(graph, training_data)?;
     let edge_ids = collect_edge_ids(graph, &node_ids)?;
@@ -392,16 +400,17 @@ fn train_with_backprop(
     let input_dim = detect_input_dim(graph, &node_ids)?;
 
     // Initialize features using full embedding dimension.
-    let initial_features = init_node_features(graph, &node_ids, input_dim)?;
+    let initial_features = init_node_features(graph, &node_ids, input_dim, rng)?;
     let edge_weights = init_edge_weights(graph, &edge_ids)?;
 
     // Create the GNN model.
-    let mut gnn_model = GNNModel::new(
+    let mut gnn_model = GNNModel::new_with_rng(
         input_dim,
         hidden_dim,
         training_data.num_classes,
         config.layers,
         config.message_passing.activation,
+        rng,
     );
 
     // Split labels into train/validation if requested.
@@ -545,6 +554,12 @@ fn train_with_backprop(
 /// When `config.hidden_dim` is `None`, uses the legacy training path with
 /// numerical gradients on edge weights only (backward compatible).
 ///
+/// Weight/feature initialization is seeded from `rand::thread_rng()` (random
+/// by default, matching every other constructor in this crate). Use
+/// [`train_node_classification_with_rng`] to supply a fixed seed instead —
+/// e.g. for tests that assert on the shape of the loss curve, where an
+/// unlucky random init could otherwise make the assertion flaky.
+///
 /// # Errors
 ///
 /// Returns an error if graph operations fail or if the training data is empty.
@@ -552,6 +567,19 @@ pub fn train_node_classification(
     graph: &dyn GraphOps,
     training_data: &TrainingData,
     config: &TrainingConfig,
+) -> Result<TrainingResult> {
+    train_node_classification_with_rng(graph, training_data, config, &mut rand::thread_rng())
+}
+
+/// Same as [`train_node_classification`], but with an explicit, caller-supplied
+/// RNG for weight/feature initialization. Pass a seeded `StdRng` for
+/// reproducible training runs (e.g. deterministic tests); production callers
+/// should keep using [`train_node_classification`].
+pub fn train_node_classification_with_rng(
+    graph: &dyn GraphOps,
+    training_data: &TrainingData,
+    config: &TrainingConfig,
+    rng: &mut impl Rng,
 ) -> Result<TrainingResult> {
     if training_data.labels.is_empty() {
         return Err(AstraeaError::QueryExecution(
@@ -566,7 +594,7 @@ pub fn train_node_classification(
 
     // Use new training path if hidden_dim is specified.
     if let Some(hidden_dim) = config.hidden_dim {
-        return train_with_backprop(graph, training_data, config, hidden_dim);
+        return train_with_backprop(graph, training_data, config, hidden_dim, rng);
     }
 
     // Legacy path: numerical gradients on edge weights only.
@@ -579,7 +607,7 @@ pub fn train_node_classification(
     let edge_ids = collect_edge_ids(graph, &node_ids)?;
 
     // Initialize features and weights.
-    let initial_features = init_node_features(graph, &node_ids, feature_dim)?;
+    let initial_features = init_node_features(graph, &node_ids, feature_dim, rng)?;
     let mut edge_weights = init_edge_weights(graph, &edge_ids)?;
 
     let labeled_nodes: Vec<NodeId> = training_data.labels.keys().copied().collect();
@@ -665,6 +693,7 @@ mod tests {
     use astraea_core::traits::GraphOps;
     use astraea_graph::Graph;
     use astraea_graph::test_utils::InMemoryStorage;
+    use rand::SeedableRng;
 
     /// Build a simple bipartite-ish graph for classification:
     ///
@@ -1035,7 +1064,14 @@ mod tests {
             validation_split: None,
         };
 
-        let result = train_node_classification(&graph, &training_data, &config).unwrap();
+        // Fixed seed: `train_with_backprop` draws Xavier-initialized weights
+        // from `thread_rng()` by default, and an unlucky draw can occasionally
+        // make the loss-decrease assertion below flaky. A seeded `StdRng` makes
+        // this test deterministic while leaving `train_node_classification`'s
+        // production default (random-by-default) unchanged.
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0x2196_57ED);
+        let result =
+            train_node_classification_with_rng(&graph, &training_data, &config, &mut rng).unwrap();
 
         assert_eq!(result.epoch_losses.len(), 50);
         assert!(result.model.is_some(), "v2 training should return a model");
@@ -1087,7 +1123,12 @@ mod tests {
             validation_split: None,
         };
 
-        let result = train_node_classification(&graph, &training_data, &config).unwrap();
+        // Fixed seed: see comment on `test_training_v2_loss_decreases` above.
+        // The accuracy threshold below is a random-init-dependent assertion,
+        // so seed it for determinism too.
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0x2196_57ED);
+        let result =
+            train_node_classification_with_rng(&graph, &training_data, &config, &mut rng).unwrap();
 
         // Verify predictions exist for all labeled nodes.
         assert!(result.final_predictions.contains_key(&a));
