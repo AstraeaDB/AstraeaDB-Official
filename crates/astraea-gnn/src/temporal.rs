@@ -296,10 +296,28 @@ fn collect_temporal_features(
 /// * `graph` - Graph with temporal edges (validity intervals)
 /// * `timestep_data` - Sequence of (timestamp, labels) pairs in temporal order
 /// * `config` - Training configuration
+///
+/// Model weights are seeded from `rand::thread_rng()` (random by default).
+/// Use [`train_temporal_with_rng`] to supply a fixed seed instead — e.g. for
+/// tests that assert on the shape of the loss curve, where an unlucky random
+/// init could otherwise make the assertion flaky.
 pub fn train_temporal(
     graph: &dyn GraphOps,
     timestep_data: &[(i64, TrainingData)],
     config: &TemporalTrainingConfig,
+) -> Result<TemporalTrainingResult> {
+    train_temporal_with_rng(graph, timestep_data, config, &mut rand::thread_rng())
+}
+
+/// Same as [`train_temporal`], but with an explicit, caller-supplied RNG for
+/// weight initialization. Pass a seeded `StdRng` for reproducible training
+/// runs (e.g. deterministic tests); production callers should keep using
+/// [`train_temporal`].
+pub fn train_temporal_with_rng(
+    graph: &dyn GraphOps,
+    timestep_data: &[(i64, TrainingData)],
+    config: &TemporalTrainingConfig,
+    rng: &mut impl Rng,
 ) -> Result<TemporalTrainingResult> {
     if timestep_data.is_empty() {
         return Err(AstraeaError::QueryExecution(
@@ -316,7 +334,7 @@ pub fn train_temporal(
         timestep_data[0].1.num_classes,
         config.num_layers,
         config.activation,
-        &mut rand::thread_rng(),
+        rng,
     );
 
     let mut epoch_losses = Vec::with_capacity(config.epochs);
@@ -442,6 +460,7 @@ mod tests {
     use crate::message_passing::Aggregation;
     use astraea_graph::Graph;
     use astraea_graph::test_utils::InMemoryStorage;
+    use rand::SeedableRng;
 
     fn make_temporal_graph() -> (Graph, Vec<NodeId>) {
         let graph = Graph::new(Box::new(InMemoryStorage::new()));
@@ -674,7 +693,13 @@ mod tests {
             },
         };
 
-        let result = train_temporal(&graph, &timestep_data, &config).unwrap();
+        // Fixed seed: model weight init (GNN layers + GRU cells) is otherwise
+        // drawn from `thread_rng()`, and an unlucky draw can occasionally make
+        // the loss-decrease assertion below flaky (KG Issue 2196). A seeded
+        // `StdRng` makes this test deterministic across runs while leaving
+        // `train_temporal`'s production default (random-by-default) unchanged.
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0x2196_57ED);
+        let result = train_temporal_with_rng(&graph, &timestep_data, &config, &mut rng).unwrap();
 
         // The minimum loss seen during training should be less than the first loss.
         // Temporal models may have non-monotonic loss due to GRU weight evolution.

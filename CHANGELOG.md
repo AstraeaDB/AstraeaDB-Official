@@ -37,6 +37,36 @@ readers; the gate does not validate bullet content.
 ### Added
 - **astraea-server:** end-to-end test asserting TCP and gRPC vector search return
   the same `distance` value.
+## [0.2.5] - 2026-07-30
+
+### Added
+- **astraea-gnn:** `train_temporal_with_rng` and `train_node_classification_with_rng`
+  — seedable variants of the trainers (the existing `train_temporal` /
+  `train_node_classification` still default to `thread_rng()`, unchanged).
+
+### Fixed
+- **astraea-gnn (tests):** seed the RNG in the training/temporal loss tests so
+  the loss-decrease assertions are deterministic — fixes intermittent CI flakes
+  in `test_temporal_training_loss_decreases`, `test_training_v2_loss_decreases`,
+  and `test_training_v2_predictions` (100/100 runs pass). Production randomness
+  is unchanged. (KG Issue 2196.)
+## [0.2.4] - 2026-07-30
+
+### Added
+- **astraea-mcp:** injectable tool registry — new `McpServer::new_with_tools(registry)`,
+  a public `ToolHandler` trait, and `ToolRegistry::register(definition, handler)`
+  let embedders add custom tools alongside (or shadowing) the 29 built-ins.
+  `McpServer::new()` is unchanged (delegates to the default registry). Adds an
+  `examples/custom_tools.rs`. (astraeadb-issues #2.)
+## [0.2.3] - 2026-07-30
+
+### Security
+- **astraea-storage:** bump `object_store` 0.11 → 0.14 (pulls `quick-xml` 0.37 →
+  0.41), clearing two HIGH RustSec advisories reachable via the S3/GCS/Azure
+  cold-storage backends: RUSTSEC-2026-0195 (unbounded namespace-declaration
+  allocation DoS) and RUSTSEC-2026-0194 (quadratic duplicate-attribute check).
+  The 0.14 API split `put`/`get`/`head`/`delete` into `ObjectStoreExt`; the only
+  source change is importing that trait (semantics unchanged).
 
 ## [0.2.2] - 2026-07-25
 
