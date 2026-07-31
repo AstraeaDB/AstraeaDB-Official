@@ -32,6 +32,15 @@ readers; the gate does not validate bullet content.
   let embedders add custom tools alongside (or shadowing) the 29 built-ins.
   `McpServer::new()` is unchanged (delegates to the default registry). Adds an
   `examples/custom_tools.rs`. (astraeadb-issues #2.)
+## [0.2.3] - 2026-07-30
+
+### Security
+- **astraea-storage:** bump `object_store` 0.11 → 0.14 (pulls `quick-xml` 0.37 →
+  0.41), clearing two HIGH RustSec advisories reachable via the S3/GCS/Azure
+  cold-storage backends: RUSTSEC-2026-0195 (unbounded namespace-declaration
+  allocation DoS) and RUSTSEC-2026-0194 (quadratic duplicate-attribute check).
+  The 0.14 API split `put`/`get`/`head`/`delete` into `ObjectStoreExt`; the only
+  source change is importing that trait (semantics unchanged).
 
 ## [0.2.2] - 2026-07-25
 
