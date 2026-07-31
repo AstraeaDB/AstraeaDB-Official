@@ -24,6 +24,14 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-30
+
+### Added
+- **astraea-mcp:** injectable tool registry — new `McpServer::new_with_tools(registry)`,
+  a public `ToolHandler` trait, and `ToolRegistry::register(definition, handler)`
+  let embedders add custom tools alongside (or shadowing) the 29 built-ins.
+  `McpServer::new()` is unchanged (delegates to the default registry). Adds an
+  `examples/custom_tools.rs`. (astraeadb-issues #2.)
 ## [0.2.3] - 2026-07-30
 
 ### Security

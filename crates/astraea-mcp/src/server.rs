@@ -75,6 +75,10 @@ pub struct McpServer {
 }
 
 impl McpServer {
+    /// Build the server with the default tool registry: the full built-in
+    /// tool set, no custom additions. Equivalent to constructing a fresh
+    /// `ToolRegistry::new(..)` and passing it to
+    /// [`Self::new_with_tools`].
     pub fn new(config: McpConfig) -> Self {
         let client = ProxyClient::new(config.address, config.auth_token);
         // The ToolRegistry needs its own client. Since ProxyClient is cheap
@@ -82,6 +86,22 @@ impl McpServer {
         let tools_client =
             ProxyClient::new(client.address().to_string(), client.auth_token().cloned());
         let tools = ToolRegistry::new(tools_client);
+
+        Self::new_with_tools(tools)
+    }
+
+    /// Build the server with a caller-supplied [`ToolRegistry`], e.g. one
+    /// built via `ToolRegistry::new(..)` plus `ToolRegistry::register(..)`
+    /// calls to add custom tools alongside (or shadowing) the built-in set.
+    ///
+    /// The server's own `ProxyClient` (used for `resources/read`) is
+    /// derived from the registry's client's address + auth token, mirroring
+    /// the two-independent-connections pattern in [`Self::new`].
+    pub fn new_with_tools(tools: ToolRegistry) -> Self {
+        let client = ProxyClient::new(
+            tools.client().address().to_string(),
+            tools.client().auth_token().cloned(),
+        );
 
         Self {
             tools,
