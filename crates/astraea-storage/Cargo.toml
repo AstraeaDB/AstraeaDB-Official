@@ -2,6 +2,9 @@
 name = "astraea-storage"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Disk-backed storage engine for AstraeaDB: page format, buffer pool, write-ahead log, and Parquet/Arrow object-store cold tiering."
 
 [features]
 default = []
