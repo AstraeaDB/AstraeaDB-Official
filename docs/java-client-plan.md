@@ -347,7 +347,7 @@ public record PathResult(
 ) {}
 
 // model/SearchResult.java
-public record SearchResult(long nodeId, double distance, double score) {}
+public record SearchResult(long nodeId, double distance) {}
 
 // model/WalkStep.java
 public record WalkStep(long nodeId, double distance) {}
