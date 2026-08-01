@@ -616,8 +616,7 @@ public final class JsonClient implements AstraeaClient {
         for (JsonNode n : arr) {
             list.add(new SearchResult(
                 n.path("node_id").asLong(),
-                n.path("distance").asDouble(),
-                n.path("score").asDouble()
+                n.path("distance").asDouble()
             ));
         }
         return list;

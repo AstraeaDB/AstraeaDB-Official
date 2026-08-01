@@ -180,7 +180,7 @@ message VectorSearchRequest {
 
 message VectorSearchResult {
     uint64 node_id = 1;
-    float score = 2;
+    float distance = 2;
 }
 
 message VectorSearchResponse {

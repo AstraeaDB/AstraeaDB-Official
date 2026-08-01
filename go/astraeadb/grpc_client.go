@@ -417,7 +417,7 @@ func (c *GRPCClient) VectorSearch(ctx context.Context, query []float32, k int) (
 
 	results := make([]SearchResult, len(resp.Results))
 	for i, r := range resp.Results {
-		results[i] = SearchResult{NodeID: r.NodeId, Score: float64(r.Score)}
+		results[i] = SearchResult{NodeID: r.NodeId, Distance: float64(r.Distance)}
 	}
 	return results, nil
 }

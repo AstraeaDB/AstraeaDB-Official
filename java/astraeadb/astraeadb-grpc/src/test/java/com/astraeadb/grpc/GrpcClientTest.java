@@ -222,7 +222,7 @@ class GrpcClientTest {
         List<SearchResult> results = client.vectorSearch(new float[]{0.1f, 0.2f, 0.3f}, 3);
         assertThat(results).hasSize(3);
         assertThat(results.get(0).nodeId()).isEqualTo(100L);
-        assertThat(results.get(0).score()).isGreaterThan(0.0);
+        assertThat(results.get(0).distance()).isGreaterThan(0.0);
     }
 
     @Test

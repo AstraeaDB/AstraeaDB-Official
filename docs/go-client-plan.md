@@ -208,7 +208,6 @@ type PathResult struct {
 type SearchResult struct {
     NodeID   uint64  `json:"node_id"`
     Distance float32 `json:"distance,omitempty"`
-    Score    float32 `json:"score,omitempty"`
 }
 
 type WalkStep struct {

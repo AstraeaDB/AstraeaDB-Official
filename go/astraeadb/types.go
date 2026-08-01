@@ -48,7 +48,6 @@ type PathResult struct {
 type SearchResult struct {
 	NodeID   uint64  `json:"node_id"`
 	Distance float64 `json:"distance,omitempty"`
-	Score    float64 `json:"score,omitempty"`
 }
 
 // WalkStep represents a single step in a semantic walk.

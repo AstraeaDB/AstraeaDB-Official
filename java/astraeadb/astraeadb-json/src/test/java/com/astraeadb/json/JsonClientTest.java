@@ -365,7 +365,6 @@ class JsonClientTest {
                 assertThat(results).hasSize(1);
                 assertThat(results.get(0).nodeId()).isEqualTo(1);
                 assertThat(results.get(0).distance()).isCloseTo(0.1, within(0.001));
-                assertThat(results.get(0).score()).isCloseTo(0.9, within(0.001));
 
                 JsonNode req = parseRequest(server.takeRequest());
                 assertThat(req.path("type").asText()).isEqualTo("VectorSearch");

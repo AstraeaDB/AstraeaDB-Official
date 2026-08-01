@@ -1225,7 +1225,7 @@ func (x *VectorSearchRequest) GetK() uint32 {
 type VectorSearchResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Score         float32                `protobuf:"fixed32,2,opt,name=score,proto3" json:"score,omitempty"`
+	Distance      float32                `protobuf:"fixed32,2,opt,name=distance,proto3" json:"distance,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1267,9 +1267,9 @@ func (x *VectorSearchResult) GetNodeId() uint64 {
 	return 0
 }
 
-func (x *VectorSearchResult) GetScore() float32 {
+func (x *VectorSearchResult) GetDistance() float32 {
 	if x != nil {
-		return x.Score
+		return x.Distance
 	}
 	return 0
 }
@@ -1606,10 +1606,10 @@ const file_astraea_proto_rawDesc = "" +
 	"\x05error\x18\x0f \x01(\tR\x05error\"9\n" +
 	"\x13VectorSearchRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x03(\x02R\x05query\x12\f\n" +
-	"\x01k\x18\x02 \x01(\rR\x01k\"C\n" +
+	"\x01k\x18\x02 \x01(\rR\x01k\"I\n" +
 	"\x12VectorSearchResult\x12\x17\n" +
-	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x14\n" +
-	"\x05score\x18\x02 \x01(\x02R\x05score\"c\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1a\n" +
+	"\bdistance\x18\x02 \x01(\x02R\bdistance\"c\n" +
 	"\x14VectorSearchResponse\x125\n" +
 	"\aresults\x18\x01 \x03(\v2\x1b.astraea.VectorSearchResultR\aresults\x12\x14\n" +
 	"\x05error\x18\x0f \x01(\tR\x05error\" \n" +
@@ -1644,7 +1644,7 @@ const file_astraea_proto_rawDesc = "" +
 	"\fShortestPath\x12\x1c.astraea.ShortestPathRequest\x1a\x1d.astraea.ShortestPathResponse\x12K\n" +
 	"\fVectorSearch\x12\x1c.astraea.VectorSearchRequest\x1a\x1d.astraea.VectorSearchResponse\x126\n" +
 	"\x05Query\x12\x15.astraea.QueryRequest\x1a\x16.astraea.QueryResponse\x123\n" +
-	"\x04Ping\x12\x14.astraea.PingRequest\x1a\x15.astraea.PingResponseB1Z/github.com/AstraeaDB/AstraeaDB-Official/pb/astraeab\x06proto3"
+	"\x04Ping\x12\x14.astraea.PingRequest\x1a\x15.astraea.PingResponseB4Z2github.com/AstraeaDB/AstraeaDB-Official/pb/astraeab\x06proto3"
 
 var (
 	file_astraea_proto_rawDescOnce sync.Once
