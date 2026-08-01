@@ -24,6 +24,15 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-01
+
+### Added
+- **astraea-core / -storage / -vector / -graph / -rag:** crates.io publishing
+  metadata — `description`, `license` (inherited MIT), and `repository` on each
+  library crate, plus `version` on the internal `[workspace.dependencies]`
+  entries so these five crates can be published to crates.io. No code or API
+  change; the remaining workspace crates are unchanged and unpublished.
+
 ## [0.3.0] - 2026-07-30
 
 ### Changed

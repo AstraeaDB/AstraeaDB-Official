@@ -2,6 +2,9 @@
 name = "astraea-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Foundational types and traits shared across every AstraeaDB crate: node/edge records, ID newtypes, and the StorageEngine, GraphOps, and VectorIndex traits."
 
 [dependencies]
 serde = { workspace = true }

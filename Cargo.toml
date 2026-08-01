@@ -19,25 +19,29 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "MIT"
+repository = "https://github.com/AstraeaDB/AstraeaDB-Official"
 
 [workspace.dependencies]
-# Internal crates
-astraea-core = { path = "crates/astraea-core" }
-astraea-storage = { path = "crates/astraea-storage" }
-astraea-graph = { path = "crates/astraea-graph" }
-astraea-query = { path = "crates/astraea-query" }
-astraea-vector = { path = "crates/astraea-vector" }
-astraea-server = { path = "crates/astraea-server" }
-astraea-gnn = { path = "crates/astraea-gnn" }
-astraea-rag = { path = "crates/astraea-rag" }
-astraea-cluster = { path = "crates/astraea-cluster" }
-astraea-gpu = { path = "crates/astraea-gpu" }
-astraea-algorithms = { path = "crates/astraea-algorithms" }
-astraea-encrypt-demo = { path = "crates/astraea-encrypt-demo" }
-astraea-mcp = { path = "crates/astraea-mcp" }
+# Internal crates. `version` is required for the crates that are published to
+# crates.io (astraea-core/-storage/-vector/-graph/-rag); it is harmless for the
+# rest, which build from `path` locally. Keep every version in lockstep with
+# `[workspace.package].version` above.
+astraea-core = { path = "crates/astraea-core", version = "0.3.1" }
+astraea-storage = { path = "crates/astraea-storage", version = "0.3.1" }
+astraea-graph = { path = "crates/astraea-graph", version = "0.3.1" }
+astraea-query = { path = "crates/astraea-query", version = "0.3.1" }
+astraea-vector = { path = "crates/astraea-vector", version = "0.3.1" }
+astraea-server = { path = "crates/astraea-server", version = "0.3.1" }
+astraea-gnn = { path = "crates/astraea-gnn", version = "0.3.1" }
+astraea-rag = { path = "crates/astraea-rag", version = "0.3.1" }
+astraea-cluster = { path = "crates/astraea-cluster", version = "0.3.1" }
+astraea-gpu = { path = "crates/astraea-gpu", version = "0.3.1" }
+astraea-algorithms = { path = "crates/astraea-algorithms", version = "0.3.1" }
+astraea-encrypt-demo = { path = "crates/astraea-encrypt-demo", version = "0.3.1" }
+astraea-mcp = { path = "crates/astraea-mcp", version = "0.3.1" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

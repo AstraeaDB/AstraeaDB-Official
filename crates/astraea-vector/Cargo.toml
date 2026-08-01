@@ -2,6 +2,9 @@
 name = "astraea-vector"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HNSW-based approximate nearest-neighbor vector index for AstraeaDB's vector-property graph model."
 
 [dependencies]
 astraea-core = { workspace = true }
