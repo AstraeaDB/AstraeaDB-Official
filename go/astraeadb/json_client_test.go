@@ -287,8 +287,8 @@ func TestVectorSearch(t *testing.T) {
 	go func() {
 		respond(t, srv, map[string]any{
 			"results": []map[string]any{
-				{"node_id": 10, "score": 0.95},
-				{"node_id": 20, "score": 0.88},
+				{"node_id": 10, "distance": 0.95},
+				{"node_id": 20, "distance": 0.88},
 			},
 		})
 	}()
@@ -300,8 +300,8 @@ func TestVectorSearch(t *testing.T) {
 	if len(results) != 2 {
 		t.Fatalf("len = %d, want 2", len(results))
 	}
-	if results[0].Score != 0.95 {
-		t.Errorf("score = %f, want 0.95", results[0].Score)
+	if results[0].Distance != 0.95 {
+		t.Errorf("distance = %f, want 0.95", results[0].Distance)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestHybridSearch(t *testing.T) {
 	go func() {
 		req := respond(t, srv, map[string]any{
 			"results": []map[string]any{
-				{"node_id": 5, "score": 0.92},
+				{"node_id": 5, "distance": 0.92},
 			},
 		})
 		if req["type"] != "HybridSearch" {

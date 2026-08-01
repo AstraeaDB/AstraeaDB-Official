@@ -477,7 +477,7 @@ public final class GrpcClient implements AstraeaClient {
             }
             List<SearchResult> results = new ArrayList<>(resp.getResultsCount());
             for (VectorSearchResult r : resp.getResultsList()) {
-                results.add(new SearchResult(r.getNodeId(), r.getScore(), r.getScore()));
+                results.add(new SearchResult(r.getNodeId(), r.getDistance()));
             }
             return results;
         } catch (StatusRuntimeException e) {

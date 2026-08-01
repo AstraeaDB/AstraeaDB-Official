@@ -203,7 +203,7 @@ class MockAstraeaService extends AstraeaServiceGrpc.AstraeaServiceImplBase {
         for (int i = 0; i < Math.min(k, 3); i++) {
             builder.addResults(VectorSearchResult.newBuilder()
                     .setNodeId(100 + i)
-                    .setScore(0.95f - (i * 0.1f))
+                    .setDistance(0.95f - (i * 0.1f))
                     .build());
         }
         observer.onNext(builder.build());

@@ -147,7 +147,7 @@ func main() {
 		log.Fatalf("VectorSearch: %v", err)
 	}
 	for _, r := range results {
-		fmt.Printf("  node=%d score=%.3f\n", r.NodeID, r.Score)
+		fmt.Printf("  node=%d distance=%.3f\n", r.NodeID, r.Distance)
 	}
 
 	// ── Investigation 5: GraphRAG ────────────────────────────────────────
