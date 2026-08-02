@@ -101,10 +101,12 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
 | `go/astraeadb` | Go client: JSON/TCP, gRPC (protobuf), unified client with auto-transport selection | 30 |
 | `java/astraeadb` | Java client: JSON/TCP, gRPC (protobuf), Arrow Flight, unified client with auto-transport selection | 113 |
+| [`AstraeaDB` (R)](https://CRAN.R-project.org/package=AstraeaDB) | R client (R6): JSON/TCP + optional Arrow Flight; CRUD, label/edge lookups, traversals (BFS/DFS/shortest path), temporal queries, graph algorithms, vector/hybrid/semantic search, GraphRAG. On CRAN (`install.packages("AstraeaDB")`); source at [R-AstraeaDB](https://github.com/AstraeaDB/R-AstraeaDB) | 74 |
 | **Rust Total** | | **464** |
 | **Python Total** | | **23** |
 | **Go Total** | | **30** |
 | **Java Total** | | **113** |
+| **R Total** | | **74** |
 
 ## Data Model: Vector-Property Graph
 
