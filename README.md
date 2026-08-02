@@ -98,7 +98,7 @@ A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **
 | `astraea-cluster` | Distributed processing foundation: hash/range partitioning, shard management, cluster coordinator trait | 19 |
 | `astraea-mcp` | Model Context Protocol (MCP) server: JSON-RPC 2.0, stdio/SSE transports, 29 tools, 4 resource templates, 6 prompt templates. Proxy mode (TCP to running server) or embedded mode | 23 |
 | `astraea-cli` | Command-line interface: `serve`, `shell` (REPL), `status`, `import`, `export`, `mcp` | - |
-| `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow) | 23 |
+| `python/astraeadb` | Python client: JSON/TCP (no deps) + Arrow Flight (optional pyarrow). On [PyPI](https://pypi.org/project/astraeadb/): `pip install astraeadb` (source: [astraeadb-python](https://github.com/AstraeaDB/astraeadb-python)) | 23 |
 | `go/astraeadb` | Go client: JSON/TCP, gRPC (protobuf), unified client with auto-transport selection | 30 |
 | `java/astraeadb` | Java client: JSON/TCP, gRPC (protobuf), Arrow Flight, unified client with auto-transport selection | 113 |
 | [`AstraeaDB` (R)](https://CRAN.R-project.org/package=AstraeaDB) | R client (R6): JSON/TCP + optional Arrow Flight; CRUD, label/edge lookups, traversals (BFS/DFS/shortest path), temporal queries, graph algorithms, vector/hybrid/semantic search, GraphRAG. On CRAN (`install.packages("AstraeaDB")`); source at [R-AstraeaDB](https://github.com/AstraeaDB/R-AstraeaDB) | 74 |
