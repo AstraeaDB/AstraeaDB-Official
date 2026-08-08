@@ -125,6 +125,13 @@ impl Graph {
     ///
     /// Returns the number of embeddings inserted into the index.
     /// Returns `Ok(0)` immediately if no vector index is attached.
+    ///
+    /// A node whose embedding the index rejects (most often a dimension that
+    /// disagrees with the configured `[vector] dimension`) is **skipped with a
+    /// warning naming the node**, not propagated as an error. `serve` calls
+    /// this through `load_or_rebuild_vector_index` and `exit(1)`s on `Err`, so
+    /// propagating would let one malformed row make the whole database
+    /// unstartable, with no indication of which row was at fault.
     pub fn rebuild_vector_index(&self) -> astraea_core::error::Result<usize> {
         let vi = match &self.vector_index {
             Some(vi) => vi,
@@ -133,15 +140,33 @@ impl Graph {
 
         let node_ids = self.storage.list_all_nodes()?;
         let mut count = 0usize;
+        let mut skipped = 0usize;
         for id in node_ids {
             let node = match self.storage.get_node(id)? {
                 Some(n) => n,
                 None => continue,
             };
             if let Some(ref emb) = node.embedding {
-                vi.insert(id, emb)?;
-                count += 1;
+                match vi.insert(id, emb) {
+                    Ok(()) => count += 1,
+                    Err(e) => {
+                        tracing::warn!(
+                            "vector index rebuild: skipping node {} (embedding len {}): {}",
+                            id,
+                            emb.len(),
+                            e
+                        );
+                        skipped += 1;
+                    }
+                }
             }
+        }
+        if skipped > 0 {
+            tracing::warn!(
+                "vector index rebuild: {} embedding(s) skipped as unindexable; \
+                 those nodes are readable but will not appear in vector search",
+                skipped
+            );
         }
         Ok(count)
     }
@@ -251,14 +276,40 @@ impl Graph {
                 // Tracked as a follow-up.
 
                 // Post-snapshot inserts: WAL-replayed but not yet snapshotted.
+                //
+                // Skip-with-warning on reject, for the same reason as
+                // `rebuild_vector_index`: `serve` exits(1) if this returns Err.
+                // This path is the one that bites on the *second* restart —
+                // a node the rebuild skipped is in storage but not in the saved
+                // snapshot, so it reappears here as `missing` every boot.
                 let mut inserted = 0usize;
+                let mut skipped = 0usize;
                 for id in missing {
                     if let Some(node) = self.storage.get_node(id)?
                         && let Some(ref emb) = node.embedding
                     {
-                        vi.insert(id, emb)?;
-                        inserted += 1;
+                        match vi.insert(id, emb) {
+                            Ok(()) => inserted += 1,
+                            Err(e) => {
+                                tracing::warn!(
+                                    "vector index reconcile: skipping node {} \
+                                     (embedding len {}): {}",
+                                    id,
+                                    emb.len(),
+                                    e
+                                );
+                                skipped += 1;
+                            }
+                        }
                     }
+                }
+                if skipped > 0 {
+                    tracing::warn!(
+                        "vector index reconcile: {} embedding(s) skipped as \
+                         unindexable; those nodes are readable but will not \
+                         appear in vector search",
+                        skipped
+                    );
                 }
 
                 // Post-snapshot deletes: still in snapshot but gone from storage.
@@ -1424,6 +1475,71 @@ mod disk_restart_tests {
     /// Build a deterministic 768-dim embedding for use across test phases.
     fn make_embedding() -> Vec<f32> {
         (0..768u32).map(|i| i as f32 * 0.001 + 0.5).collect()
+    }
+
+    /// A node whose embedding dimension disagrees with the configured index
+    /// dimension must not make the server unstartable.
+    ///
+    /// `serve` calls `load_or_rebuild_vector_index` and `exit(1)`s on `Err`, so
+    /// propagating a single rejected embedding takes the whole database down,
+    /// with no indication of which node was at fault. Such rows reach storage
+    /// via any write path that runs without a vector index attached, where
+    /// `create_node` stores the embedding and skips indexing.
+    ///
+    /// Both boot paths are exercised, because they fail independently:
+    ///
+    ///   Boot 1 — no snapshot on disk, so `rebuild_vector_index` scans storage.
+    ///   Boot 2 — a snapshot now exists, so the *reconcile* loop runs instead.
+    ///            The skipped node is in storage but absent from the snapshot,
+    ///            so it reappears as `missing` on every subsequent boot.
+    #[test]
+    fn test_mismatched_dimension_node_does_not_block_startup() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let hnsw_path = data_dir.join("astraea.hnsw");
+
+        // Write one good 768-dim node and one 128-dim node. No vector index is
+        // attached, so `create_node` persists both without indexing either.
+        {
+            let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
+            let graph = Graph::new(Box::new(engine));
+            graph
+                .create_node(vec![], serde_json::json!({"n": "good"}), Some(make_embedding()))
+                .unwrap();
+            graph
+                .create_node(vec![], serde_json::json!({"n": "bad"}), Some(vec![0.25f32; 128]))
+                .unwrap();
+            graph.flush().unwrap();
+        }
+
+        // Boot 1: no snapshot => rebuild path.
+        {
+            let (engine, max_node, max_edge) = DiskStorageEngine::open(data_dir).unwrap();
+            let mut graph = Graph::with_start_ids(Box::new(engine), max_node + 1, max_edge + 1);
+            let init = graph
+                .load_or_rebuild_vector_index(&hnsw_path, 768, DistanceMetric::Cosine)
+                .expect("rebuild must skip the 128-dim node, not propagate");
+            assert!(
+                matches!(init, VectorIndexInit::Rebuilt { count: 1 }),
+                "expected the 768-dim node indexed and the 128-dim node skipped, got {init:?}"
+            );
+        }
+
+        assert!(hnsw_path.exists(), "boot 1 must persist a snapshot");
+
+        // Boot 2: snapshot exists => reconcile path. The skipped node is still
+        // in storage and still absent from the snapshot, so it is `missing`.
+        {
+            let (engine, max_node, max_edge) = DiskStorageEngine::open(data_dir).unwrap();
+            let mut graph = Graph::with_start_ids(Box::new(engine), max_node + 1, max_edge + 1);
+            let init = graph
+                .load_or_rebuild_vector_index(&hnsw_path, 768, DistanceMetric::Cosine)
+                .expect("reconcile must skip the 128-dim node, not propagate");
+            assert!(
+                matches!(init, VectorIndexInit::Loaded { inserted: 0, .. }),
+                "expected a clean load with the bad node skipped again, got {init:?}"
+            );
+        }
     }
 
     /// Issue #26 regression test — graph level.
