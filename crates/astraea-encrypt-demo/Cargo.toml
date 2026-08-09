@@ -2,6 +2,8 @@
 name = "astraea-encrypt-demo"
 version.workspace = true
 edition.workspace = true
+# Demo crate, not a library. See astraeadb-issues.md #13.
+publish = false
 
 [dependencies]
 astraea-core = { workspace = true }

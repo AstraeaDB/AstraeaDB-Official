@@ -2,6 +2,9 @@
 name = "astraea-flight"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Apache Arrow Flight server for AstraeaDB, providing zero-copy data exchange in the Arrow IPC format."
 
 [dependencies]
 astraea-core = { workspace = true }

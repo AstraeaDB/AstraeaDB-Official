@@ -2,6 +2,9 @@
 name = "astraea-mcp"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Model Context Protocol server fronting a running AstraeaDB instance, exposing the graph to language-model tooling over JSON-RPC 2.0."
 
 [dependencies]
 astraea-core = { workspace = true }

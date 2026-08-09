@@ -2,6 +2,9 @@
 name = "astraea-query"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GQL/Cypher-style query engine for AstraeaDB: parses MATCH, CREATE, DELETE and RETURN into a statement tree and executes it against the GraphOps trait."
 
 [dependencies]
 astraea-core = { workspace = true }

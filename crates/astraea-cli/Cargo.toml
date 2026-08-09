@@ -2,6 +2,9 @@
 name = "astraea-cli"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line interface for AstraeaDB, the AI-first graph and vector database. Installs the `astraeadb` binary for running a server, an interactive shell, and an MCP endpoint."
 
 # astraeadb-issues.md #10: the package/binary was named `astraea-cli` but
 # the command defined `#[command(name = "astraeadb")]`. Rename the binary

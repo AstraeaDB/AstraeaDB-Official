@@ -2,6 +2,9 @@
 name = "astraea-gnn"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure-Rust graph neural network primitives for AstraeaDB: a minimal tensor stack, GNN layers, and node-classification training over the GraphOps trait."
 
 [dependencies]
 astraea-core = { workspace = true }

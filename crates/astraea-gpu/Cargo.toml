@@ -2,6 +2,9 @@
 name = "astraea-gpu"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Compute-backend abstraction for AstraeaDB graph algorithms over CSR adjacency matrices, defining the GpuBackend trait and a CPU reference implementation."
 
 [dependencies]
 astraea-core = { workspace = true }

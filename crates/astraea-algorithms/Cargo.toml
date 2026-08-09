@@ -2,6 +2,9 @@
 name = "astraea-algorithms"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Graph algorithms for AstraeaDB: PageRank, Louvain community detection, connected components, and degree and betweenness centrality, operating over the GraphOps trait."
 
 [dependencies]
 astraea-core = { workspace = true }

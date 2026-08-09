@@ -2,6 +2,9 @@
 name = "astraea-server"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "TCP and gRPC front-ends for AstraeaDB, running a newline-delimited JSON request loop over TCP alongside a gRPC service."
 
 [dependencies]
 astraea-core = { workspace = true }
