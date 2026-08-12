@@ -24,6 +24,23 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+### Fixed
+- **astraea-graph:** a node whose stored embedding does not match the
+  configured vector dimension no longer makes the server unstartable. Both the
+  index rebuild and the reconcile pass now skip the offending node with a
+  warning instead of calling `exit(1)`, so one bad row cannot lock an operator
+  out of an otherwise healthy database. Covered by
+  `test_mismatched_dimension_node_does_not_block_startup`.
+- **astraea-server:** `build.rs` referenced `../../proto/astraea.proto`, a path
+  outside the crate, which made the crate unpublishable. The proto now lives in
+  `crates/astraea-server/proto/`.
+
+### Added
+- **astraea-algorithms / -cli / -cluster / -encrypt-demo / -flight / -gnn /
+  -gpu / -mcp / -query / -server:** the `description`, `license`, and
+  `repository` metadata crates.io requires, completing publication of the
+  workspace (#28).
+
 ## [0.3.1] - 2026-08-01
 
 ### Added
