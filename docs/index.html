@@ -74,6 +74,15 @@ a:hover { text-decoration: underline; }
 .btn-primary:hover { background: #d63a54; }
 .btn-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.25); }
 .btn-secondary:hover { background: rgba(255,255,255,0.18); }
+/* The one button a first-time visitor should press. Deliberately larger and
+   brighter than btn-primary so it wins against the other calls to action
+   rather than joining a row of equals. */
+.btn-start {
+  background: #2ecc71; color: #08301c; font-size: 1.08em; font-weight: 800;
+  padding: 16px 36px; box-shadow: 0 4px 18px rgba(46,204,113,0.35);
+}
+.btn-start:hover { background: #27ae60; color: #062515; box-shadow: 0 6px 22px rgba(46,204,113,0.45); }
+.btn-start .btn-sub { display: block; font-size: 0.72em; font-weight: 600; opacity: 0.8; margin-top: 2px; }
 
 /* Stats bar */
 .stats {
@@ -196,6 +205,7 @@ footer a { color: rgba(255,255,255,0.7); }
     <a href="#architecture">Architecture</a>
     <a href="#quickstart">Quick Start</a>
     <a href="wiki.html">Wiki</a>
+    <a href="https://astraeadb.github.io/getting-started/">Getting Started</a>
     <a href="https://github.com/AstraeaDB/AstraeaDB-Official" class="btn-nav">GitHub</a>
   </div>
 </nav>
@@ -207,8 +217,15 @@ footer a { color: rgba(255,255,255,0.7); }
     <h1>Astraea<span>DB</span></h1>
     <p class="tagline">A cloud-native, AI-first graph database written in Rust. Unifying property graphs, vector search, and graph neural networks in a single system.</p>
     <div class="hero-buttons">
+      <!-- The "Get Started" button here used to point at the GitHub
+           repository, which is not where a newcomer should be sent. It now
+           points at the twenty-lesson course, whose code is executed in a
+           container before publication. -->
+      <a href="https://astraeadb.github.io/getting-started/" class="btn btn-start">
+        Start Here
+        <span class="btn-sub">20 hands-on lessons, Python and R</span>
+      </a>
       <a href="gentle-intro.html" class="btn btn-primary">Gentle Introduction</a>
-      <a href="https://github.com/AstraeaDB/AstraeaDB-Official" class="btn btn-secondary">Get Started</a>
       <a href="wiki.html" class="btn btn-secondary">Read the Docs</a>
     </div>
   </div>
@@ -597,8 +614,9 @@ result, _ := client.<span class="fn">Query</span>(ctx, <span class="str">"MATCH 
 <!-- CTA -->
 <section class="cta">
   <h2>Ready to Get Started?</h2>
-  <p>Explore the full documentation, browse the source code, or jump straight into building.</p>
+  <p>The fastest route in is the twenty-lesson course, which takes you from installing a server to training a graph neural network. Every code block in it is executed against a real database before publication.</p>
   <div class="cta-buttons">
+    <a href="https://astraeadb.github.io/getting-started/" class="btn btn-start">Start Here: 20 Lessons</a>
     <a href="gentle-intro.html" class="btn btn-primary">Gentle Introduction</a>
     <a href="wiki.html" class="btn btn-secondary">Read the Wiki</a>
     <a href="https://github.com/AstraeaDB/AstraeaDB-Official" class="btn btn-secondary">View on GitHub</a>

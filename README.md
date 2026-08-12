@@ -6,7 +6,13 @@
 
 A cloud-native, AI-first graph database written in Rust. AstraeaDB combines a **Vector-Property Graph** model with an **HNSW vector index**, enabling both structural graph traversals and semantic similarity search in a single system.
 
-> **New to AstraeaDB?** Start with the [**Gentle Introduction**](https://astraeadb.github.io/AstraeaDB-Official/gentle-intro.html) — a comprehensive, beginner-friendly guide that takes you from graph database fundamentals through advanced features like vector search, GraphRAG, and GNN training, with examples in Python, R, Go, and Java.
+## Start here
+
+**[Getting Started with AstraeaDB](https://astraeadb.github.io/getting-started/)** is the recommended way in: twenty hands-on lessons arranged Crawl, Walk, Run. Crawl gets a server running and teaches the basics, with parallel Python and R tracks so you pick a language once and stay in it. Walk covers embeddings, semantic search, and GraphRAG over a real corpus. Run builds fraud and cyber-investigation systems and trains a graph neural network inside the database.
+
+Eighteen of the twenty lessons have every code block executed inside a fresh container against a real AstraeaDB server before publication. The other two are a prose introduction with no code and a dashboard walkthrough that needs a browser, and both say so. [A status page](https://astraeadb.github.io/getting-started/status.html) publishes the full matrix, including every skipped block and the reason for it. Source: [`AstraeaDB/getting-started`](https://github.com/AstraeaDB/getting-started).
+
+> **Prefer to read rather than type?** The [**Gentle Introduction**](https://astraeadb.github.io/AstraeaDB-Official/gentle-intro.html) is a comprehensive, beginner-friendly guide covering graph database fundamentals through vector search, GraphRAG, and GNN training, with examples in Python, R, Go, and Java.
 
 > **Contributing?** See [`docs/versioning.md`](docs/versioning.md) for the workspace-uniform semver policy, [`docs/regression-testing.md`](docs/regression-testing.md) for the per-PR impact-analysis gate, and [`CHANGELOG.md`](CHANGELOG.md) for release history.
 
