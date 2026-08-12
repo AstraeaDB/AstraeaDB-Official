@@ -1504,10 +1504,18 @@ mod disk_restart_tests {
             let engine = DiskStorageEngine::with_pool_size(data_dir, 16).unwrap();
             let graph = Graph::new(Box::new(engine));
             graph
-                .create_node(vec![], serde_json::json!({"n": "good"}), Some(make_embedding()))
+                .create_node(
+                    vec![],
+                    serde_json::json!({"n": "good"}),
+                    Some(make_embedding()),
+                )
                 .unwrap();
             graph
-                .create_node(vec![], serde_json::json!({"n": "bad"}), Some(vec![0.25f32; 128]))
+                .create_node(
+                    vec![],
+                    serde_json::json!({"n": "bad"}),
+                    Some(vec![0.25f32; 128]),
+                )
                 .unwrap();
             graph.flush().unwrap();
         }
