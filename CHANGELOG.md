@@ -24,6 +24,17 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-18
+
+### Changed
+- **astraea-server / proto:** `GetNodeResponse` gained `repeated float
+  embedding = 6`. The wire format is backward compatible and older gRPC
+  clients ignore the field, but adding a field to a public prost struct breaks
+  any downstream Rust code that constructs it with an exhaustive struct
+  literal, so this is a MINOR bump under
+  [docs/versioning.md](docs/versioning.md) rather than a patch. gRPC clients
+  must regenerate stubs to read the new field; JSON clients need no change.
+
 ### Fixed
 - **astraea-server:** `GetNode` returned `has_embedding: true` and dropped the
   vector, so callers could not read back embeddings they had written and were
