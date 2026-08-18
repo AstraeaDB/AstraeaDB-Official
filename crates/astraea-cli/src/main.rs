@@ -1166,8 +1166,20 @@ async fn main() {
 
         Commands::Shell { address } => {
             println!("Connecting to AstraeaDB at {address}...");
-            // Run the shell in a blocking context since rustyline is synchronous.
-            run_shell_blocking(address);
+            // astraeadb-issues.md #34. The shell is synchronous (rustyline) and
+            // drives its own current-thread runtime, but `main` is
+            // `#[tokio::main]`, so calling it from here meant building a
+            // runtime inside a runtime: `Runtime::block_on` panics with
+            // "Cannot start a runtime from within a runtime" on the very first
+            // request, the connectivity Ping. That made `shell` unusable both
+            // piped and interactively, despite the bug being reported as
+            // pipe-only. A plain OS thread carries no runtime context, so the
+            // shell's own runtime is the only one on it.
+            let handle = std::thread::spawn(move || run_shell_blocking(address));
+            if handle.join().is_err() {
+                // The thread already printed its panic message.
+                std::process::exit(1);
+            }
         }
 
         Commands::Status { address } => {

@@ -25,6 +25,15 @@ readers; the gate does not validate bullet content.
 ## [Unreleased]
 
 ### Fixed
+- **astraea-server:** `GetNode` returned `has_embedding: true` and dropped the
+  vector, so callers could not read back embeddings they had written and were
+  maintaining sidecar caches to compensate. The response now carries
+  `embedding` on both the JSON and gRPC surfaces; `GetNodeResponse` gained
+  `repeated float embedding = 6`, which older clients ignore.
+- **astraea-cli:** `shell` panicked with "Cannot start a runtime from within a
+  runtime" on its first request, making the subcommand unusable piped *and*
+  interactively. It now runs on a thread that does not already belong to a
+  tokio runtime.
 - **astraea-graph:** a node whose stored embedding does not match the
   configured vector dimension no longer makes the server unstartable. Both the
   index rebuild and the reconcile pass now skip the offending node with a

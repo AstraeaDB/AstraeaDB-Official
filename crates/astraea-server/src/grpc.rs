@@ -123,6 +123,18 @@ impl AstraeaService for AstraeaGrpcService {
                     .get("has_embedding")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                // astraeadb-issues.md #33. Carried through from the JSON
+                // handler so the two protocols agree about what GetNode
+                // returns; gRPC callers had the same read-back gap.
+                let embedding: Vec<f32> = data
+                    .get("embedding")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_f64().map(|f| f as f32))
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
                 Ok(tonic::Response::new(GetNodeResponse {
                     found: true,
@@ -130,6 +142,7 @@ impl AstraeaService for AstraeaGrpcService {
                     labels,
                     properties_json,
                     has_embedding,
+                    embedding,
                     error: String::new(),
                 }))
             }
@@ -139,6 +152,7 @@ impl AstraeaService for AstraeaGrpcService {
                 labels: vec![],
                 properties_json: String::new(),
                 has_embedding: false,
+                embedding: vec![],
                 error: message,
             })),
         }

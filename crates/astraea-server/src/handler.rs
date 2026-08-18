@@ -60,11 +60,19 @@ impl RequestHandler {
             }
 
             Request::GetNode { id } => match self.graph.get_node(NodeId(id)) {
+                // astraeadb-issues.md #33. `has_embedding` used to be the only
+                // trace of the vector: the handler held it and dropped it, and
+                // no other read path returned it, so a caller could not read
+                // back data it had just written. Callers were maintaining
+                // sidecar caches purely to work around this. The flag is kept
+                // so that `embedding: null` and "node has no embedding" stay
+                // distinguishable without inspecting the array.
                 Ok(Some(node)) => Response::ok(serde_json::json!({
                     "id": node.id.0,
                     "labels": node.labels,
                     "properties": node.properties,
                     "has_embedding": node.embedding.is_some(),
+                    "embedding": node.embedding,
                 })),
                 Ok(None) => Response::error(format!("node {id} not found")),
                 Err(e) => Response::error(e.to_string()),
@@ -891,6 +899,58 @@ mod tests {
         let storage = InMemoryStorage::new();
         let graph = Graph::new(Box::new(storage));
         RequestHandler::new(Arc::new(graph), None)
+    }
+
+    /// astraeadb-issues.md #33. GetNode used to answer `has_embedding: true`
+    /// and drop the vector, so a caller could not read back what it wrote.
+    #[test]
+    fn test_get_node_returns_the_embedding_it_stored() {
+        let (handler, _vi) = handler_with_vector_index(4);
+        let vec = vec![0.1f32, 0.2, 0.3, 0.4];
+
+        let created = handler.handle(Request::CreateNode {
+            labels: vec!["Doc".into()],
+            properties: serde_json::json!({"k": "v"}),
+            embedding: Some(vec.clone()),
+        });
+        let id = match created {
+            Response::Ok { data } => data["node_id"].as_u64().unwrap(),
+            Response::Error { message } => panic!("create failed: {message}"),
+        };
+
+        let data = match handler.handle(Request::GetNode { id }) {
+            Response::Ok { data } => data,
+            Response::Error { message } => panic!("get failed: {message}"),
+        };
+
+        assert_eq!(data["has_embedding"], serde_json::json!(true));
+        let got = data["embedding"]
+            .as_array()
+            .expect("embedding must be present on the wire, not just flagged");
+        let got: Vec<f32> = got.iter().map(|v| v.as_f64().unwrap() as f32).collect();
+        assert_eq!(got, vec, "the vector must round-trip unchanged");
+    }
+
+    /// The flag and the field have to stay consistent: a node with no
+    /// embedding reports false and null, never false and a stale array.
+    #[test]
+    fn test_get_node_without_embedding_reports_null() {
+        let handler = handler_without_vector_index();
+        let created = handler.handle(Request::CreateNode {
+            labels: vec!["Doc".into()],
+            properties: serde_json::json!({}),
+            embedding: None,
+        });
+        let id = match created {
+            Response::Ok { data } => data["node_id"].as_u64().unwrap(),
+            Response::Error { message } => panic!("create failed: {message}"),
+        };
+        let data = match handler.handle(Request::GetNode { id }) {
+            Response::Ok { data } => data,
+            Response::Error { message } => panic!("get failed: {message}"),
+        };
+        assert_eq!(data["has_embedding"], serde_json::json!(false));
+        assert!(data["embedding"].is_null());
     }
 
     #[test]

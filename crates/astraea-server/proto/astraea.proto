@@ -88,6 +88,10 @@ message GetNodeResponse {
     repeated string labels = 3;
     string properties_json = 4; // JSON-encoded properties
     bool has_embedding = 5;
+    // astraeadb-issues.md #33. Added as field 6, which is backward compatible:
+    // a client built against the older schema ignores it. Empty when the node
+    // has no embedding, which has_embedding still distinguishes.
+    repeated float embedding = 6;
     string error = 15;
 }
 
