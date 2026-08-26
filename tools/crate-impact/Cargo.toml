@@ -1,0 +1,25 @@
+[package]
+name = "crate-impact"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Computes which AstraeaDB workspace crates a change set can affect."
+
+# Deliberately its own workspace, not a member of the one above.
+#
+# The tool's whole job is to read this repository's workspace crate graph and
+# answer "which crates does this change affect". If it were a member, it would
+# appear in the graph it analyses: editing the tool would report the tool as an
+# impacted crate, and `cargo metadata` would carry it into every answer. Keeping
+# it separate means the thing being measured does not include the instrument.
+[workspace]
+
+[dependencies]
+# Relative, not absolute. Before this tool was vendored it lived in a private
+# repository and pinned these by a hard-coded /Users path, which CI had to
+# rewrite with sed at run time. See tools/crate-impact/README.md.
+astraea-core = { path = "../../crates/astraea-core" }
+astraea-graph = { path = "../../crates/astraea-graph", features = ["test-utils"] }
+serde_json = "1"
+anyhow = "1"
+cargo_metadata = "0.18"
