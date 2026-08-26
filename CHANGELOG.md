@@ -24,6 +24,31 @@ readers; the gate does not validate bullet content.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-25
+
+### Added
+- **astraeadb (new package):** `cargo install astraeadb` now works. The binary
+  has been called `astraeadb` since the rename in astraeadb-issues #10, but the
+  only package shipping it was `astraea-cli`, so the command a newcomer guesses
+  failed with "could not find `astraeadb` in registry". A cargo binary must be
+  built from its own package's source, so this is a real package rather than an
+  alias: a thin `main` over the shared library entry point. `cargo install
+  astraea-cli` installs the identical program and is unaffected.
+- **astraea-cli:** a library target. `main` moved to `src/lib.rs` as
+  `pub async fn run()`, leaving `src/main.rs` a thin wrapper, so that both
+  packages can ship the same binary. `#[tokio::main]` now sits on each `main`
+  rather than on the entry point.
+
+### Notes
+- `crates/astraeadb` is deliberately **not** a workspace member. Two members
+  emitting a binary of the same name produce cargo's "output filename
+  collision" warning, which it says may become a hard error. Excluding it keeps
+  workspace builds clean, and `cargo install` builds one package at a time, so
+  publishing and installing are unaffected. Its version cannot be inherited as
+  a result, so `astraea-cli`'s `alias_package_version_matches` test asserts the
+  version and the dependency pin stay in step. That test runs in CI and was
+  confirmed to fail on both kinds of drift.
+
 ## [0.4.0] - 2026-08-18
 
 ### Changed

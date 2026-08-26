@@ -1,4 +1,7 @@
 /target
+# Any nested target dir too: crates/astraeadb is excluded from the workspace
+# and so builds into its own, which `/target` does not match.
+target/
 .DS_Store
 docs/.DS_Store
 docs/.DS_Store

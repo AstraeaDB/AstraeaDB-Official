@@ -18,8 +18,18 @@ members = [
 ]
 resolver = "3"
 
+# astraeadb-issues.md #29. `crates/astraeadb` is a real package in this repo but
+# deliberately NOT a workspace member. It ships a binary called `astraeadb`, and
+# so does `astraea-cli`; two members emitting the same filename into one target
+# directory produces "output filename collision", which cargo warns may become a
+# hard error. Excluding it keeps workspace builds clean while both packages
+# still publish and install normally, since `cargo install` builds one package
+# at a time. Its version is held in step by
+# `astraea-cli`'s `alias_package_version_matches` test, which runs in CI.
+exclude = ["crates/astraeadb"]
+
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/AstraeaDB/AstraeaDB-Official"
@@ -29,19 +39,20 @@ repository = "https://github.com/AstraeaDB/AstraeaDB-Official"
 # crates.io (astraea-core/-storage/-vector/-graph/-rag); it is harmless for the
 # rest, which build from `path` locally. Keep every version in lockstep with
 # `[workspace.package].version` above.
-astraea-core = { path = "crates/astraea-core", version = "0.4.0" }
-astraea-storage = { path = "crates/astraea-storage", version = "0.4.0" }
-astraea-graph = { path = "crates/astraea-graph", version = "0.4.0" }
-astraea-query = { path = "crates/astraea-query", version = "0.4.0" }
-astraea-vector = { path = "crates/astraea-vector", version = "0.4.0" }
-astraea-server = { path = "crates/astraea-server", version = "0.4.0" }
-astraea-gnn = { path = "crates/astraea-gnn", version = "0.4.0" }
-astraea-rag = { path = "crates/astraea-rag", version = "0.4.0" }
-astraea-cluster = { path = "crates/astraea-cluster", version = "0.4.0" }
-astraea-gpu = { path = "crates/astraea-gpu", version = "0.4.0" }
-astraea-algorithms = { path = "crates/astraea-algorithms", version = "0.4.0" }
-astraea-encrypt-demo = { path = "crates/astraea-encrypt-demo", version = "0.4.0" }
-astraea-mcp = { path = "crates/astraea-mcp", version = "0.4.0" }
+astraea-core = { path = "crates/astraea-core", version = "0.4.1" }
+astraea-storage = { path = "crates/astraea-storage", version = "0.4.1" }
+astraea-graph = { path = "crates/astraea-graph", version = "0.4.1" }
+astraea-query = { path = "crates/astraea-query", version = "0.4.1" }
+astraea-vector = { path = "crates/astraea-vector", version = "0.4.1" }
+astraea-server = { path = "crates/astraea-server", version = "0.4.1" }
+astraea-gnn = { path = "crates/astraea-gnn", version = "0.4.1" }
+astraea-rag = { path = "crates/astraea-rag", version = "0.4.1" }
+astraea-cluster = { path = "crates/astraea-cluster", version = "0.4.1" }
+astraea-gpu = { path = "crates/astraea-gpu", version = "0.4.1" }
+astraea-algorithms = { path = "crates/astraea-algorithms", version = "0.4.1" }
+astraea-encrypt-demo = { path = "crates/astraea-encrypt-demo", version = "0.4.1" }
+astraea-mcp = { path = "crates/astraea-mcp", version = "0.4.1" }
+astraea-cli = { path = "crates/astraea-cli", version = "0.4.1" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

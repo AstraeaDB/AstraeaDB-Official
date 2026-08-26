@@ -1,0 +1,29 @@
+[package]
+name = "astraeadb"
+# Not workspace-inherited: this package is excluded from the workspace (see the
+# note in the root Cargo.toml), so these are literal. astraea-cli's
+# `alias_package_version_matches` test fails if they drift apart.
+version = "0.4.1"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/AstraeaDB/AstraeaDB-Official"
+description = "AstraeaDB command-line interface: a graph database with built-in vector search. Installs the `astraeadb` binary."
+readme = "README.md"
+keywords = ["graph", "database", "vector-search", "graphrag", "cli"]
+categories = ["database", "command-line-utilities"]
+
+# astraeadb-issues.md #29. This package exists so that `cargo install astraeadb`
+# works. The binary has been called `astraeadb` since issue #10, but the only
+# package shipping it was `astraea-cli`, so the obvious command failed with
+# "could not find `astraeadb` in registry". A cargo binary must be built from
+# its own package's source, so this cannot be an alias or a re-export: it is a
+# real package whose `main` calls the shared library entry point. Both install
+# commands therefore produce the identical program.
+
+[[bin]]
+name = "astraeadb"
+path = "src/main.rs"
+
+[dependencies]
+astraea-cli = { path = "../astraea-cli", version = "0.4.1" }
+tokio = { version = "1", features = ["full"] }
