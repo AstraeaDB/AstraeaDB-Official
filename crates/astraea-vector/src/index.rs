@@ -77,10 +77,32 @@ impl HnswVectorIndex {
 
     /// Persist the index to the given file path.
     ///
-    /// Acquires a read lock on the inner index and writes the full
-    /// HNSW state to a versioned binary file.
+    /// Acquires a write lock (not a read lock — see below) on the inner
+    /// index and writes the full HNSW state to a versioned binary file.
+    ///
+    /// Before writing, runs [`HnswIndex::verify`] and, if it finds any
+    /// dangling adjacency references (astraeadb-issues.md #35 — e.g. state
+    /// left over from a crash, a partial write, or an older binary that
+    /// predates the `remove` fix), repairs them in place via
+    /// [`HnswIndex::repair`] and logs at WARN rather than refusing to save.
+    /// This is the path the server's graceful-shutdown snapshot uses
+    /// (`Graph::save_vector_index` / `VectorIndex::save_to_path`), so a
+    /// corrupt in-memory index is never persisted to disk for the next
+    /// restart to inherit. The write lock (vs. the previous read lock) is
+    /// needed because repair mutates the index; saves are infrequent
+    /// (shutdown / periodic snapshot), so losing read-concurrency during a
+    /// save is an acceptable trade-off.
     pub fn save_to_file(&self, path: &Path) -> Result<()> {
-        let idx = self.inner.read();
+        let mut idx = self.inner.write();
+        let dangling = idx.repair();
+        if !dangling.is_empty() {
+            tracing::warn!(
+                count = dangling.len(),
+                ids = ?dangling,
+                "HNSW index had dangling adjacency references; repaired before save \
+                 (astraeadb-issues.md #35)"
+            );
+        }
         idx.save(path)
     }
 

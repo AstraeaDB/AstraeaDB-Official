@@ -379,6 +379,17 @@ impl HnswIndex {
     ///
     /// For each layer the node participated in, we remove it from all neighbor
     /// lists and attempt to reconnect orphaned neighbors to each other.
+    ///
+    /// astraeadb-issues.md #35: `insert`'s neighbour-shrinking step
+    /// (`shrink_connections`) can prune a neighbour's back-link while the
+    /// newly-connected node keeps its forward link, so adjacency at a given
+    /// layer is not always symmetric. That means some node `a` can hold a
+    /// forward link to `node_id` *without appearing in `node_id`'s own
+    /// adjacency list* — so removing `node_id` and only cleaning up the
+    /// neighbours named in its own (possibly incomplete) list is not enough;
+    /// `a` would keep a dangling reference that fails `distance()` on the
+    /// next walk that reaches it. See `Self::purge_id_everywhere` below for
+    /// the fix.
     pub fn remove(&mut self, node_id: NodeId) -> Result<bool> {
         if self.vectors.remove(&node_id).is_none() {
             return Ok(false);
@@ -391,13 +402,6 @@ impl HnswIndex {
 
         for l in 0..=level.min(self.layers.len().saturating_sub(1)) {
             if let Some(neighbors) = self.layers[l].remove(&node_id) {
-                // Remove node_id from each neighbor's adjacency list.
-                for &neighbor in &neighbors {
-                    if let Some(adj) = self.layers[l].get_mut(&neighbor) {
-                        adj.retain(|&n| n != node_id);
-                    }
-                }
-
                 // Repair: try to connect orphaned pairs that lost connectivity.
                 // For each pair of former neighbors, if they are not already connected,
                 // add a direct link (if capacity allows).
@@ -432,6 +436,17 @@ impl HnswIndex {
                 }
             }
         }
+
+        // Purge every remaining reference to `node_id`, scanning *every*
+        // adjacency list at *every* layer rather than just the neighbours
+        // named in `node_id`'s own (possibly asymmetric) list above. This is
+        // an O(total_nodes * m) scan per layer (m = per-node connection cap,
+        // typically 16-32), which is acceptable at HNSW's normal operating
+        // sizes and is the only way to guarantee no dangling reference
+        // survives a remove — see the astraeadb-issues.md #35 note above
+        // `remove` for why a node's own adjacency list is not a reliable
+        // index of who points *at* it.
+        self.purge_id_everywhere(node_id);
 
         // If we removed the entry point, pick a new one.
         if self.entry_point == Some(node_id) {
@@ -512,7 +527,30 @@ impl HnswIndex {
                     }
                     visited.insert(neighbor);
 
-                    let d = self.distance(query, neighbor)?;
+                    let d = match self.vectors.get(&neighbor) {
+                        Some(nv) => compute_distance(self.metric, query, nv)?,
+                        None => {
+                            // Dangling adjacency reference (astraeadb-issues.md
+                            // #35): some node's neighbour list still names
+                            // `neighbor`, but it has no backing vector. `remove`
+                            // now purges every reference to a removed id (see
+                            // `purge_id_everywhere`), so this should not happen
+                            // from a clean `remove` any more -- but a walk must
+                            // not fail a user-facing insert/search over a state
+                            // entered some other way (crash, partial write,
+                            // older binary, a hand-edited snapshot). Skip the
+                            // candidate and log at ERROR so an operator can
+                            // investigate; `distance()` itself still returns
+                            // `NoEmbedding` for any direct caller that passes a
+                            // bad id on purpose.
+                            tracing::error!(
+                                node_id = ?neighbor,
+                                "HNSW walk found an adjacency reference to a node \
+                                 with no embedding; skipping (astraeadb-issues.md #35)"
+                            );
+                            continue;
+                        }
+                    };
                     let farthest = results
                         .peek()
                         .map(|r| r.distance)
@@ -638,6 +676,68 @@ impl HnswIndex {
         }
 
         Ok(())
+    }
+
+    /// Drop every reference to `id` from the index: its own adjacency-list
+    /// entry (if any) at every layer, its `node_levels` entry (if any), and
+    /// every *other* node's adjacency list that still points at it.
+    ///
+    /// Scans all layers unconditionally rather than only `0..=id`'s last
+    /// known level, so it remains correct even under corruption that
+    /// violates the normal "a node only appears in layers 0..=its level"
+    /// invariant (e.g. a hand-edited or partially-written snapshot). Used by
+    /// both [`Self::remove`] (to guarantee no un-reciprocated forward link
+    /// survives) and [`Self::repair`] (to clean a dangling id found by
+    /// [`Self::verify`]). astraeadb-issues.md #35.
+    fn purge_id_everywhere(&mut self, id: NodeId) {
+        for layer in &mut self.layers {
+            layer.remove(&id);
+            for adj in layer.values_mut() {
+                adj.retain(|&n| n != id);
+            }
+        }
+        self.node_levels.remove(&id);
+    }
+
+    /// Return every node id that appears in some adjacency list but has no
+    /// backing vector — a dangling reference (astraeadb-issues.md #35).
+    ///
+    /// A healthy index always returns an empty vec. A non-empty result means
+    /// some state transition left the graph and the vector store out of
+    /// sync (a `remove` bug on an older binary, a crash mid-write, a
+    /// hand-edited snapshot, ...). The walk in `search_layer` already
+    /// tolerates dangling ids by skipping them, but `verify` lets a caller
+    /// (an operator, or the save path in `HnswVectorIndex::save_to_file`)
+    /// detect and repair the condition explicitly rather than inferring
+    /// corruption from failing inserts.
+    pub fn verify(&self) -> Vec<NodeId> {
+        let mut dangling: HashSet<NodeId> = HashSet::new();
+        for layer in &self.layers {
+            for neighbors in layer.values() {
+                for &n in neighbors {
+                    if !self.vectors.contains_key(&n) {
+                        dangling.insert(n);
+                    }
+                }
+            }
+        }
+        let mut out: Vec<NodeId> = dangling.into_iter().collect();
+        out.sort();
+        out
+    }
+
+    /// Drop every dangling reference reported by [`Self::verify`] from every
+    /// adjacency list at every layer. Returns the ids that were purged
+    /// (empty if the index was already clean). Intended for defence in
+    /// depth before persisting a snapshot (astraeadb-issues.md #35) — the
+    /// rest of the index is still usable, so this repairs in place rather
+    /// than refusing to save.
+    pub fn repair(&mut self) -> Vec<NodeId> {
+        let dangling = self.verify();
+        for &id in &dangling {
+            self.purge_id_everywhere(id);
+        }
+        dangling
     }
 
     /// Compute distance between a query vector and a stored node's vector.
@@ -1185,6 +1285,185 @@ mod tests {
         assert!(
             recall >= 0.95,
             "recall@10 at N=10k dim 768 must be >= 0.95, got {recall:.3}"
+        );
+    }
+
+    // --- Issue #35: `remove` must purge dangling / asymmetric adjacency ---
+
+    /// Scan every layer for a node `a` with a forward link to `b` where `b`
+    /// has no back-link to `a`. Returns the first `(a, b, layer)` asymmetric
+    /// triple found, if any.
+    fn find_asymmetric_link(idx: &HnswIndex) -> Option<(NodeId, NodeId, usize)> {
+        for (l, layer) in idx.layers.iter().enumerate() {
+            for (&a, neighbors) in layer.iter() {
+                for &b in neighbors {
+                    let b_has_a = layer.get(&b).map(|adj| adj.contains(&a)).unwrap_or(false);
+                    if !b_has_a {
+                        return Some((a, b, l));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Reproduces the live 2026-09-28 incident (astraeadb-issues.md #35):
+    /// `insert`'s neighbour-shrinking step (`shrink_connections`) can prune a
+    /// neighbour's back-link while the newly-connected node keeps its
+    /// forward link, so adjacency is not always symmetric. If the *target*
+    /// of an un-reciprocated forward link is later removed, the node
+    /// holding the forward link must not keep a dangling reference: every
+    /// subsequent insert/search that reaches it must skip it, not propagate
+    /// `NoEmbedding` and wedge the whole index (as happened live against
+    /// `n2254`).
+    ///
+    /// A small `m` (2) is used so `shrink_connections` fires often; the
+    /// insert sequence is driven entirely through the public API with a
+    /// seeded index (astraeadb-issues.md #18) for reproducibility. The test
+    /// asserts the asymmetric precondition actually exists before removing
+    /// anything, so a future change to `insert`/`shrink_connections` that
+    /// stops producing asymmetry won't make this test silently vacuous.
+    #[test]
+    fn test_remove_purges_dangling_asymmetric_forward_link() {
+        let dim = 4;
+        let mut idx = HnswIndex::with_seed(dim, DistanceMetric::Euclidean, 2, 10, 777);
+
+        let mut vgen = StdRng::seed_from_u64(777);
+        for i in 1..=60u64 {
+            let v: Vec<f32> = (0..dim).map(|_| vgen.r#gen::<f32>()).collect();
+            idx.insert(NodeId(i), &v).unwrap();
+        }
+
+        // Precondition: this small-M insert sequence must have produced at
+        // least one asymmetric link somewhere in the graph. If this ever
+        // fails, the seed/params need retuning -- the bug this test guards
+        // against only manifests when shrink_connections actually prunes a
+        // back-link.
+        let (a, b, layer) = find_asymmetric_link(&idx)
+            .expect("expected at least one asymmetric forward link with these params");
+
+        assert!(
+            idx.layers[layer].get(&a).unwrap().contains(&b),
+            "sanity: {a:?} should still point at {b:?}"
+        );
+        assert!(
+            !idx.layers[layer].get(&b).unwrap().contains(&a),
+            "sanity: {b:?} must not reciprocate (this is the asymmetry under test)"
+        );
+
+        // Remove the target of the dangling forward link.
+        assert!(idx.remove(b).unwrap());
+
+        // The bug: on unfixed code, `a` keeps pointing at `b` because
+        // `remove` only scanned `b`'s own (asymmetric) neighbour list, which
+        // never contained `a`. `remove` must purge every reference to the
+        // removed id across every adjacency list, not just the removed
+        // node's own.
+        assert!(
+            !idx.layers[layer]
+                .get(&a)
+                .map(|adj| adj.contains(&b))
+                .unwrap_or(false),
+            "remove() must purge every reference to the removed id, including \
+             un-reciprocated forward links, not just the removed node's own \
+             (possibly asymmetric) neighbour list"
+        );
+
+        // The index must remain fully usable: insert + search must not
+        // surface NoEmbedding for the stale id.
+        let extra: Vec<f32> = (0..dim).map(|_| vgen.r#gen::<f32>()).collect();
+        assert!(
+            idx.insert(NodeId(1000), &extra).is_ok(),
+            "insert after remove must not fail due to a dangling reference"
+        );
+
+        let query: Vec<f32> = (0..dim).map(|_| vgen.r#gen::<f32>()).collect();
+        let results = idx.search(&query, 5, 50);
+        assert!(
+            results.is_ok(),
+            "search after remove must not fail due to a dangling reference: {:?}",
+            results.err()
+        );
+        assert!(
+            !results.unwrap().iter().any(|(id, _)| *id == b),
+            "the removed node must not appear in search results"
+        );
+
+        assert!(
+            idx.verify().is_empty(),
+            "index must verify clean after remove"
+        );
+    }
+
+    /// Defence in depth (astraeadb-issues.md #35, item 3): even if some
+    /// state transition this crate doesn't control (a crash, a partial
+    /// write, an older binary, a hand-edited snapshot) leaves a dangling
+    /// adjacency reference, a walk that reaches it must skip it rather than
+    /// fail the whole insert/search with `NoEmbedding`.
+    #[test]
+    fn test_search_skips_dangling_adjacency_reference() {
+        let mut idx = make_index(2);
+        idx.insert(NodeId(1), &[0.0, 0.0]).unwrap();
+        idx.insert(NodeId(2), &[1.0, 0.0]).unwrap();
+        idx.insert(NodeId(3), &[0.0, 1.0]).unwrap();
+
+        // Manually corrupt: node 2 disappears from `vectors` and
+        // `node_levels` (simulating some other code path leaving the index
+        // out of sync), but its id is still referenced in node 1's
+        // adjacency list at layer 0.
+        idx.vectors.remove(&NodeId(2));
+        idx.node_levels.remove(&NodeId(2));
+
+        assert!(
+            idx.layers[0]
+                .get(&NodeId(1))
+                .map(|adj| adj.contains(&NodeId(2)))
+                .unwrap_or(false),
+            "test setup: node 1 must still reference the now-vectorless node 2"
+        );
+
+        let results = idx.search(&[0.0, 0.0], 5, 50);
+        assert!(
+            results.is_ok(),
+            "search must skip a dangling adjacency reference, not fail: {:?}",
+            results.err()
+        );
+        let ids: Vec<NodeId> = results.unwrap().into_iter().map(|(id, _)| id).collect();
+        assert!(
+            !ids.contains(&NodeId(2)),
+            "the vectorless node must not appear in results"
+        );
+    }
+
+    /// `verify()` reports dangling adjacency ids and `repair()` removes them.
+    #[test]
+    fn test_verify_and_repair_dangling_references() {
+        let mut idx = make_index(2);
+        idx.insert(NodeId(1), &[0.0, 0.0]).unwrap();
+        idx.insert(NodeId(2), &[1.0, 0.0]).unwrap();
+
+        assert!(idx.verify().is_empty(), "healthy index should verify clean");
+
+        // Corrupt: drop node 2's vector/level but leave node 1's adjacency
+        // pointing at it (same scenario as the test above).
+        idx.vectors.remove(&NodeId(2));
+        idx.node_levels.remove(&NodeId(2));
+
+        let dangling = idx.verify();
+        assert_eq!(dangling, vec![NodeId(2)]);
+
+        let repaired = idx.repair();
+        assert_eq!(repaired, vec![NodeId(2)]);
+        assert!(
+            idx.verify().is_empty(),
+            "repair should leave the index clean"
+        );
+        assert!(
+            !idx.layers[0]
+                .get(&NodeId(1))
+                .map(|adj| adj.contains(&NodeId(2)))
+                .unwrap_or(false),
+            "repair must drop the dangling reference from node 1's adjacency list"
         );
     }
 }
