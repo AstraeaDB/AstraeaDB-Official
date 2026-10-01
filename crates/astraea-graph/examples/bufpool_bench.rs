@@ -1,5 +1,4 @@
-//! Ad-hoc measurement for astraeadb-issues.md #36 / projects/tariffs
-//! DESIGN.md task T2's acceptance criterion: wall-clock time for five
+//! Ad-hoc measurement for astraeadb-issues.md #36: wall-clock time for five
 //! concurrent vector searches vs five serialised ones, on a
 //! `DiskStorageEngine`-backed `Graph` with a few thousand 128-dim
 //! embeddings.
@@ -77,7 +76,12 @@ fn do_search(graph: &Graph, query: &[f32]) {
     let vi = graph.vector_index().expect("vector index attached");
     let hits = vi.search(query, TOP_K).expect("vector search failed");
     for hit in hits {
-        let _ = graph.get_node(hit.node_id).expect("get_node failed");
+        let node = graph.get_node(hit.node_id).expect("get_node failed");
+        assert!(
+            node.is_some(),
+            "vector index returned node {:?} with no backing storage record",
+            hit.node_id
+        );
     }
 }
 

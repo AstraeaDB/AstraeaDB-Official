@@ -18,7 +18,7 @@
 
 use astraea_core::error::{AstraeaError, Result};
 use astraea_core::types::PageId;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Condvar, Mutex, MutexGuard, RwLock};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -43,6 +43,14 @@ struct FrameMeta {
     /// Whether this frame has been promoted to the hot set (pointer-swizzled).
     /// Swizzled frames are never evicted from the buffer pool.
     swizzled: bool,
+    /// Bumped every time this frame's bytes are modified via
+    /// [`PageGuard::write_data`]. Write-back paths record the epoch at the
+    /// moment they snapshot the frame's bytes for a disk write, and only
+    /// clear `dirty` afterward if the epoch hasn't moved on since — otherwise
+    /// a newer write landed while the old write was in flight, and the page
+    /// must stay dirty so a later flush doesn't silently lose it (review
+    /// finding B1 on astraeadb-issues.md #36).
+    write_epoch: u64,
 }
 
 impl FrameMeta {
@@ -53,6 +61,7 @@ impl FrameMeta {
             pin_count: 0,
             access_count: 0,
             swizzled: false,
+            write_epoch: 0,
         }
     }
 }
@@ -88,7 +97,10 @@ impl PageGuard {
         // Sequential, not nested with `data` above — see `BufferPoolInner`
         // docs on why `data` and `meta` are never held at the same time
         // except with `meta` outermost.
-        self.pool.meta.lock().frames[self.frame_id].dirty = true;
+        let mut meta = self.pool.meta.lock();
+        let frame = &mut meta.frames[self.frame_id];
+        frame.dirty = true;
+        frame.write_epoch = frame.write_epoch.wrapping_add(1);
     }
 }
 
@@ -102,6 +114,14 @@ impl std::ops::Deref for PageData {
     }
 }
 
+/// A dirty victim's page id and bytes, captured by [`BufferPool::reserve_frame`]
+/// at the moment it evicted them, to be written back to disk by
+/// [`BufferPool::complete_writeback`] with no lock held.
+struct WritebackJob {
+    old_page_id: PageId,
+    bytes: [u8; PAGE_SIZE],
+}
+
 /// All buffer-pool bookkeeping other than the raw page bytes, behind a
 /// single [`Mutex`]. See `BufferPoolInner`'s doc comment for why this
 /// replaced four separate `RwLock`s (astraeadb-issues.md #36).
@@ -113,6 +133,39 @@ struct Meta {
     lru: VecDeque<FrameId>,
     /// The set of page IDs currently in the swizzled hot set.
     hot_pages: HashSet<PageId>,
+    /// Page ids whose bytes are currently being (or about to be) written
+    /// back to disk — by an eviction (`reserve_frame`/`complete_writeback`),
+    /// `flush_page`, `flush_all`, or `pin_recycled_page`'s direct write.
+    /// While a page_id is a key here, its value is the *authoritative*
+    /// content for that page: a concurrent cache miss on it is served from
+    /// here instead of disk (closes review finding B1 — the physical write
+    /// can be arbitrarily delayed after the in-memory state has already
+    /// moved on, and a disk read racing it would otherwise see stale bytes).
+    /// A second attempt to write the SAME page_id while one is already
+    /// in-flight waits (via `BufferPoolInner::writeback_done`) for the first
+    /// to finish before proceeding, so writes to a single page_id can never
+    /// land on disk out of order.
+    writeback: HashMap<PageId, [u8; PAGE_SIZE]>,
+    /// Bumped every time a page_id is evicted from a frame (`reserve_frame`),
+    /// dirty or not. Lets a concurrent miss detect "a full publish -> modify
+    /// -> evict cycle happened on this exact page_id while I was reading it"
+    /// and retry instead of publishing outdated content.
+    ///
+    /// Why this is needed on top of `writeback`: `writeback` alone only
+    /// protects a reader that's *currently* racing an in-flight write. It
+    /// does not protect against a *fast* cycle that starts and fully
+    /// completes (publish, modify, evict, write) between the moment a
+    /// reader checks `writeback` (sees nothing) and the moment its disk read
+    /// actually lands — once that cycle's own eviction has run,
+    /// `page_table` is briefly empty again, so the stale reader's eventual
+    /// `publish_or_yield` call finds *no* current winner to yield to and
+    /// successfully publishes its outdated content as if it were current.
+    /// This is exactly the "two readers, no writer-side bug in sight" shape
+    /// `tests/buffer_pool_stress.rs`'s disjoint-ownership counter caught
+    /// intermittently even after `writeback` and the "check immediately
+    /// before use" fix: the culprit publishing stale data was consistently
+    /// a reader thread, not the page's own writer.
+    page_generation: HashMap<PageId, u64>,
 }
 
 impl Meta {
@@ -131,68 +184,7 @@ impl Meta {
         }
     }
 
-    /// Reserve a frame for a page that is *not* currently resident
-    /// (`page_table` has no entry for it): find a free frame, or evict the
-    /// LRU unpinned one. The returned frame is immediately marked
-    /// `pin_count = 1` and removed from `lru` — fully private to the
-    /// caller, unreachable via `page_table` (no entry yet) or `lru` (just
-    /// removed) — so it is safe for the caller to load the real page bytes
-    /// into it with no lock held and no risk of anyone else touching this
-    /// exact frame in the meantime.
-    ///
-    /// If eviction was required and the victim was dirty, returns its old
-    /// page id and bytes so the caller can flush them to disk *outside*
-    /// this lock.
-    fn reserve_frame(
-        &mut self,
-        requested_page_id: PageId,
-        data: &[Box<[u8; PAGE_SIZE]>],
-    ) -> Result<(FrameId, Option<(PageId, [u8; PAGE_SIZE])>)> {
-        // Free frame first (no page loaded).
-        if let Some(i) = self
-            .lru
-            .iter()
-            .position(|&fid| self.frames[fid].page_id.is_none())
-        {
-            let frame_id = self.lru.remove(i).unwrap();
-            let frame = &mut self.frames[frame_id];
-            frame.dirty = false;
-            frame.pin_count = 1;
-            frame.access_count = 1;
-            frame.swizzled = false;
-            return Ok((frame_id, None));
-        }
-
-        // All frames have pages — evict the LRU unpinned, non-swizzled one.
-        let idx = self
-            .lru
-            .iter()
-            .position(|&fid| !self.frames[fid].swizzled)
-            .ok_or(AstraeaError::BufferPoolFull(requested_page_id))?;
-        let frame_id = self.lru.remove(idx).unwrap();
-
-        let flush_job = {
-            let frame = &self.frames[frame_id];
-            if frame.dirty {
-                frame.page_id.map(|pid| (pid, *data[frame_id]))
-            } else {
-                None
-            }
-        };
-        let old_page_id = self.frames[frame_id].page_id.take();
-        if let Some(old_pid) = old_page_id {
-            self.page_table.remove(&old_pid);
-        }
-        let frame = &mut self.frames[frame_id];
-        frame.dirty = false;
-        frame.pin_count = 1;
-        frame.access_count = 1;
-        frame.swizzled = false;
-
-        Ok((frame_id, flush_job))
-    }
-
-    /// Publish a frame that was just reserved via [`Self::reserve_frame`]
+    /// Publish a frame that was just reserved via [`BufferPool::reserve_frame`]
     /// and had its real bytes loaded, under `page_id` — unless another
     /// thread's concurrent miss on the same `page_id` already published
     /// first, in which case give `frame_id` back to the pool as free and
@@ -223,6 +215,7 @@ impl Meta {
         let frame = &mut self.frames[frame_id];
         if dirty {
             frame.dirty = true;
+            frame.write_epoch = frame.write_epoch.wrapping_add(1);
         }
         if frame.pin_count > 0 {
             frame.pin_count -= 1;
@@ -263,24 +256,40 @@ impl Meta {
 ///
 /// Reordering the locks closed that deadlock, but exposed two more subtle,
 /// pre-existing correctness races that the deadlock had been masking (a
-/// hang never gave them a chance to manifest): a frame could be evicted out
-/// as stale-but-not-yet-committed data out from under a concurrent pinner
-/// (details on the old `find_or_evict_frame`), and a frame removed from
-/// `lru` for eviction could be raced back onto `lru` by an unrelated
-/// concurrent pin+unpin cycle, letting a third thread claim it a second
-/// time. Each fix required more cross-lock coordination, and each new fix
-/// risked introducing yet another such window.
+/// hang never gave them a chance to manifest): a frame could be evicted and
+/// handed to a different page based on a stale pin-count snapshot while a
+/// concurrent caller still held a live `PageGuard` to it, and a frame
+/// removed from `lru` for eviction could be raced back onto `lru` by an
+/// unrelated concurrent pin+unpin cycle, letting a third thread claim it a
+/// second time. Each fix required more cross-lock coordination, and each
+/// new fix risked introducing yet another such window.
 ///
-/// Given that, this module now takes the alternative the issue suggested:
-/// **all bookkeeping lives in one [`Meta`] behind a single [`Mutex`]**
-/// (`page_table`, `lru`, `hot_pages`, and every frame's metadata — page id,
-/// pin count, dirty flag, access count, swizzled flag). Every state
-/// transition (checking for a cache hit, picking an eviction victim,
+/// Given that, this module takes the alternative the issue suggested: **all
+/// bookkeeping lives in one [`Meta`] behind a single [`Mutex`]** (`page_table`,
+/// `lru`, `hot_pages`, `writeback`, and every frame's metadata — page id,
+/// pin count, dirty flag, access count, swizzled flag, write epoch). Every
+/// state transition (checking for a cache hit, picking an eviction victim,
 /// bumping a pin count, promoting to the hot set, publishing a freshly
 /// loaded page) is one atomic critical section under that single lock, so
-/// none of the TOCTOU windows above can exist: there is no "lock A, then
-/// later lock B" to get backwards, and no gap between "decide" and "commit"
-/// for another thread to land in.
+/// the lock-order class of bug above cannot recur: there is no "lock A,
+/// then later lock B" to get backwards.
+///
+/// That single-mutex redesign does **not**, by itself, make the disk
+/// write-back of a dirty evicted page safe — the write still has to happen
+/// with no lock held (disk I/O can be arbitrarily slow, and holding `meta`
+/// across it would serialize the whole pool). The gap between "evict and
+/// decide to write X back" (under the lock) and "the write actually lands"
+/// (no lock held) is exactly where a second review pass (astraeadb-issues.md
+/// #36 blocker B1) found a real lost-update/stale-read window: a concurrent
+/// miss on the just-evicted page_id could race the pending write and see
+/// stale on-disk bytes, and two write-backs of the same page_id (e.g. one
+/// from eviction, one from a concurrent `flush_page`) could land out of
+/// order. `Meta::writeback` closes this: a page_id present there has its
+/// authoritative content held in memory (so a concurrent miss is served
+/// from it instead of disk), and `BufferPoolInner::writeback_done` lets a
+/// second writer of the same page_id wait for the first to finish rather
+/// than racing it. See `Meta::writeback`'s doc comment and
+/// [`BufferPool::reserve_frame`]/[`BufferPool::complete_writeback`].
 ///
 /// The raw page **bytes** are deliberately *not* behind that mutex — they
 /// live in `data: RwLock<Vec<Box<[u8; PAGE_SIZE]>>>` instead, so that
@@ -290,11 +299,15 @@ impl Meta {
 /// (`PageIO::read_page`/`write_page`) is always done with neither lock
 /// held. The one fixed ordering rule that remains: **when both are needed
 /// together, `meta` is acquired before `data`, never the other way round**
-/// (see e.g. `reserve_frame`, called with `meta` held and `data` passed in
-/// by reference for a brief nested read) — since this is the only pairing
-/// left, and it's used consistently in one direction, it cannot deadlock.
+/// — since this is the only pairing left, and it's used consistently in one
+/// direction, it cannot deadlock.
 struct BufferPoolInner {
     meta: Mutex<Meta>,
+    /// Signalled whenever an entry is removed from `Meta::writeback`, so a
+    /// thread waiting to write back the same page_id (or waiting to read it
+    /// — though reads are served from the in-flight copy without waiting)
+    /// can proceed. Always waited on together with `meta`'s guard.
+    writeback_done: Condvar,
     /// Raw page bytes, indexed by [`FrameId`]. See the struct doc comment
     /// for why this is split out from `meta`.
     data: RwLock<Vec<Box<[u8; PAGE_SIZE]>>>,
@@ -338,7 +351,10 @@ impl BufferPool {
                 page_table: HashMap::new(),
                 lru,
                 hot_pages: HashSet::new(),
+                writeback: HashMap::new(),
+                page_generation: HashMap::new(),
             }),
+            writeback_done: Condvar::new(),
             data: RwLock::new(data),
             capacity,
             swizzle_threshold: Self::DEFAULT_SWIZZLE_THRESHOLD,
@@ -354,62 +370,107 @@ impl BufferPool {
     /// the swizzle threshold, the page is promoted to the hot set and will not
     /// be evicted until explicitly unswizzled.
     pub fn pin_page(&self, page_id: PageId) -> Result<PageGuard> {
-        enum Outcome {
-            Hit(FrameId),
-            Reserved(FrameId, Option<(PageId, [u8; PAGE_SIZE])>),
-        }
-
         // One atomic decision: either this is a hit (bump pin/access and
         // possibly promote to swizzled), or we reserve a frame for a miss
-        // (possibly evicting, in which case we get back the victim's bytes
-        // to flush if it was dirty). See `BufferPoolInner`'s doc comment for
-        // why this being a single critical section matters.
-        let outcome = {
+        // (possibly evicting — see `reserve_frame` for how the victim's
+        // write-back is registered before the lock is released).
+        let reservation = {
             let mut meta = self.inner.meta.lock();
             if let Some(&frame_id) = meta.page_table.get(&page_id) {
                 meta.bump_pin(frame_id, page_id, self.inner.swizzle_threshold);
-                Outcome::Hit(frame_id)
-            } else {
-                let data = self.inner.data.read();
-                let (frame_id, flush_job) = meta.reserve_frame(page_id, &data)?;
-                Outcome::Reserved(frame_id, flush_job)
-            }
-        };
-
-        let frame_id = match outcome {
-            Outcome::Hit(frame_id) => {
                 return Ok(PageGuard {
                     frame_id,
                     page_id,
                     pool: Arc::clone(&self.inner),
                 });
             }
-            Outcome::Reserved(frame_id, flush_job) => {
-                // No locks held across disk I/O.
-                if let Some((old_pid, bytes)) = flush_job {
-                    self.page_io.write_page(old_pid, &bytes)?;
-                }
-                frame_id
-            }
+            self.reserve_frame(&mut meta, page_id)?
+        };
+        let (frame_id, flush_job) = reservation;
+
+        // No lock held across disk I/O. On failure, `frame_id` is already
+        // restored to represent the victim again (see `complete_writeback`)
+        // — nothing further to clean up here.
+        if let Some(job) = flush_job {
+            self.complete_writeback(frame_id, job)?;
+        }
+
+        // Snapshot both: whether `page_id` itself has an in-flight
+        // write-back (served from there instead of disk — review finding
+        // B1), and its current `page_generation`. `gen_before` is what lets
+        // us detect, after loading, whether a *complete* publish -> modify
+        // -> evict cycle raced us on this exact page_id (see
+        // `Meta::page_generation`'s doc comment) — `writeback` alone only
+        // catches a reader racing a write that's *still* in flight, not one
+        // that started and fully finished while we were loading.
+        let (mut served_from_writeback, mut gen_before) = {
+            let meta = self.inner.meta.lock();
+            (
+                meta.writeback.get(&page_id).copied(),
+                meta.page_generation.get(&page_id).copied().unwrap_or(0),
+            )
         };
 
         // Load the real page data with no lock held, then install it —
         // `frame_id` is unreachable via `page_table` or `lru` until we
         // publish it below, so nobody else can touch it in the meantime.
-        let page_data = self.page_io.read_page(page_id)?;
-        {
-            let mut data = self.inner.data.write();
-            data[frame_id].copy_from_slice(&page_data);
-        }
+        // Retried if `page_generation` moved on between snapshotting above
+        // and verifying just before publish: that means someone else's
+        // full cycle landed on this exact page_id while we were loading,
+        // and `page_data` may be one generation stale.
+        let final_frame_id = loop {
+            let page_data = match served_from_writeback {
+                Some(bytes) => bytes,
+                None => match self.page_io.read_page(page_id) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        // B3: don't leak the reservation on a failed read —
+                        // give the frame back to the pool as free.
+                        self.release_reservation(frame_id);
+                        return Err(e);
+                    }
+                },
+            };
+            {
+                let mut data = self.inner.data.write();
+                data[frame_id].copy_from_slice(&page_data);
+            }
 
-        // Publish. Two concurrent misses on the same `page_id` can each
-        // reserve a *different* frame before either gets here — whichever
-        // publishes first wins, and the loser's `publish_or_yield` hands
-        // its frame back to the pool and bumps the winner's pin count
-        // instead, so both callers converge on the same frame_id.
-        let final_frame_id = {
+            // Publish. Two concurrent misses on the same `page_id` can each
+            // reserve a *different* frame before either gets here —
+            // whichever publishes first wins, and the loser's
+            // `publish_or_yield` hands its frame back to the pool and bumps
+            // the winner's pin count instead, so both callers converge on
+            // the same frame_id.
             let mut meta = self.inner.meta.lock();
-            meta.publish_or_yield(frame_id, page_id, self.inner.swizzle_threshold)
+            let current_gen = meta.page_generation.get(&page_id).copied().unwrap_or(0);
+            if current_gen != gen_before {
+                served_from_writeback = meta.writeback.get(&page_id).copied();
+                gen_before = current_gen;
+                drop(meta);
+                continue;
+            }
+
+            let we_won = !meta.page_table.contains_key(&page_id);
+            let final_frame_id =
+                meta.publish_or_yield(frame_id, page_id, self.inner.swizzle_threshold);
+            // Only mark dirty if *we* actually won and published `page_data`
+            // (which is what `served_from_writeback` describes) — if we
+            // lost the race, `final_frame_id` is some other caller's frame
+            // with its own independently-loaded content, and we must not
+            // touch its dirty/epoch state here.
+            if we_won && served_from_writeback.is_some() {
+                // These bytes are only *eventually* guaranteed to be on
+                // disk (the write-back we copied them from may still be in
+                // flight, or could even fail and be rolled back elsewhere)
+                // — mark the page dirty so it gets a chance to be
+                // (re)written by a future flush/eviction rather than
+                // assuming disk already matches memory.
+                meta.frames[final_frame_id].dirty = true;
+                meta.frames[final_frame_id].write_epoch =
+                    meta.frames[final_frame_id].write_epoch.wrapping_add(1);
+            }
+            break final_frame_id;
         };
 
         Ok(PageGuard {
@@ -423,16 +484,16 @@ impl BufferPool {
     pub fn pin_new_page(&self, page_data: &[u8; PAGE_SIZE]) -> Result<PageGuard> {
         let page_id = self.page_io.allocate_page()?;
 
-        // Write the initial data to disk.
+        // Write the initial data to disk. `page_id` was just allocated, so
+        // it cannot collide with any in-flight write-back.
         self.page_io.write_page(page_id, page_data)?;
 
         let (frame_id, flush_job) = {
             let mut meta = self.inner.meta.lock();
-            let data = self.inner.data.read();
-            meta.reserve_frame(page_id, &data)?
+            self.reserve_frame(&mut meta, page_id)?
         };
-        if let Some((old_pid, bytes)) = flush_job {
-            self.page_io.write_page(old_pid, &bytes)?;
+        if let Some(job) = flush_job {
+            self.complete_writeback(frame_id, job)?;
         }
 
         {
@@ -466,45 +527,106 @@ impl BufferPool {
 
     /// Flush a specific page to disk if it is dirty.
     pub fn flush_page(&self, page_id: PageId) -> Result<()> {
-        let job = {
+        let (bytes, epoch) = {
             let mut meta = self.inner.meta.lock();
-            let Some(&frame_id) = meta.page_table.get(&page_id) else {
-                return Ok(());
-            };
-            if !meta.frames[frame_id].dirty {
-                return Ok(());
+            loop {
+                let Some(&frame_id) = meta.page_table.get(&page_id) else {
+                    return Ok(());
+                };
+                if !meta.frames[frame_id].dirty {
+                    return Ok(());
+                }
+                if meta.writeback.contains_key(&page_id) {
+                    // Someone else (an eviction, or another flush) is
+                    // already writing this exact page_id back — wait for
+                    // it so our write can't land out of order with theirs.
+                    self.inner.writeback_done.wait(&mut meta);
+                    continue;
+                }
+                let epoch = meta.frames[frame_id].write_epoch;
+                let bytes = *self.inner.data.read()[frame_id];
+                meta.writeback.insert(page_id, bytes);
+                break (bytes, epoch);
             }
-            let data = self.inner.data.read();
-            let bytes = *data[frame_id];
-            meta.frames[frame_id].dirty = false;
-            (page_id, bytes)
         };
-        self.page_io.write_page(job.0, &job.1)?;
-        Ok(())
+
+        let result = self.page_io.write_page(page_id, &bytes);
+        {
+            let mut meta = self.inner.meta.lock();
+            meta.writeback.remove(&page_id);
+            if result.is_ok()
+                && let Some(&frame_id) = meta.page_table.get(&page_id)
+                && meta.frames[frame_id].write_epoch == epoch
+            {
+                // Nobody wrote newer data to this frame while our write was
+                // in flight — safe to clear dirty.
+                meta.frames[frame_id].dirty = false;
+            }
+        }
+        self.inner.writeback_done.notify_all();
+        result
     }
 
     /// Flush all dirty pages to disk.
+    ///
+    /// Best-effort: a page whose write-back is already in flight from some
+    /// other operation (a concurrent eviction, `flush_page`, or another
+    /// `flush_all`) is skipped for this round rather than raced — it stays
+    /// marked dirty, so a later flush will still catch it. Unlike the
+    /// pre-rewrite version, a failed write does not abort the rest of the
+    /// batch: every page gets a chance to flush, and the first error (if
+    /// any) is returned after the loop, so one bad page can't also strand
+    /// `writeback` registrations for every page after it.
     pub fn flush_all(&self) -> Result<()> {
-        // Collect pages to flush while holding the lock briefly.
-        let to_flush: Vec<(PageId, [u8; PAGE_SIZE])> = {
+        let to_flush: Vec<(PageId, FrameId, [u8; PAGE_SIZE], u64)> = {
             let mut meta = self.inner.meta.lock();
             let data = self.inner.data.read();
             let mut jobs = Vec::new();
-            for (frame_id, frame) in meta.frames.iter_mut().enumerate() {
-                if frame.dirty {
-                    if let Some(pid) = frame.page_id {
-                        jobs.push((pid, *data[frame_id]));
-                        frame.dirty = false;
-                    }
+            for frame_id in 0..meta.frames.len() {
+                let (dirty, page_id) = {
+                    let f = &meta.frames[frame_id];
+                    (f.dirty, f.page_id)
+                };
+                let Some(pid) = page_id else { continue };
+                if !dirty {
+                    continue;
                 }
+                if meta.writeback.contains_key(&pid) {
+                    continue;
+                }
+                let bytes = *data[frame_id];
+                let epoch = meta.frames[frame_id].write_epoch;
+                meta.writeback.insert(pid, bytes);
+                jobs.push((pid, frame_id, bytes, epoch));
             }
             jobs
         };
 
-        for (pid, data) in to_flush {
-            self.page_io.write_page(pid, &data)?;
+        let mut first_err = None;
+        for (pid, frame_id, bytes, epoch) in to_flush {
+            let result = self.page_io.write_page(pid, &bytes);
+            {
+                let mut meta = self.inner.meta.lock();
+                meta.writeback.remove(&pid);
+                if result.is_ok()
+                    && meta.frames[frame_id].page_id == Some(pid)
+                    && meta.frames[frame_id].write_epoch == epoch
+                {
+                    meta.frames[frame_id].dirty = false;
+                }
+            }
+            self.inner.writeback_done.notify_all();
+            if let Err(e) = result
+                && first_err.is_none()
+            {
+                first_err = Some(e);
+            }
         }
-        Ok(())
+
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     /// Pin a page with access tracking, identical to [`pin_page`] in behaviour.
@@ -547,54 +669,126 @@ impl BufferPool {
     /// (in the pool or on disk) is overwritten. Returns a pinned
     /// [`PageGuard`] for subsequent writes.
     ///
-    /// Assumes the caller has exclusive access to `page_id` for the duration
-    /// of the call (true of the compaction/free-list-reuse callers this
-    /// exists for) — it does not itself guard against a concurrent pinner of
-    /// the same, about-to-be-recycled `page_id`.
+    /// This is reachable from ordinary (non-compaction) writes once the
+    /// free list is non-empty — `DiskStorageEngine::write_overflow_page`/
+    /// `write_record` call it under only `compaction_lock.read()`, the same
+    /// guard an ordinary concurrent `get_node` holds — so a recycle of
+    /// `page_id` can race a concurrent reader's miss on that same id
+    /// (review finding B2). Two things are guaranteed despite that: (1) if
+    /// `page_id` is already resident, this bumps its pin count instead of
+    /// clobbering it, so a concurrent pinner's reference is never silently
+    /// dropped; (2) if a concurrent miss publishes `page_id` to a different
+    /// frame first, this takes over that frame (via the same
+    /// `publish_or_yield` protocol `pin_page` uses) rather than leaking its
+    /// own reservation or leaving two frames both claiming `page_id`. What
+    /// is *not* guaranteed is which content a concurrent reader observes
+    /// for `page_id` itself during the race — the caller is still expected
+    /// to have exclusive application-level ownership of `page_id` for that.
     pub fn pin_recycled_page(
         &self,
         page_id: PageId,
         page_data: &[u8; PAGE_SIZE],
     ) -> Result<PageGuard> {
-        // Reuse an existing frame for this page id if the pool already holds
-        // one; otherwise find or evict a frame.
-        let (frame_id, flush_job) = {
+        let is_fresh;
+        let frame_id = {
             let mut meta = self.inner.meta.lock();
-            if let Some(&frame_id) = meta.page_table.get(&page_id) {
-                meta.lru.retain(|&fid| fid != frame_id);
-                (frame_id, None)
+            if let Some(&fid) = meta.page_table.get(&page_id) {
+                // B2(a): bump pin_count under the lock exactly like the
+                // ordinary hit path, instead of clobbering it to a flat `1`
+                // further down — a concurrent pinner's own pin must not be
+                // silently discarded (that was a path to premature LRU
+                // re-admission of a frame a live `PageGuard` still points
+                // at, and from there, eviction stealing it out from under
+                // that guard).
+                meta.bump_pin(fid, page_id, self.inner.swizzle_threshold);
+                is_fresh = false;
+                fid
             } else {
-                let data = self.inner.data.read();
-                meta.reserve_frame(page_id, &data)?
+                let (fid, job) = self.reserve_frame(&mut meta, page_id)?;
+                drop(meta);
+                if let Some(job) = job {
+                    self.complete_writeback(fid, job)?;
+                }
+                is_fresh = true;
+                fid
             }
         };
-        if let Some((old_pid, bytes)) = flush_job {
-            self.page_io.write_page(old_pid, &bytes)?;
+
+        // Overwrite on-disk content first so any later eviction of this
+        // frame cannot race with stale bytes on disk. Serialized against
+        // any other in-flight write of this exact page_id for the same
+        // reason `reserve_frame`/`flush_page`/`flush_all` are (review
+        // finding B1) — without this, a concurrent flush of the
+        // pre-recycle dirty content could land *after* this write and
+        // silently revert the recycle on disk.
+        if let Err(e) = self.write_page_serialized(page_id, *page_data) {
+            if is_fresh {
+                self.release_reservation(frame_id);
+            } else {
+                self.inner.meta.lock().unpin(page_id, false);
+            }
+            return Err(e);
         }
 
-        // Overwrite on-disk content first so any later eviction of this frame
-        // cannot race with stale bytes on disk.
-        self.page_io.write_page(page_id, page_data)?;
+        if is_fresh {
+            // B2(b): route through the same publish-or-yield protocol
+            // `pin_page` uses instead of unconditionally inserting into
+            // `page_table`. Without this, a concurrent `pin_page(page_id)`
+            // miss that publishes first leaves this reservation mapped to
+            // nothing (pin 1, page_id set, but absent from `page_table`):
+            // the *other* caller's eventual `unpin_page` then drives this
+            // frame's count to 0 and back onto `lru`, where a wholly
+            // unrelated page's `pin_page` can steal it — corrupting that
+            // third page, not just this one.
+            {
+                let mut data = self.inner.data.write();
+                data[frame_id].copy_from_slice(page_data);
+            }
+            let final_frame_id = {
+                let mut meta = self.inner.meta.lock();
+                meta.publish_or_yield(frame_id, page_id, self.inner.swizzle_threshold)
+            };
+            if final_frame_id != frame_id {
+                // Lost the race: `publish_or_yield` already freed our
+                // reservation and bumped the winner's pin for us. The
+                // winner's frame holds pre-recycle content, which is wrong
+                // for a recycle — overwrite it too. (This function's
+                // contract already assumes the caller has exclusive
+                // ownership of `page_id`; this only has to avoid corrupting
+                // *other* pages, not provide a consistent view of this one
+                // to a caller that's racing that contract.)
+                {
+                    let mut data = self.inner.data.write();
+                    data[final_frame_id].copy_from_slice(page_data);
+                }
+            }
+            let mut meta = self.inner.meta.lock();
+            let frame = &mut meta.frames[final_frame_id];
+            frame.dirty = false;
+            frame.write_epoch = frame.write_epoch.wrapping_add(1);
+            if final_frame_id == frame_id {
+                frame.access_count = 0;
+                frame.swizzled = false;
+                meta.hot_pages.remove(&page_id);
+            }
+            return Ok(PageGuard {
+                frame_id: final_frame_id,
+                page_id,
+                pool: Arc::clone(&self.inner),
+            });
+        }
 
+        // Existing-frame path: `frame_id` is already published and pinned
+        // (bumped above) under `page_id`; just overwrite its content.
         {
             let mut data = self.inner.data.write();
             data[frame_id].copy_from_slice(page_data);
         }
         {
             let mut meta = self.inner.meta.lock();
-            meta.frames[frame_id] = FrameMeta {
-                page_id: Some(page_id),
-                dirty: false, // in-pool content matches disk
-                pin_count: 1,
-                access_count: 0,
-                swizzled: false,
-            };
-            meta.page_table.insert(page_id, frame_id);
-            // Pinned frames are not in the LRU.
-            meta.lru.retain(|&fid| fid != frame_id);
-            // A recycled page id should not remain in the hot set across a
-            // free/reuse cycle.
-            meta.hot_pages.remove(&page_id);
+            let frame = &mut meta.frames[frame_id];
+            frame.dirty = false;
+            frame.write_epoch = frame.write_epoch.wrapping_add(1);
         }
 
         Ok(PageGuard {
@@ -630,10 +824,191 @@ impl BufferPool {
             meta.hot_pages.clear();
             meta.lru.clear();
             meta.lru.extend(0..self.inner.capacity);
+            // Defensive: by the time a caller can safely invalidate
+            // everything (see doc comment above), no write-back of ours
+            // should still be in flight. Clear anyway rather than leave a
+            // stale entry that could wedge a future wait forever.
+            meta.writeback.clear();
         }
         let mut data = self.inner.data.write();
         for buf in data.iter_mut() {
             buf.fill(0);
+        }
+    }
+
+    /// Reserve a frame for a page that is *not* currently resident
+    /// (`meta.page_table` has no entry for it): find a free frame, or evict
+    /// the LRU unpinned one. The returned frame is immediately marked
+    /// `pin_count = 1` and removed from `lru` — fully private to the
+    /// caller, unreachable via `page_table` (no entry yet) or `lru` (just
+    /// removed) — so it is safe for the caller to load the real page bytes
+    /// into it with no lock held and no risk of anyone else touching this
+    /// exact frame in the meantime.
+    ///
+    /// If eviction was required and the victim was dirty, returns a
+    /// [`WritebackJob`] for the caller to pass to [`Self::complete_writeback`]
+    /// — the actual disk write must happen with no lock held, but this
+    /// function has already registered the victim's bytes in
+    /// `meta.writeback` (while still holding the lock, so there is no gap)
+    /// so a concurrent miss on the evicted page_id is served from there
+    /// instead of racing the pending write (review finding B1).
+    ///
+    /// If the victim's page_id already has a write-back in flight from an
+    /// earlier eviction/flush (it was reloaded and re-dirtied before that
+    /// earlier write finished), this waits for it to finish before
+    /// registering its own — never two write-backs of the same page_id
+    /// in flight at once, so they can't land out of order.
+    fn reserve_frame(
+        &self,
+        meta: &mut MutexGuard<'_, Meta>,
+        requested_page_id: PageId,
+    ) -> Result<(FrameId, Option<WritebackJob>)> {
+        loop {
+            // Try to find an unused frame first (one with no page loaded).
+            if let Some(i) = meta
+                .lru
+                .iter()
+                .position(|&fid| meta.frames[fid].page_id.is_none())
+            {
+                let frame_id = meta.lru.remove(i).unwrap();
+                let frame = &mut meta.frames[frame_id];
+                frame.dirty = false;
+                frame.pin_count = 1;
+                frame.access_count = 1;
+                frame.swizzled = false;
+                return Ok((frame_id, None));
+            }
+
+            // All frames have pages — evict the LRU unpinned, non-swizzled
+            // one. Peek before committing: if it needs a write-back whose
+            // page_id already has one in flight, wait and re-evaluate
+            // rather than racing it.
+            let idx = meta
+                .lru
+                .iter()
+                .position(|&fid| !meta.frames[fid].swizzled)
+                .ok_or(AstraeaError::BufferPoolFull(requested_page_id))?;
+            let frame_id = meta.lru[idx];
+            let old_page_id = meta.frames[frame_id].page_id;
+            let dirty = meta.frames[frame_id].dirty;
+
+            if dirty
+                && let Some(pid) = old_page_id
+                && meta.writeback.contains_key(&pid)
+            {
+                self.inner.writeback_done.wait(meta);
+                continue;
+            }
+
+            meta.lru.remove(idx);
+            let job = if dirty {
+                old_page_id.map(|pid| {
+                    let bytes = *self.inner.data.read()[frame_id];
+                    meta.writeback.insert(pid, bytes);
+                    WritebackJob {
+                        old_page_id: pid,
+                        bytes,
+                    }
+                })
+            } else {
+                None
+            };
+            if let Some(pid) = old_page_id {
+                meta.page_table.remove(&pid);
+                // See `Meta::page_generation`'s doc comment: bump on every
+                // eviction (not just dirty ones) so a concurrent miss that
+                // started reading `pid` before this point can detect it and
+                // retry instead of publishing stale content.
+                *meta.page_generation.entry(pid).or_insert(0) += 1;
+            }
+            let frame = &mut meta.frames[frame_id];
+            frame.page_id = None;
+            frame.dirty = false;
+            frame.pin_count = 1;
+            frame.access_count = 1;
+            frame.swizzled = false;
+
+            return Ok((frame_id, job));
+        }
+    }
+
+    /// Issue the actual disk write for a victim's dirty bytes evicted by
+    /// [`Self::reserve_frame`] (which already registered `job.old_page_id`
+    /// in `meta.writeback`, removed it from `page_table`, and cleared the
+    /// frame it used to occupy). No lock is held during the write.
+    ///
+    /// On success, removes the `writeback` registration and wakes any
+    /// threads waiting to write back the same page_id.
+    ///
+    /// On failure (review finding B3 — a regression this guards against:
+    /// the pre-single-mutex version of this code kept a failed-flush victim
+    /// mapped with `dirty = true`; an earlier draft of this rewrite instead
+    /// discarded it, silently losing the page): restores `old_page_id` as a
+    /// resident, dirty, unpinned page — mapped back into `page_table`,
+    /// requeued onto `lru` — rather than leaking the frame. `frame_id`'s
+    /// byte buffer is untouched at this point (the caller hasn't written
+    /// the new page's data into it yet), so this is exactly restoring the
+    /// pre-eviction state. The caller must propagate the error without
+    /// touching `frame_id` further — it no longer represents the page the
+    /// caller was trying to load.
+    fn complete_writeback(&self, frame_id: FrameId, job: WritebackJob) -> Result<()> {
+        let result = self.page_io.write_page(job.old_page_id, &job.bytes);
+        {
+            let mut meta = self.inner.meta.lock();
+            meta.writeback.remove(&job.old_page_id);
+            if result.is_err() {
+                meta.frames[frame_id] = FrameMeta {
+                    page_id: Some(job.old_page_id),
+                    dirty: true,
+                    pin_count: 0,
+                    access_count: 0,
+                    swizzled: false,
+                    write_epoch: 1,
+                };
+                meta.page_table.insert(job.old_page_id, frame_id);
+                if !meta.lru.contains(&frame_id) {
+                    meta.lru.push_back(frame_id);
+                }
+            }
+        }
+        self.inner.writeback_done.notify_all();
+        result
+    }
+
+    /// Write `bytes` for `page_id` to disk, serialized against any other
+    /// in-flight write-back of the exact same `page_id` via `meta.writeback`
+    /// — used by non-evicting direct writers (`pin_recycled_page`) so two
+    /// writes to one page_id can never land out of order on disk (review
+    /// finding B1). Unlike [`Self::complete_writeback`], this doesn't touch
+    /// any frame's bookkeeping; the caller owns that.
+    fn write_page_serialized(&self, page_id: PageId, bytes: [u8; PAGE_SIZE]) -> Result<()> {
+        {
+            let mut meta = self.inner.meta.lock();
+            while meta.writeback.contains_key(&page_id) {
+                self.inner.writeback_done.wait(&mut meta);
+            }
+            meta.writeback.insert(page_id, bytes);
+        }
+        let result = self.page_io.write_page(page_id, &bytes);
+        self.inner.meta.lock().writeback.remove(&page_id);
+        self.inner.writeback_done.notify_all();
+        result
+    }
+
+    /// Return a frame that was reserved via [`Self::reserve_frame`] but
+    /// never published (e.g. loading the real page bytes failed in
+    /// `pin_page`'s miss path — review finding B3) back to the pool as a
+    /// free, unpinned frame.
+    ///
+    /// The frame is guaranteed to hold no live data at this point (its old
+    /// occupant, if any, was already safely flushed and unmapped by
+    /// `reserve_frame`/`complete_writeback`), so resetting it to
+    /// `FrameMeta::new()` cannot lose data.
+    fn release_reservation(&self, frame_id: FrameId) {
+        let mut meta = self.inner.meta.lock();
+        meta.frames[frame_id] = FrameMeta::new();
+        if !meta.lru.contains(&frame_id) {
+            meta.lru.push_back(frame_id);
         }
     }
 }
@@ -1087,5 +1462,98 @@ mod tests {
             !message.contains(&PageId(0).to_string()),
             "error message {message:?} should not fall back to the PageId(0) placeholder"
         );
+    }
+
+    #[test]
+    fn test_write_failure_restores_dirty_victim_and_preserves_capacity() {
+        // Review finding B3, regression guard: on a failed eviction
+        // write-back, the victim must stay mapped+dirty (not be discarded)
+        // and the pool's usable capacity must not shrink.
+        use astraea_core::error::AstraeaError as Err_;
+        use parking_lot::Mutex as PMutex;
+
+        struct FlakyIO {
+            fm: Arc<FileManager>,
+            fail_next_write: PMutex<bool>,
+        }
+        impl PageIO for FlakyIO {
+            fn read_page(&self, p: PageId) -> Result<[u8; PAGE_SIZE]> {
+                self.fm.read_page(p)
+            }
+            fn write_page(&self, p: PageId, d: &[u8; PAGE_SIZE]) -> Result<()> {
+                let mut fail = self.fail_next_write.lock();
+                if *fail {
+                    *fail = false;
+                    return Err(Err_::Storage("simulated write failure".into()));
+                }
+                self.fm.write_page(p, d)
+            }
+            fn allocate_page(&self) -> Result<PageId> {
+                self.fm.allocate_page()
+            }
+        }
+
+        let tmp = NamedTempFile::new().unwrap();
+        let fm = Arc::new(FileManager::new(tmp.path()).unwrap());
+        let _ = tmp.into_temp_path();
+        let io = Arc::new(FlakyIO {
+            fm: fm.clone(),
+            fail_next_write: PMutex::new(false),
+        });
+
+        let p0 = io.allocate_page().unwrap();
+        let p1 = io.allocate_page().unwrap();
+        io.write_page(p0, &[0u8; PAGE_SIZE]).unwrap();
+        io.write_page(p1, &[0u8; PAGE_SIZE]).unwrap();
+
+        let pool = BufferPool::new(io.clone() as Arc<dyn PageIO>, 1);
+
+        // Load and dirty p0, then unpin so it's evictable.
+        let g0 = pool.pin_page(p0).unwrap();
+        let mut b = g0.data().0;
+        b[42] = 0x99;
+        g0.write_data(&b);
+        pool.unpin_page(p0, true).unwrap();
+
+        // Arm the flake, then try to bring in p1 — forces eviction of p0,
+        // whose write-back will fail.
+        *io.fail_next_write.lock() = true;
+        let err = match pool.pin_page(p1) {
+            Err(e) => e,
+            Ok(_) => panic!("expected pin_page(p1) to fail (write-back failure should propagate)"),
+        };
+        match err {
+            Err_::Storage(_) => {}
+            other => panic!("expected AstraeaError::Storage, got {other:?}"),
+        }
+
+        // p0 must still be resident, dirty, and reloadable with its
+        // modified content intact — not discarded.
+        {
+            let meta = pool.inner.meta.lock();
+            let frame_id = *meta
+                .page_table
+                .get(&p0)
+                .expect("p0 must still be mapped after a failed flush");
+            assert!(
+                meta.frames[frame_id].dirty,
+                "p0 must still be marked dirty after a failed flush"
+            );
+            assert_eq!(meta.frames[frame_id].pin_count, 0);
+        }
+        let g0_again = pool.pin_page(p0).unwrap();
+        assert_eq!(
+            g0_again.data()[42],
+            0x99,
+            "p0's modified content must survive a failed write-back"
+        );
+        pool.unpin_page(p0, false).unwrap();
+
+        // Pool capacity must not have shrunk: p1 can still be brought in
+        // (evicting p0 again, this time successfully).
+        let g1 = pool.pin_page(p1).unwrap();
+        pool.unpin_page(p1, false).unwrap();
+        drop(g1);
+        assert!(fm.read_page(p0).is_ok());
     }
 }
