@@ -142,14 +142,27 @@ struct Meta {
     /// can be arbitrarily delayed after the in-memory state has already
     /// moved on, and a disk read racing it would otherwise see stale bytes).
     /// A second attempt to write the SAME page_id while one is already
-    /// in-flight waits (via `BufferPoolInner::writeback_done`) for the first
-    /// to finish before proceeding, so writes to a single page_id can never
-    /// land on disk out of order.
+    /// in-flight *usually* waits (via `BufferPoolInner::writeback_done`) for
+    /// the first to finish before proceeding, so writes to a single page_id
+    /// can never land on disk out of order — true of `reserve_frame`'s
+    /// eviction path, `flush_page`, and `pin_recycled_page`'s direct write
+    /// (`write_page_serialized`). `flush_all` is the one exception (review
+    /// finding F5): rather than wait, it *skips* any page_id it finds
+    /// already present here for that round and still returns `Ok` for it —
+    /// the page stays marked dirty, so a later `flush_all`/`flush_page`/
+    /// eviction will still persist it, but `flush_all`'s `Ok` return does
+    /// not mean "every dirty page is now durable on disk" for a page that
+    /// was mid-eviction when it ran. Harmless today (nothing currently
+    /// treats a successful `flush_all` as that strong a guarantee), but
+    /// worth knowing if a future caller (e.g. a WAL checkpoint that then
+    /// truncates the log) starts relying on it.
     writeback: HashMap<PageId, [u8; PAGE_SIZE]>,
-    /// Bumped every time a page_id is evicted from a frame (`reserve_frame`),
-    /// dirty or not. Lets a concurrent miss detect "a full publish -> modify
-    /// -> evict cycle happened on this exact page_id while I was reading it"
-    /// and retry instead of publishing outdated content.
+    /// Tracks, *only for page_ids with a miss currently in flight*, a
+    /// generation counter that `reserve_frame` bumps every time that
+    /// page_id is evicted (dirty or not). Lets a concurrent miss detect "a
+    /// full publish -> modify -> evict cycle happened on this exact
+    /// page_id while I was reading it" and retry instead of publishing
+    /// outdated content.
     ///
     /// Why this is needed on top of `writeback`: `writeback` alone only
     /// protects a reader that's *currently* racing an in-flight write. It
@@ -165,7 +178,59 @@ struct Meta {
     /// intermittently even after `writeback` and the "check immediately
     /// before use" fix: the culprit publishing stale data was consistently
     /// a reader thread, not the page's own writer.
-    page_generation: HashMap<PageId, u64>,
+    ///
+    /// Review finding F2 (second review pass): an earlier version of this
+    /// tracked every page_id ever evicted, forever (never removed, not
+    /// cleared by `invalidate_all`) — unbounded growth with total DB size on
+    /// a long-running server. `loading` instead only holds an entry while
+    /// `refcount` concurrent misses on that exact page_id are in flight
+    /// (`Meta::loading_enter`/`loading_exit`, called once each per
+    /// `pin_page` miss), so its size is bounded by concurrent *misses*, not
+    /// by how many distinct pages have ever existed. `reserve_frame` only
+    /// bumps `generation` when an entry already exists — if nobody is
+    /// currently loading a page_id, nobody needs to be told it changed.
+    loading: HashMap<PageId, Loading>,
+}
+
+/// See `Meta::loading`'s doc comment.
+#[derive(Clone, Copy, Default)]
+struct Loading {
+    /// Number of `pin_page` misses currently watching this page_id.
+    refcount: u32,
+    /// Bumped by `reserve_frame` on every eviction of this page_id while
+    /// `refcount > 0`.
+    generation: u64,
+}
+
+impl Meta {
+    /// Register a miss-in-flight for `page_id` and return the generation
+    /// baseline to compare against later. Must be paired with exactly one
+    /// [`Self::loading_exit`] call for the same `page_id`, once — not once
+    /// per retry — when the miss finally resolves (success or error).
+    fn loading_enter(&mut self, page_id: PageId) -> u64 {
+        let entry = self.loading.entry(page_id).or_default();
+        entry.refcount += 1;
+        entry.generation
+    }
+
+    /// Unregister a miss-in-flight for `page_id`, removing the tracking
+    /// entry entirely once no concurrent miss is still watching it — this
+    /// is what keeps `loading`'s size bounded (review finding F2).
+    fn loading_exit(&mut self, page_id: PageId) {
+        if let std::collections::hash_map::Entry::Occupied(mut e) = self.loading.entry(page_id) {
+            e.get_mut().refcount = e.get().refcount.saturating_sub(1);
+            if e.get().refcount == 0 {
+                e.remove();
+            }
+        }
+    }
+
+    /// Current generation for `page_id`, or 0 if nobody is currently
+    /// watching it (nothing to compare against, so any read is trivially
+    /// "fresh" from this mechanism's point of view).
+    fn loading_generation(&self, page_id: PageId) -> u64 {
+        self.loading.get(&page_id).map(|l| l.generation).unwrap_or(0)
+    }
 }
 
 impl Meta {
@@ -352,7 +417,7 @@ impl BufferPool {
                 lru,
                 hot_pages: HashSet::new(),
                 writeback: HashMap::new(),
-                page_generation: HashMap::new(),
+                loading: HashMap::new(),
             }),
             writeback_done: Condvar::new(),
             data: RwLock::new(data),
@@ -397,27 +462,31 @@ impl BufferPool {
 
         // Snapshot both: whether `page_id` itself has an in-flight
         // write-back (served from there instead of disk — review finding
-        // B1), and its current `page_generation`. `gen_before` is what lets
-        // us detect, after loading, whether a *complete* publish -> modify
-        // -> evict cycle raced us on this exact page_id (see
-        // `Meta::page_generation`'s doc comment) — `writeback` alone only
-        // catches a reader racing a write that's *still* in flight, not one
-        // that started and fully finished while we were loading.
+        // B1), and register our interest in its generation via
+        // `loading_enter` (review finding F2 — bounded, unlike the earlier
+        // design's unconditional-and-permanent `page_generation` map:
+        // `loading_enter`/`loading_exit` keep an entry only while a miss on
+        // this exact page_id is actually in flight). `gen_before` is what
+        // lets us detect, after loading, whether a *complete* publish ->
+        // modify -> evict cycle raced us on this exact page_id (see
+        // `Meta::loading`'s doc comment) — `writeback` alone only catches a
+        // reader racing a write that's *still* in flight, not one that
+        // started and fully finished while we were loading.
         let (mut served_from_writeback, mut gen_before) = {
-            let meta = self.inner.meta.lock();
-            (
-                meta.writeback.get(&page_id).copied(),
-                meta.page_generation.get(&page_id).copied().unwrap_or(0),
-            )
+            let mut meta = self.inner.meta.lock();
+            let gen_before = meta.loading_enter(page_id);
+            (meta.writeback.get(&page_id).copied(), gen_before)
         };
 
         // Load the real page data with no lock held, then install it —
         // `frame_id` is unreachable via `page_table` or `lru` until we
         // publish it below, so nobody else can touch it in the meantime.
-        // Retried if `page_generation` moved on between snapshotting above
-        // and verifying just before publish: that means someone else's
-        // full cycle landed on this exact page_id while we were loading,
-        // and `page_data` may be one generation stale.
+        // Retried if the generation moved on between registering above and
+        // verifying just before publish: that means someone else's full
+        // cycle landed on this exact page_id while we were loading, and
+        // `page_data` may be one generation stale. `loading_exit` is called
+        // exactly once, on whichever exit path is actually taken below —
+        // never per retry, since we stay registered across retries.
         let final_frame_id = loop {
             let page_data = match served_from_writeback {
                 Some(bytes) => bytes,
@@ -427,6 +496,7 @@ impl BufferPool {
                         // B3: don't leak the reservation on a failed read —
                         // give the frame back to the pool as free.
                         self.release_reservation(frame_id);
+                        self.inner.meta.lock().loading_exit(page_id);
                         return Err(e);
                     }
                 },
@@ -443,7 +513,7 @@ impl BufferPool {
             // the winner's pin count instead, so both callers converge on
             // the same frame_id.
             let mut meta = self.inner.meta.lock();
-            let current_gen = meta.page_generation.get(&page_id).copied().unwrap_or(0);
+            let current_gen = meta.loading_generation(page_id);
             if current_gen != gen_before {
                 served_from_writeback = meta.writeback.get(&page_id).copied();
                 gen_before = current_gen;
@@ -470,6 +540,7 @@ impl BufferPool {
                 meta.frames[final_frame_id].write_epoch =
                     meta.frames[final_frame_id].write_epoch.wrapping_add(1);
             }
+            meta.loading_exit(page_id);
             break final_frame_id;
         };
 
@@ -789,6 +860,19 @@ impl BufferPool {
             let frame = &mut meta.frames[frame_id];
             frame.dirty = false;
             frame.write_epoch = frame.write_epoch.wrapping_add(1);
+            // Review finding F3: a recycled page_id's old access history and
+            // hot-set membership must not carry over to the new content —
+            // this mirrors what the fresh/winning branch above already does
+            // (`access_count = 0; swizzled = false; hot_pages.remove(..)`).
+            // Without this, the common sequential path (`put_node` on an
+            // existing node: the old page is resident from reading it,
+            // freed, then recycled right back via `write_record`) leaves a
+            // previously-swizzled page permanently hot with an unrelated
+            // new record in it, and the pool's effective capacity shrinks
+            // by one frame forever.
+            frame.access_count = 0;
+            frame.swizzled = false;
+            meta.hot_pages.remove(&page_id);
         }
 
         Ok(PageGuard {
@@ -825,10 +909,11 @@ impl BufferPool {
             meta.lru.clear();
             meta.lru.extend(0..self.inner.capacity);
             // Defensive: by the time a caller can safely invalidate
-            // everything (see doc comment above), no write-back of ours
-            // should still be in flight. Clear anyway rather than leave a
-            // stale entry that could wedge a future wait forever.
+            // everything (see doc comment above), no write-back or miss of
+            // ours should still be in flight. Clear anyway rather than
+            // leave a stale entry that could wedge a future wait forever.
             meta.writeback.clear();
+            meta.loading.clear();
         }
         let mut data = self.inner.data.write();
         for buf in data.iter_mut() {
@@ -915,11 +1000,17 @@ impl BufferPool {
             };
             if let Some(pid) = old_page_id {
                 meta.page_table.remove(&pid);
-                // See `Meta::page_generation`'s doc comment: bump on every
-                // eviction (not just dirty ones) so a concurrent miss that
-                // started reading `pid` before this point can detect it and
-                // retry instead of publishing stale content.
-                *meta.page_generation.entry(pid).or_insert(0) += 1;
+                // See `Meta::loading`'s doc comment: bump the generation on
+                // every eviction (not just dirty ones) so a concurrent miss
+                // that started reading `pid` before this point can detect
+                // it and retry instead of publishing stale content. Only
+                // bumped if someone is actually watching (an entry already
+                // exists) — review finding F2 is exactly about not tracking
+                // this for every page_id ever evicted, only ones currently
+                // being missed on.
+                if let Some(l) = meta.loading.get_mut(&pid) {
+                    l.generation += 1;
+                }
             }
             let frame = &mut meta.frames[frame_id];
             frame.page_id = None;
@@ -943,31 +1034,62 @@ impl BufferPool {
     /// On failure (review finding B3 — a regression this guards against:
     /// the pre-single-mutex version of this code kept a failed-flush victim
     /// mapped with `dirty = true`; an earlier draft of this rewrite instead
-    /// discarded it, silently losing the page): restores `old_page_id` as a
-    /// resident, dirty, unpinned page — mapped back into `page_table`,
-    /// requeued onto `lru` — rather than leaking the frame. `frame_id`'s
-    /// byte buffer is untouched at this point (the caller hasn't written
-    /// the new page's data into it yet), so this is exactly restoring the
-    /// pre-eviction state. The caller must propagate the error without
-    /// touching `frame_id` further — it no longer represents the page the
-    /// caller was trying to load.
+    /// discarded it, silently losing the page): normally restores
+    /// `old_page_id` as a resident, dirty, unpinned page — mapped back into
+    /// `page_table`, requeued onto `lru` — rather than leaking the frame.
+    /// `frame_id`'s byte buffer is untouched at this point (the caller
+    /// hasn't written the new page's data into it yet), so this is exactly
+    /// restoring the pre-eviction state.
+    ///
+    /// Review finding F1 (second review pass): that restore is only correct
+    /// if nobody else has published `old_page_id` elsewhere in the meantime.
+    /// While our write was in flight, a concurrent miss on `old_page_id`
+    /// could have been served from `meta.writeback`'s in-memory copy (the
+    /// whole point of that mechanism) and already published it to a
+    /// *different* frame `F`, dirty, with its own live `PageGuard`s. If we
+    /// restored `old_page_id -> frame_id` anyway, we'd clobber that mapping:
+    /// `F` would keep `page_id = Some(old_page_id)` and any outstanding
+    /// pins, but become unreachable via `page_table` — a silent frame leak,
+    /// and any further writes through those guards would target a frame
+    /// nothing will ever flush or re-find. So: if `page_table` already maps
+    /// `old_page_id` elsewhere, `F` already holds the same (or newer) dirty
+    /// content, and we instead give `frame_id` back to the pool as a free
+    /// frame — nothing is lost, since `F` is the live, authoritative copy.
+    /// Only restore to `frame_id` when `old_page_id` is genuinely
+    /// unpublished anywhere, matching the original single-frame case.
+    ///
+    /// The caller must propagate the error without touching `frame_id`
+    /// further either way — it no longer represents the page the caller was
+    /// trying to load.
     fn complete_writeback(&self, frame_id: FrameId, job: WritebackJob) -> Result<()> {
         let result = self.page_io.write_page(job.old_page_id, &job.bytes);
         {
             let mut meta = self.inner.meta.lock();
             meta.writeback.remove(&job.old_page_id);
             if result.is_err() {
-                meta.frames[frame_id] = FrameMeta {
-                    page_id: Some(job.old_page_id),
-                    dirty: true,
-                    pin_count: 0,
-                    access_count: 0,
-                    swizzled: false,
-                    write_epoch: 1,
-                };
-                meta.page_table.insert(job.old_page_id, frame_id);
-                if !meta.lru.contains(&frame_id) {
-                    meta.lru.push_back(frame_id);
+                if meta.page_table.contains_key(&job.old_page_id) {
+                    // Someone else already published `old_page_id` to a
+                    // different frame (served from our in-flight bytes)
+                    // while our write was failing — that frame is the live
+                    // copy. Give `frame_id` back as free instead of
+                    // clobbering their mapping.
+                    meta.frames[frame_id] = FrameMeta::new();
+                    if !meta.lru.contains(&frame_id) {
+                        meta.lru.push_back(frame_id);
+                    }
+                } else {
+                    meta.frames[frame_id] = FrameMeta {
+                        page_id: Some(job.old_page_id),
+                        dirty: true,
+                        pin_count: 0,
+                        access_count: 0,
+                        swizzled: false,
+                        write_epoch: 1,
+                    };
+                    meta.page_table.insert(job.old_page_id, frame_id);
+                    if !meta.lru.contains(&frame_id) {
+                        meta.lru.push_back(frame_id);
+                    }
                 }
             }
         }
@@ -1555,5 +1677,62 @@ mod tests {
         pool.unpin_page(p1, false).unwrap();
         drop(g1);
         assert!(fm.read_page(p0).is_ok());
+    }
+
+    #[test]
+    fn test_pin_recycled_page_clears_swizzled_state_on_existing_frame() {
+        // Review finding F3: pin_recycled_page's existing-frame branch must
+        // reset access_count/swizzled/hot_pages exactly like the fresh
+        // branch does — a recycled page_id must not stay hot with new
+        // content under it, and the pool's effective capacity must not
+        // permanently shrink by one swizzled-forever frame.
+        let (pool, fm) = make_pool_with_threshold(4, 1);
+
+        let p0 = fm.allocate_page().unwrap();
+        let mut buf = [0u8; PAGE_SIZE];
+        buf[0] = 0xAA;
+        fm.write_page(p0, &buf).unwrap();
+
+        // Swizzle p0 (threshold=1, so >1 pins promotes it).
+        let _g = pool.pin_page(p0).unwrap();
+        pool.unpin_page(p0, false).unwrap();
+        let _g = pool.pin_page(p0).unwrap();
+        pool.unpin_page(p0, false).unwrap();
+        assert!(pool.is_swizzled(p0), "p0 should be swizzled before recycling");
+
+        // p0 is swizzled, so it's still resident (not evicted) — recycle it
+        // in place via pin_recycled_page, simulating free+reuse of the same
+        // page_id (the common sequential put_node-on-an-existing-node path).
+        let mut new_data = [0u8; PAGE_SIZE];
+        new_data[0] = 0xBB;
+        let guard = pool.pin_recycled_page(p0, &new_data).unwrap();
+        assert_eq!(guard.data()[0], 0xBB);
+        pool.unpin_page(p0, false).unwrap();
+
+        assert!(
+            !pool.is_swizzled(p0),
+            "recycling an existing, swizzled frame must clear its hot-set membership"
+        );
+
+        // The frame must also be evictable again (not stuck permanently
+        // resident via a leftover `swizzled = true` on the frame itself,
+        // even though `is_swizzled`/`hot_pages` already looked clear).
+        let mut pages = Vec::new();
+        for marker in [0xCCu8, 0xDDu8, 0xEEu8, 0xFFu8] {
+            let pid = fm.allocate_page().unwrap();
+            let mut b = [0u8; PAGE_SIZE];
+            b[0] = marker;
+            fm.write_page(pid, &b).unwrap();
+            pages.push(pid);
+        }
+        for pid in pages {
+            pool.pin_page(pid).unwrap();
+            pool.unpin_page(pid, false).unwrap();
+        }
+        // p0 should have been evicted somewhere in there — reloadable from
+        // disk with the recycled content.
+        let reloaded = pool.pin_page(p0).unwrap();
+        assert_eq!(reloaded.data()[0], 0xBB);
+        pool.unpin_page(p0, false).unwrap();
     }
 }
